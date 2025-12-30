@@ -9,20 +9,25 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Étape 1 : Récupérer le code
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # Étape 2 : Installer Flutter avec la version stable exacte
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.13.3'  # version stable précise
+          flutter-version: '3.13.3-stable'  # Flutter 3.13.3 stable avec Dart 3.10.4
 
+      # Étape 3 : Installer les dépendances du projet
       - name: Install dependencies
         run: flutter pub get
 
+      # Étape 4 : Build APK debug
       - name: Build APK
         run: flutter build apk --debug
 
+      # Étape 5 : Upload APK comme artifact
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
