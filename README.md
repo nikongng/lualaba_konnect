@@ -1,6 +1,6 @@
 # lualaba_konnect
 
-A new Flutter project.
+Project création d'un réseau social pour Lualaba
 
 ## Getting Started
 
