@@ -2,7 +2,7 @@ name: Build Flutter APK
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   build:
@@ -12,12 +12,18 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Flutter
+      - name: Set up Flutter (force exact version)
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.13.3'
+          flutter-version: '3.38.5'   # <-- la version exacte à utiliser
           channel: stable
           cache: false
+
+      - name: Show Flutter & Dart version (debug)
+        run: flutter --version
+
+      - name: Disable analytics (évite prompts)
+        run: flutter config --no-analytics
 
       - name: Install dependencies
         run: flutter pub get
