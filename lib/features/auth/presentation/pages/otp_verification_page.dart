@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
 import 'dart:ui'; // Pour les effets de flou si besoin
 import 'account_choice_page.dart';
+import 'AuthMainPage.dart';
 
 class OTPVerificationPage extends StatefulWidget {
   final String verificationId;
@@ -73,32 +74,49 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
     }
   }
 
-  Future<void> _verifyOTP() async {
-    String otp = _controllers.map((c) => c.text).join();
-    if (otp.length < 6) return;
+Future<void> _verifyOTP() async {
+  String otp = _controllers.map((c) => c.text).join();
+  if (otp.length < 6) return;
 
-    setState(() => _isLoading = true);
-    try {
-      PhoneAuthCredential credential = PhoneAuthProvider.credential(
-        verificationId: _currentVerificationId,
-        smsCode: otp,
+  setState(() => _isLoading = true);
+
+  // --- TRICHE POUR TEST SANS FACTURATION ---
+  // On vérifie si c'est ton numéro de test et le bon code fictif
+  if (widget.phoneNumber == "+243857263544" && otp == "123456") {
+    await Future.delayed(const Duration(seconds: 1)); // Petit délai pour le réalisme
+    if (mounted) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const AuthMainPage()),
+        (route) => false,
       );
-      
-      await FirebaseAuth.instance.signInWithCredential(credential);
-
-      if (mounted) {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (context) => const AccountChoicePage()),
-          (route) => false,
-        );
-      }
-    } catch (e) {
-      _showError("Code incorrect. Veuillez réessayer.");
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
+    return; // On arrête la fonction ici pour ne pas appeler Firebase
   }
+  // ------------------------------------------
+
+  try {
+    // Utilisation de widget.verificationId (passé depuis la page précédente)
+    PhoneAuthCredential credential = PhoneAuthProvider.credential(
+      verificationId: widget.verificationId, 
+      smsCode: otp,
+    );
+    
+    await FirebaseAuth.instance.signInWithCredential(credential);
+
+    if (mounted) {
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(builder: (context) => const AccountChoicePage()),
+        (route) => false,
+      );
+    }
+  } catch (e) {
+    _showError("Code incorrect. Veuillez réessayer.");
+  } finally {
+    if (mounted) setState(() => _isLoading = false);
+  }
+}
 
   void _showError(String msg) => ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(content: Text(msg), backgroundColor: Colors.redAccent, behavior: SnackBarBehavior.floating)

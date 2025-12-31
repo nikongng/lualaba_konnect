@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'account_choice_page.dart'; // Assurez-vous que le chemin et le nom sont corrects
+import 'account_choice_page.dart';
+import 'ModernDashboard.dart';
 
 class AuthMainPage extends StatefulWidget {
   const AuthMainPage({super.key});
@@ -22,6 +23,13 @@ class _AuthMainPageState extends State<AuthMainPage> {
     super.dispose();
   }
 
+void _navigateToDashboard() {
+  Navigator.pushAndRemoveUntil(
+    context,
+    MaterialPageRoute(builder: (context) => const ModernDashboard()), // Remplacez par le nom exact de votre classe Dashboard
+    (route) => false,
+  );
+}
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -285,24 +293,44 @@ class _AuthMainPageState extends State<AuthMainPage> {
     );
   }
 
-  Widget _buildSubmitButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 55,
-      child: ElevatedButton(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFFF9B091),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-          elevation: 0,
-        ),
-        onPressed: () {
-          HapticFeedback.mediumImpact();
-          // Logique de connexion ici
-          // print("Identifiant: ${_idController.text}");
-          // print("Mot de passe: ${_passwordController.text}");
-        },
-        child: const Text("Se connecter", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+Widget _buildSubmitButton() {
+  return SizedBox(
+    width: double.infinity,
+    height: 55,
+    child: ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: const Color(0xFFE65100), // Couleur plus vive pour le bouton
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+        elevation: 0,
       ),
-    );
-  }
+      onPressed: () {
+        HapticFeedback.mediumImpact();
+        
+        String id = _idController.text.trim();
+        String pass = _passwordController.text.trim();
+
+        // --- LOGIQUE DE TEST ---
+        // On vérifie si c'est votre numéro fictif
+        if (id.contains("857263544") && pass == "123456") {
+          _navigateToDashboard();
+          return;
+        }
+
+        // --- LOGIQUE NORMALE ---
+        if (id.isNotEmpty && pass.isNotEmpty) {
+           // Ici vous ajouterez votre appel API/Firebase plus tard
+           _navigateToDashboard();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Veuillez remplir tous les champs")),
+          );
+        }
+      },
+      child: const Text(
+        "Se connecter", 
+        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)
+      ),
+    ),
+  );
+}
 }

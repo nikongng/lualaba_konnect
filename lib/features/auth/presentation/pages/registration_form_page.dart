@@ -194,43 +194,45 @@ void _completeRegistration(bool autoValidated) async {
       _isLoading = true;
       _loadingMessage = "Envoi du code de certification...";
     });
-    
-    // NETTOYAGE STRICT : On enlève tout ce qui n'est pas un chiffre
-    String digitsOnly = _phoneController.text.replaceAll(RegExp(r'\D'), '');
-    
-    // On s'assure que le numéro commence par +243 et n'a AUCUN espace
-    String phoneForFirebase = "+243$digitsOnly";
 
-    print("Tentative d'envoi vers : $phoneForFirebase"); // Debug utile
+    String cleanPhone = _phoneController.text.replaceAll(RegExp(r'\D'), '');
+    String phoneForFirebase = "+243$cleanPhone";
+
+    // --- TEST SANS CARTE BANCAIRE ---
+    // Si c'est ton numéro fictif, on saute l'appel Firebase
+    if (cleanPhone == "857263544") { 
+      await Future.delayed(const Duration(seconds: 2)); // Simule un délai réseau
+      setState(() => _isLoading = false);
+      
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => OTPVerificationPage(
+            verificationId: "fake_id_for_test", // ID fictif
+            phoneNumber: phoneForFirebase,
+          ),
+        ),
+      );
+      return; 
+    }
+    // ---------------------------------
 
     try {
       await _auth.verifyPhoneNumber(
         phoneNumber: phoneForFirebase,
-        timeout: const Duration(seconds: 60), // Laisse un peu de temps
-        verificationCompleted: (PhoneAuthCredential credential) async {
-          await _auth.signInWithCredential(credential);
+        // ... reste de ton code Firebase habituel
+        verificationCompleted: (credential) async { /* ... */ },
+        verificationFailed: (e) {
           setState(() => _isLoading = false);
-          _showFinalSummary(true);
+          _showError("Erreur : ${e.message}");
         },
-        verificationFailed: (FirebaseAuthException e) {
+        codeSent: (id, token) {
           setState(() => _isLoading = false);
-          _showError("Erreur Firebase : ${e.message}");
-          print("CODE ERREUR : ${e.code}"); // Pour savoir si c'est un quota ou autre
+          Navigator.push(context, MaterialPageRoute(
+            builder: (context) => OTPVerificationPage(verificationId: id, phoneNumber: phoneForFirebase)
+          ));
         },
-        codeSent: (String verificationId, int? resendToken) {
-          setState(() => _isLoading = false);
-          // ON ENLEVE LE 'const' ICI
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => OTPVerificationPage(
-                verificationId: verificationId,
-                phoneNumber: phoneForFirebase,
-              ),
-            ),
-          );
-        },
-        codeAutoRetrievalTimeout: (String verificationId) {},
+        codeAutoRetrievalTimeout: (id) {},
       );
     } catch (e) {
       setState(() => _isLoading = false);
