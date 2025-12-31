@@ -188,49 +188,56 @@ class _RegistrationFormPageState extends State<RegistrationFormPage>
     }
   }
 
-  void _completeRegistration(bool autoValidated) async {
-    if (mounted) {
-      setState(() {
-        _isLoading = true;
-        _loadingMessage = "Envoi du code de certification...";
-      });
-      
-      // Nettoyage pour Firebase : Garder uniquement les chiffres et ajouter l'indicatif
-      String cleanPhone = _phoneController.text.replaceAll(' ', '');
-      String phoneForFirebase = "+243$cleanPhone";
+void _completeRegistration(bool autoValidated) async {
+  if (mounted) {
+    setState(() {
+      _isLoading = true;
+      _loadingMessage = "Envoi du code de certification...";
+    });
+    
+    // NETTOYAGE STRICT : On enlève tout ce qui n'est pas un chiffre
+    String digitsOnly = _phoneController.text.replaceAll(RegExp(r'\D'), '');
+    
+    // On s'assure que le numéro commence par +243 et n'a AUCUN espace
+    String phoneForFirebase = "+243$digitsOnly";
 
-      try {
-        await _auth.verifyPhoneNumber(
-          phoneNumber: phoneForFirebase,
-          verificationCompleted: (PhoneAuthCredential credential) async {
-            await _auth.signInWithCredential(credential);
-            setState(() => _isLoading = false);
-            _showFinalSummary(true);
-          },
-          verificationFailed: (FirebaseAuthException e) {
-            setState(() => _isLoading = false);
-            _showError("Erreur Firebase : ${e.message}");
-          },
-          codeSent: (String verificationId, int? resendToken) {
-            setState(() => _isLoading = false);
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => OTPVerificationPage(
-                  verificationId: verificationId,
-                  phoneNumber: phoneForFirebase, // <--- AJOUTE CELA ICI
-                ),
+    print("Tentative d'envoi vers : $phoneForFirebase"); // Debug utile
+
+    try {
+      await _auth.verifyPhoneNumber(
+        phoneNumber: phoneForFirebase,
+        timeout: const Duration(seconds: 60), // Laisse un peu de temps
+        verificationCompleted: (PhoneAuthCredential credential) async {
+          await _auth.signInWithCredential(credential);
+          setState(() => _isLoading = false);
+          _showFinalSummary(true);
+        },
+        verificationFailed: (FirebaseAuthException e) {
+          setState(() => _isLoading = false);
+          _showError("Erreur Firebase : ${e.message}");
+          print("CODE ERREUR : ${e.code}"); // Pour savoir si c'est un quota ou autre
+        },
+        codeSent: (String verificationId, int? resendToken) {
+          setState(() => _isLoading = false);
+          // ON ENLEVE LE 'const' ICI
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => OTPVerificationPage(
+                verificationId: verificationId,
+                phoneNumber: phoneForFirebase,
               ),
-            );
-          },
-          codeAutoRetrievalTimeout: (String verificationId) {},
-        );
-      } catch (e) {
-        setState(() => _isLoading = false);
-        _showError("Erreur : $e");
-      }
+            ),
+          );
+        },
+        codeAutoRetrievalTimeout: (String verificationId) {},
+      );
+    } catch (e) {
+      setState(() => _isLoading = false);
+      _showError("Erreur : $e");
     }
   }
+}
 
   void _showFinalSummary(bool autoValidated) {
     HapticFeedback.vibrate();
