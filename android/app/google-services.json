@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "1079633969142",
+    "project_id": "lualaba-konnect",
+    "storage_bucket": "lualaba-konnect.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1079633969142:android:3830852cc04bc06465d1d7",
+        "android_client_info": {
+          "package_name": "com.example.lualaba_konnect"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "1079633969142-6qu82kg9rsbm8shps2h6n7ui6r13tadj.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.lualaba_konnect",
+            "certificate_hash": "ad6ddda653e7580e5abd3edd2768a1c8d6399d83"
+          }
+        },
+        {
+          "client_id": "1079633969142-3btrl8m0modsgedbjv810jaesrchrmu0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDpZ6xdcQJTR5HA7H3uU1MWbs3IcRj9VBg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "1079633969142-3btrl8m0modsgedbjv810jaesrchrmu0.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "1079633969142-mucnu731n6i7m23v8j7v3kk5jvc2ra47.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.lualabaKonnect"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
