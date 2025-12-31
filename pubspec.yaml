@@ -31,21 +31,20 @@ dependencies:
   flutter:
     sdk: flutter
 
-
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
   shared_preferences: ^2.5.4
   dotted_border: ^3.1.0
   image_picker: ^1.2.1
   file_picker: ^10.3.8
-  intl: any
-  geolocator: ^13.0.0 # Pour obtenir les coordonnées (Latitude/Longitude)
-  geocoding: ^3.0.0   # Pour transformer les coordonnées en adresse (Nom de rue)
+  intl: ^0.19.0 # Version fixe pour plus de stabilité
+  geolocator: ^13.0.0
+  geocoding: ^3.0.0
   url_launcher: ^6.2.5
-  syncfusion_flutter_pdf: ^21.1.35
-  google_mlkit_text_recognition: ^0.11.0 # Pour lire le texte sur les images/scans
-  pdfx: ^2.4.0 # Pour convertir une page de PDF en image si nécessaire
+  syncfusion_flutter_pdf: ^28.1.33 # Version mise à jour pour le code final
+  google_mlkit_text_recognition: ^0.11.0
+  pdfx: ^2.4.0
+  firebase_core: ^3.0.0 # Alignement avec les versions récentes
+  firebase_auth: ^5.0.0
 
 dev_dependencies:
   flutter_test:
