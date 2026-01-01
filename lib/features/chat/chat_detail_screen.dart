@@ -1,4 +1,6 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final String name;
@@ -19,38 +21,100 @@ class ChatDetailScreen extends StatefulWidget {
 class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final List<Map<String, dynamic>> _messages = [];
+  bool _isTyping = false;
 
-  final List<Map<String, dynamic>> _messages = [
-    {"text": "Salut ! Comment se passe le projet au Lualaba ?", "isMe": false, "time": "10:45"},
-    {"text": "Ça avance très bien, on termine la phase de design.", "isMe": true, "time": "10:46"},
-    {"text": "Super ! Envoie-moi les captures dès que possible.", "isMe": false, "time": "10:47"},
-  ];
+  // --- CONFIGURATION IA ---
+  // Remplace par ta clé si celle-ci expire
+  final String _apiKey = "AIzaSyC0ozSaCo2isDr4cMDzeHLFdMfp3greI_g"; 
+  late final GenerativeModel _model;
+  late final ChatSession _chat;
 
-  void _sendMessage() {
-    if (_controller.text.trim().isEmpty) return;
+@override
+void initState() {
+  super.initState();
+
+_model = GenerativeModel(
+  model: 'gemini-2.5-flash', // Modèle Gemini
+  apiKey: _apiKey,
+
+  systemInstruction: Content.system(
+    "Tu es Papa Jean, un père de famille congolais bienveillant, sage et protecteur. "
+    "Tu t'adresses à ton enfant avec affection (utilise des mots comme 'mon fils', 'ma fille', 'mon enfant'). "
+    "Tu es actuellement au Lualaba pour superviser un projet important. "
+    "Ton ton est encourageant, tu donnes souvent des conseils de vie et tu insistes sur l'importance du travail et de la famille. "
+    "Tu réponds de manière concise, comme sur WhatsApp, et tu utilises parfois des expressions chaleureuses."
+  ),
+);
+
+
+  _chat = _model.startChat();
+
+  _messages.add({
+    "text": "Bonjour ! Je suis l'IA de ${widget.name}. Comment puis-je t'aider ?",
+    "isMe": false,
+    "time": _getTime(),
+  });
+}
+  String _getTime() {
+    return "${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}";
+  }
+
+  void _scrollToBottom() {
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeOutCirc,
+        );
+      }
+    });
+  }
+
+  Future<void> _handleSend() async {
+    final userText = _controller.text.trim();
+    if (userText.isEmpty) return;
+
     setState(() {
-      _messages.add({
-        "text": _controller.text,
-        "isMe": true,
-        "time": "${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}",
-      });
+      _messages.add({"text": userText, "isMe": true, "time": _getTime()});
+      _isTyping = true;
     });
     _controller.clear();
-    Future.delayed(const Duration(milliseconds: 100), () {
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
-    });
+    _scrollToBottom();
+
+    try {
+      // 3. Envoi du message à Gemini via la session de chat
+      final response = await _chat.sendMessage(Content.text(userText));
+      
+      setState(() {
+        _isTyping = false;
+        if (response.text != null) {
+          _messages.add({
+            "text": response.text!,
+            "isMe": false,
+            "time": _getTime()
+          });
+        }
+      });
+    } catch (e) {
+  setState(() => _isTyping = false);
+  print("ERREUR TECHNIQUE GEMINI : $e"); // Cela va afficher l'erreur précise en bas
+  
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(content: Text("Détail de l'erreur : $e")), 
+  );
+    }
+    _scrollToBottom();
   }
 
   @override
   Widget build(BuildContext context) {
-    final bgColor = widget.isDark ? const Color(0xFF0F1D27) : const Color(0xFFE5DDD5);
+    final bgColor = widget.isDark ? const Color(0xFF0F2027) : const Color(0xFFE5DDD5);
     final appBarColor = widget.isDark ? const Color(0xFF162530) : Colors.white;
 
     return Scaffold(
+      extendBody: true,
       backgroundColor: bgColor,
       appBar: AppBar(
         backgroundColor: appBarColor,
@@ -59,12 +123,12 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
         leadingWidth: 70,
         leading: InkWell(
           onTap: () => Navigator.pop(context),
-          child: Row(
+          child: const Row(
             children: [
-              const SizedBox(width: 5),
-              const Icon(Icons.arrow_back, size: 24),
-              const SizedBox(width: 5),
-              const CircleAvatar(radius: 16, child: Icon(Icons.person, size: 20)),
+              SizedBox(width: 8),
+              Icon(Icons.arrow_back),
+              SizedBox(width: 4),
+              CircleAvatar(radius: 16, child: Icon(Icons.person, size: 20)),
             ],
           ),
         ),
@@ -74,43 +138,43 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
             Row(
               children: [
                 Text(widget.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-                if (widget.isVerified) const SizedBox(width: 5),
-                if (widget.isVerified) const Icon(Icons.check_circle, color: Colors.blue, size: 14),
+                if (widget.isVerified) ...[
+                  const SizedBox(width: 5),
+                  const Icon(Icons.check_circle, color: Colors.blue, size: 14),
+                ],
               ],
             ),
-            const Text("en ligne", style: TextStyle(fontSize: 12, color: Colors.blue)),
+            Text(
+              _isTyping ? "en train d'écrire..." : "en ligne",
+              style: TextStyle(fontSize: 12, color: _isTyping ? Colors.green : Colors.blue),
+            ),
           ],
         ),
-        actions: [IconButton(icon: const Icon(Icons.more_vert), onPressed: () {})],
       ),
       body: Stack(
         children: [
-          // --- COUCHE 1 : LE FOND AVEC DESSINS (Wallpaper) ---
-          Container(
-            width: double.infinity,
-            height: double.infinity,
-            decoration: BoxDecoration(
-              color: bgColor,
-              image: const DecorationImage(
-                image: NetworkImage("https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png"),
-                opacity: 0.06, // Très léger pour l'élégance
+          // Wallpaper de fond
+          Positioned.fill(
+            child: Opacity(
+              opacity: widget.isDark ? 0.05 : 0.08,
+              child: Image.network(
+                "https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png",
                 repeat: ImageRepeat.repeat,
+                scale: 2,
               ),
             ),
           ),
-          
-          // --- COUCHE 2 : LES MESSAGES ET L'INPUT ---
           Column(
             children: [
               Expanded(
                 child: ListView.builder(
                   controller: _scrollController,
-                  padding: const EdgeInsets.all(15),
+                  padding: const EdgeInsets.fromLTRB(10, 10, 10, 100),
                   itemCount: _messages.length,
                   itemBuilder: (context, index) => _buildMessageBubble(_messages[index]),
                 ),
               ),
-              _buildInputBar(appBarColor),
+              _buildGlassInputBar(appBarColor),
             ],
           ),
         ],
@@ -118,137 +182,151 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     );
   }
 
-Widget _buildMessageBubble(Map<String, dynamic> msg) {
-  bool isMe = msg['isMe'];
-  
-  // 1. DÉGRADÉ NÉON POUR "MOI" (Rose vers Violet)
-  final LinearGradient myGradient = const LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: [
-      Color(0xFFE91E63), // Rose vif
-      Color(0xFF9C27B0), // Violet profond
-    ],
-  );
-
-  // 2. DÉGRADÉ POUR "L'AUTRE" (Gris bleuté ou Sombre)
-  final LinearGradient otherGradient = LinearGradient(
-    begin: Alignment.topLeft,
-    end: Alignment.bottomRight,
-    colors: widget.isDark 
-      ? [const Color(0xFF243447), const Color(0xFF1B2836)] 
-      : [const Color(0xFFF5F7FB), const Color(0xFFE8EEF5)],
-  );
-
-  Color textColor = isMe ? Colors.white : (widget.isDark ? Colors.white : Colors.black87);
-
-  return Align(
-    alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-    child: Container(
-      constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
-      margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        gradient: isMe ? myGradient : otherGradient,
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(22),
-          topRight: const Radius.circular(22),
-          bottomLeft: Radius.circular(isMe ? 22 : 6),
-          bottomRight: Radius.circular(isMe ? 6 : 22),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: isMe 
-              ? const Color(0xFF9C27B0).withOpacity(0.3) // Ombre colorée pour l'effet néon
-              : Colors.black.withOpacity(0.05),
-            blurRadius: 8,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Stack(
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(right: 50, bottom: 4),
-            child: Text(
-              msg['text'],
-              style: TextStyle(
-                color: textColor, 
-                fontSize: 16,
-                fontWeight: isMe ? FontWeight.w500 : FontWeight.normal,
+  Widget _buildMessageBubble(Map<String, dynamic> msg) {
+    bool isMe = msg['isMe'];
+    return PulseBubble(
+      key: UniqueKey(),
+      child: Align(
+        alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+          margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            gradient: isMe 
+                ? const LinearGradient(colors: [Color(0xFFE91E63), Color(0xFF9C27B0)])
+                : null,
+            color: isMe ? null : (widget.isDark ? const Color(0xFF1D2C39) : Colors.white),
+            borderRadius: BorderRadius.only(
+              topLeft: const Radius.circular(20),
+              topRight: const Radius.circular(20),
+              bottomLeft: Radius.circular(isMe ? 20 : 4),
+              bottomRight: Radius.circular(isMe ? 4 : 20),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 5,
+                offset: const Offset(0, 3),
               ),
-            ),
+            ],
           ),
-          Positioned(
-            bottom: 0,
-            right: 0,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  msg['time'],
-                  style: TextStyle(
-                    color: textColor.withOpacity(0.7), 
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                if (isMe) ...[
-                  const SizedBox(width: 4),
-                  const Icon(
-                    Icons.done_all, 
-                    size: 15, 
-                    color: Color(0xFF00E5FF), // Cyan brillant pour le "vu" sur le violet
-                  ),
-                ]
-              ],
-            ),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-  Widget _buildInputBar(Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-      color: color,
-      child: SafeArea(
-        child: Row(
-          children: [
-            const Icon(Icons.attach_file, color: Colors.grey),
-            Expanded(
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 10),
-                padding: const EdgeInsets.symmetric(horizontal: 15),
-                decoration: BoxDecoration(
-                  color: widget.isDark ? Colors.black : Colors.grey[100],
-                  borderRadius: BorderRadius.circular(25),
-                ),
-                child: TextField(
-                  controller: _controller,
-                  // Couleur du texte adaptée au mode
-                  style: TextStyle(color: widget.isDark ? Colors.white : Colors.black),
-                  decoration: const InputDecoration(
-                    hintText: "Message", 
-                    border: InputBorder.none,
-                    hintStyle: TextStyle(color: Colors.grey),
-                  ),
-                  onSubmitted: (_) => _sendMessage(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                msg['text'],
+                style: TextStyle(
+                  color: isMe || widget.isDark ? Colors.white : Colors.black87, 
+                  fontSize: 16
                 ),
               ),
-            ),
-            GestureDetector(
-              onTap: _sendMessage,
-              child: const CircleAvatar(
-                backgroundColor: Color(0xFF4BA3E3),
-                child: Icon(Icons.send, color: Colors.white, size: 20),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    msg['time'], 
+                    style: TextStyle(
+                      color: (isMe || widget.isDark ? Colors.white : Colors.black54).withOpacity(0.5), 
+                      fontSize: 10
+                    )
+                  ),
+                  if (isMe) ...[
+                    const SizedBox(width: 4), 
+                    const Icon(Icons.done_all, size: 14, color: Color(0xFF00E5FF))
+                  ],
+                ],
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
+  }
+
+  Widget _buildGlassInputBar(Color color) {
+    return ClipRRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.8),
+            border: Border(top: BorderSide(color: Colors.white.withOpacity(0.1))),
+          ),
+          child: SafeArea(
+            child: Row(
+              children: [
+                const Icon(Icons.emoji_emotions_outlined, color: Colors.grey),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    decoration: BoxDecoration(
+                      color: widget.isDark ? Colors.black26 : Colors.black.withOpacity(0.05),
+                      borderRadius: BorderRadius.circular(25),
+                    ),
+                    child: TextField(
+                      controller: _controller,
+                      style: TextStyle(color: widget.isDark ? Colors.white : Colors.black),
+                      decoration: const InputDecoration(
+                        hintText: "Écrire un message...", 
+                        border: InputBorder.none,
+                        hintStyle: TextStyle(color: Colors.grey),
+                      ),
+                      onSubmitted: (_) => _handleSend(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                GestureDetector(
+                  onTap: _handleSend,
+                  child: const CircleAvatar(
+                    backgroundColor: Color(0xFF4BA3E3),
+                    child: Icon(Icons.send, color: Colors.white, size: 20),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// --- CLASSE PULSE (Animation d'apparition) ---
+class PulseBubble extends StatefulWidget {
+  final Widget child;
+  const PulseBubble({super.key, required this.child});
+  @override
+  State<PulseBubble> createState() => _PulseBubbleState();
+}
+
+class _PulseBubbleState extends State<PulseBubble> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _scale;
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(duration: const Duration(milliseconds: 400), vsync: this);
+    _scale = Tween<double>(begin: 0.8, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOutBack)
+    );
+    _controller.forward();
+  }
+  @override
+  void dispose() { 
+    _controller.dispose(); 
+    super.dispose(); 
+  }
+  @override
+  Widget build(BuildContext context) { 
+    return FadeTransition(
+      opacity: _controller, 
+      child: ScaleTransition(scale: _scale, child: widget.child)
+    ); 
   }
 }
