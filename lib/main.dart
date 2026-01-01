@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart'; // AJOUTÉ
 import 'firebase_options.dart'; // AJOUTÉ
-import 'features/auth/presentation/pages/ModernDashboard.dart';
 import 'features/auth/presentation/pages/AuthMainPage.dart';
+import 'features/auth/presentation/pages/splash_screen.dart';
 
 void main() async {
   // AJOUTÉ : Indispensable pour Firebase
@@ -31,10 +31,10 @@ class MyApp extends StatelessWidget {
         useMaterial3: true,
       ),
       // On garde votre point d'entrée actuel
-      home: const AuthMainPage(), 
+      home: const SplashScreen(), 
       
       routes: {
-        '/login': (context) => const AuthMainPage(),
+        '/login': (context) => const SplashScreen(),
         // Les autres routes resteront ici
       },
     );
