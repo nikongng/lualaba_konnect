@@ -80,6 +80,7 @@ class NewsFeedPage extends StatefulWidget {
 }
 
 class _NewsFeedPageState extends State<NewsFeedPage> {
+  
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -308,6 +309,7 @@ class ModernDashboard extends StatefulWidget {
 }
 
 class _ModernDashboardState extends State<ModernDashboard> {
+  final GlobalKey<ChatListPageState> _chatKey = GlobalKey<ChatListPageState>();
   int _selectedIndex = 0;
   bool _isDarkMode = true;
 
@@ -389,7 +391,7 @@ class _ModernDashboardState extends State<ModernDashboard> {
             index: _selectedIndex,
             children: [
               _buildHomePage(isDark, textColor), // Index 0
-              ChatListPage(isDark: isDark),       // Index 1 (Ton fichier chat)
+              ChatListPage(key: _chatKey, isDark: isDark),       // Index 1 (Ton fichier chat)
               const LivePage(),                  // Index 2 (Ton nouveau fichier live)
               const Center(child: Text("Market")),
               _buildProfilePage(isDark, textColor),
@@ -765,63 +767,60 @@ class _ModernDashboardState extends State<ModernDashboard> {
   }
 
 Widget _buildFloatingBottomNav(bool isDark) {
-  return Align(
-    alignment: Alignment.bottomCenter,
-    child: Container(
-      margin: const EdgeInsets.fromLTRB(24, 0, 24, 30),
-      height: 75,
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1A2C38) : Colors.white,
-        borderRadius: BorderRadius.circular(40),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20)],
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          // 0. ACCUEIL
-          IconButton(
-            icon: Icon(Icons.home_filled, 
-              color: _selectedIndex == 0 ? Colors.orange : Colors.grey, size: 28),
-            onPressed: () => setState(() => _selectedIndex = 0),
-          ),
-          
-          // 1. CHAT (Liaison avec ton nouveau fichier)
-          IconButton(
-            icon: Icon(Icons.chat_bubble_outline, 
-              color: _selectedIndex == 1 ? Colors.orange : Colors.grey, size: 28),
-            onPressed: () => setState(() => _selectedIndex = 1), // Index 1
-          ),
-
-          // 2. LUALABA TV (Centre)
-          GestureDetector(
-            onTap: () => setState(() => _selectedIndex = 2),
-            child: Container(
-              height: 58, width: 58,
-              decoration: const BoxDecoration(color: Color(0xFF012E32), shape: BoxShape.circle),
-              child: Icon(
-                Icons.subscriptions_rounded,
-                color: _selectedIndex == 2 ? Colors.orange : Colors.white,
-                size: 26
-              ),
+    return Positioned(
+      bottom: 30,
+      left: 24,
+      right: 24,
+      child: Container(
+        height: 75,
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF1E3E3B).withOpacity(0.95) : Colors.white,
+          borderRadius: BorderRadius.circular(35),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.2),
+              blurRadius: 20,
+              offset: const Offset(0, 10),
             ),
-          ),
-
-          // 3. MARKET
-          IconButton(
-            icon: Icon(Icons.shopping_bag_outlined, 
-              color: _selectedIndex == 3 ? Colors.orange : Colors.grey, size: 28),
-            onPressed: () => setState(() => _selectedIndex = 3), // Index 3
-          ),
-
-          // 4. PROFIL
-          IconButton(
-            icon: Icon(Icons.person_outline, 
-              color: _selectedIndex == 4 ? Colors.orange : Colors.grey, size: 28),
-            onPressed: () => setState(() => _selectedIndex = 4), // Index 4
-          ),
-        ],
+          ],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _navItem(Icons.home_filled, 0, isDark),
+            _navItem(Icons.chat_bubble_rounded, 1, isDark), // L'onglet Chat
+            _navItem(Icons.live_tv_rounded, 2, isDark),
+            _navItem(Icons.shopping_bag_outlined, 3, isDark),
+            _navItem(Icons.person_outline, 4, isDark),
+          ],
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
+
+  Widget _navItem(IconData icon, int index, bool isDark) {
+    bool isSelected = _selectedIndex == index;
+    return GestureDetector(
+      onTap: () {
+        // --- LOGIQUE DE VERROUILLAGE ---
+        // Si on clique sur Chat (index 1) et qu'on vient d'un autre onglet
+        if (index == 1 && _selectedIndex != 1) {
+          // On déclenche le verrouillage dans le fichier chat_list_page.dart
+          _chatKey.currentState?.lockChat();
+        }
+
+        setState(() {
+          _selectedIndex = index;
+        });
+      },
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        child: Icon(
+          icon,
+          color: isSelected ? const Color(0xFF00CBA9) : (isDark ? Colors.white38 : Colors.black26),
+          size: 28,
+        ),
+      ),
+    );
+  }
 }
