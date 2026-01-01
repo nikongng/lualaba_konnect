@@ -4,9 +4,73 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'AuthMainPage.dart';
+import '../../../chat/chat_list_page.dart';
+import '../../../live/live_page.dart';
 
 // ==========================================
-// 1. PAGE FIL D'ACTUALITÉ (DÉFILEMENT VERTICAL)
+// 0. DONNÉES CENTRALISÉES (10 ACTUALITÉS)
+// ==========================================
+final List<Map<String, dynamic>> lualabaNewsData = [
+  {
+    "source": "Lualaba Gouvernorat",
+    "title": "Lancement officiel des travaux de réhabilitation de la route RN39.",
+    "images": [
+      'https://images.unsplash.com/photo-1503708928676-1cb796a0891e?auto=format&fit=crop&w=800&q=80'
+    ]
+  },
+  {
+    "source": "Radio Okapi",
+    "title": "Inauguration du nouveau centre de négoce à Kolwezi.",
+    "images": [
+      'https://images.unsplash.com/photo-1541872703-74c5e443d1f9?auto=format&fit=crop&w=800&q=80'
+    ]
+  },
+  {
+    "source": "Lualaba TV",
+    "title": "Production minière : les chiffres du cuivre en hausse.",
+    "images": [
+      'https://images.unsplash.com/photo-1581089781785-603411fa81e5?auto=format&fit=crop&w=800&q=80'
+    ]
+  },
+  {
+    "source": "Mikuba",
+    "title": "Exportation : Premier convoi de lingots vers le port de Lobito.",
+    "images": [
+      'https://images.unsplash.com/photo-1587919968590-fbc98cea6c9a?auto=format&fit=crop&w=800&q=80'
+    ]
+  },
+  {
+    "source": "Urbanisme",
+    "title": "Modernisation de la voirie urbaine.",
+    "images": [
+      'https://images.unsplash.com/photo-1676254540448-c3e29ca3c9bb?auto=format&fit=crop&w=800&q=80'
+    ]
+  },
+  {
+    "source": "Nature du Lualaba",
+    "title": "Paysages verdoyants après la pluie.",
+    "images": [
+      'https://images.unsplash.com/photo-1685751528511-b5cb71733a03?auto=format&fit=crop&w=800&q=80'
+    ]
+  },
+  {
+    "source": "Climat",
+    "title": "Coucher de soleil sur le fleuve Lualaba.",
+    "images": [
+      'https://images.unsplash.com/photo-1661643206053-ded2207d0c74?auto=format&fit=crop&w=800&q=80'
+    ]
+  },
+  {
+    "source": "Sport",
+    "title": "Interclub : Stade Manika plein.",
+    "images": [
+      'https://images.unsplash.com/photo-1563581595415-db9b7775a3c5?auto=format&fit=crop&w=800&q=80'
+    ]
+  }
+];
+
+// ==========================================
+// 1. PAGE FIL D'ACTUALITÉ (DÉFILEMENT VERTICAL MIS À JOUR)
 // ==========================================
 class NewsFeedPage extends StatefulWidget {
   const NewsFeedPage({super.key});
@@ -33,28 +97,25 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
         children: [
           _buildFilterBar(),
           Expanded(
-            child: ListView(
+            child: ListView.builder(
               padding: const EdgeInsets.all(16),
-              children: [
-                _buildCreatePostArea(),
-                const SizedBox(height: 20),
-                // Exemple avec 3 images
-                const VerticalNewsPost(
-                  source: "Lualaba Gouvernorat",
-                  title: "Lancement officiel des travaux de réhabilitation de la route RN39. Une avancée majeure pour fluidifier le transport.",
-                  images: [
-                    'https://images.unsplash.com/photo-1541872703-74c5e443d1f9',
-                    'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b',
-                    'https://images.unsplash.com/photo-1518173946687-a4c8a98039f5',
+              itemCount: lualabaNewsData.length,
+              itemBuilder: (context, index) {
+                final item = lualabaNewsData[index];
+                return Column(
+                  children: [
+                    if (index == 0) ...[
+                      _buildCreatePostArea(),
+                      const SizedBox(height: 20),
+                    ],
+                    VerticalNewsPost(
+                      source: item['source'],
+                      title: item['title'],
+                      images: List<String>.from(item['images']),
+                    ),
                   ],
-                ),
-                // Exemple avec 1 image
-                const VerticalNewsPost(
-                  source: "Radio Okapi",
-                  title: "Inauguration du nouveau centre de négoce à Kolwezi.",
-                  images: ['https://images.unsplash.com/photo-1581094288338-2314dddb7bc3'],
-                ),
-              ],
+                );
+              },
             ),
           ),
         ],
@@ -161,22 +222,76 @@ class _VerticalNewsPostState extends State<VerticalNewsPost> {
     );
   }
 
+  // Image grid plus robuste : loading + error fallback
   Widget _buildImageGrid(List<String> imgs) {
     if (imgs.isEmpty) return const SizedBox.shrink();
+    Widget placeholderBox = Container(color: Colors.black12, child: const Center(child: Icon(Icons.broken_image_outlined, size: 40)));
     if (imgs.length == 1) {
-      return ClipRRect(borderRadius: BorderRadius.circular(16), child: Image.network(imgs[0], fit: BoxFit.cover, width: double.infinity, height: 200));
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Image.network(
+          imgs[0],
+          fit: BoxFit.cover,
+          width: double.infinity,
+          height: 200,
+          loadingBuilder: (context, child, progress) {
+            if (progress == null) return child;
+            return Container(color: Colors.black12, child: const Center(child: CircularProgressIndicator()));
+          },
+          errorBuilder: (context, error, stackTrace) => placeholderBox,
+        ),
+      );
     }
     return SizedBox(
       height: 250,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(16),
         child: Row(children: [
-          Expanded(child: Image.network(imgs[0], fit: BoxFit.cover, height: double.infinity)),
+          Expanded(
+            child: Image.network(
+              imgs[0],
+              fit: BoxFit.cover,
+              height: double.infinity,
+              loadingBuilder: (context, child, progress) {
+                if (progress == null) return child;
+                return Container(color: Colors.black12, child: const Center(child: CircularProgressIndicator()));
+              },
+              errorBuilder: (context, error, stackTrace) => placeholderBox,
+            ),
+          ),
           const SizedBox(width: 4),
-          if (imgs.length > 1) Expanded(child: Column(children: [
-            Expanded(child: Image.network(imgs[1], fit: BoxFit.cover, width: double.infinity)),
-            if (imgs.length > 2) ...[const SizedBox(height: 4), Expanded(child: Image.network(imgs[2], fit: BoxFit.cover, width: double.infinity))],
-          ])),
+          if (imgs.length > 1)
+            Expanded(
+              child: Column(children: [
+                Expanded(
+                  child: Image.network(
+                    imgs[1],
+                    fit: BoxFit.cover,
+                    width: double.infinity,
+                    loadingBuilder: (context, child, progress) {
+                      if (progress == null) return child;
+                      return Container(color: Colors.black12, child: const Center(child: CircularProgressIndicator()));
+                    },
+                    errorBuilder: (context, error, stackTrace) => placeholderBox,
+                  ),
+                ),
+                if (imgs.length > 2) ...[
+                  const SizedBox(height: 4),
+                  Expanded(
+                    child: Image.network(
+                      imgs[2],
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      loadingBuilder: (context, child, progress) {
+                        if (progress == null) return child;
+                        return Container(color: Colors.black12, child: const Center(child: CircularProgressIndicator()));
+                      },
+                      errorBuilder: (context, error, stackTrace) => placeholderBox,
+                    ),
+                  ),
+                ],
+              ]),
+            ),
         ]),
       ),
     );
@@ -184,7 +299,7 @@ class _VerticalNewsPostState extends State<VerticalNewsPost> {
 }
 
 // ==========================================
-// 2. DASHBOARD PRINCIPAL (TON CODE ORIGINAL RESTAURÉ)
+// 2. DASHBOARD PRINCIPAL (MIS À JOUR)
 // ==========================================
 class ModernDashboard extends StatefulWidget {
   const ModernDashboard({super.key});
@@ -193,12 +308,18 @@ class ModernDashboard extends StatefulWidget {
 }
 
 class _ModernDashboardState extends State<ModernDashboard> {
-  int _selectedIndex = 0; 
+  int _selectedIndex = 0;
   bool _isDarkMode = true;
 
   Future<void> _makeCall(String phoneNumber) async {
     final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
-    if (await canLaunchUrl(launchUri)) { await launchUrl(launchUri); }
+    if (await canLaunchUrl(launchUri)) {
+      await launchUrl(launchUri);
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Impossible d'ouvrir l'application de téléphone")));
+      }
+    }
   }
 
   void _showSOSMenu() {
@@ -246,7 +367,7 @@ class _ModernDashboardState extends State<ModernDashboard> {
           const SizedBox(width: 15),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)), Text(sub, style: const TextStyle(color: Colors.white70, fontSize: 12))])),
           Text(number, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 24)),
-        ]),
+        ]), 
       ),
     );
   }
@@ -264,10 +385,16 @@ class _ModernDashboardState extends State<ModernDashboard> {
           constraints: const BoxConstraints(maxWidth: 414),
           child: Stack(
             children: [
-              IndexedStack(
-                index: _selectedIndex == 4 ? 1 : 0,
-                children: [_buildHomePage(isDark, textColor), _buildProfilePage(isDark, textColor)],
-              ),
+          IndexedStack(
+            index: _selectedIndex,
+            children: [
+              _buildHomePage(isDark, textColor), // Index 0
+              ChatListPage(isDark: isDark),       // Index 1 (Ton fichier chat)
+              const LivePage(),                  // Index 2 (Ton nouveau fichier live)
+              const Center(child: Text("Market")),
+              _buildProfilePage(isDark, textColor),
+            ],
+          ),
               _buildFloatingBottomNav(isDark),
             ],
           ),
@@ -383,37 +510,123 @@ class _ModernDashboardState extends State<ModernDashboard> {
 
   Widget _buildNewsSection(Color text, bool isDark) {
     return Column(children: [
-      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text("Actu", style: TextStyle(color: text, fontSize: 18, fontWeight: FontWeight.bold)), GestureDetector(onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const NewsFeedPage())), child: const Text("Tout voir", style: TextStyle(color: Colors.orange, fontSize: 13)))]),
+      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Text("Actu", style: TextStyle(color: text, fontSize: 18, fontWeight: FontWeight.bold)),
+        GestureDetector(
+          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const NewsFeedPage())),
+          child: const Text("Tout voir", style: TextStyle(color: Colors.orange, fontSize: 13))
+        )
+      ]),
       const SizedBox(height: 15),
-      SizedBox(height: 280, child: ListView(scrollDirection: Axis.horizontal, children: [ 
-        _newsCard("Lualaba Gouvernorat", "Lancement des travaux RN39.", isDark, 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b'), 
-        _newsCard("Radio Okapi", "Nouveau centre de négoce.", isDark, 'https://images.unsplash.com/photo-1541872703-74c5e443d1f9'),
-        _newsCard("Lualaba TV", "Les mines.", isDark, 'https://images.unsplash.com/photo-1581089781785-603411fa81e5'),
-        _newsCard("Mikuba", "Lingots de métal.", isDark, 'https://images.unsplash.com/photo-1533038590840-1cde6e668a91'),
-        _newsCard("Urbanisme", "Route en construction.", isDark, 'https://images.unsplash.com/photo-1541872703-74c5e443d1f9'),
-        _newsCard("Nature et Paysages du Lualaba", "Savane / Verdure.", isDark, 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b'),
-        _newsCard("Climat", "Coucher de soleil africain.", isDark, 'https://images.unsplash.com/photo-1523805081446-ed9a7bb1401d'),
-        _newsCard("Sport", "Interclub est de retour.", isDark, 'https://images.unsplash.com/photo-1574629810360-7efbbe195018'),
-        _newsCard("Radio Okapi", "Nouveau centre de négoce.", isDark, 'https://images.unsplash.com/photo-1541872703-74c5e443d1f9'),
-      _newsCard("Sport", "Le derby arrive !.", isDark, 'https://images.unsplash.com/photo-1541872703-74c5e443d1f9') 
-      ])),
-
+      SizedBox(
+        height: 280,
+        child: ListView.builder(
+          scrollDirection: Axis.horizontal,
+          itemCount: lualabaNewsData.length,
+          itemBuilder: (context, index) {
+            final item = lualabaNewsData[index];
+            return _newsCard(
+              item['source'],
+              item['title'],
+              isDark,
+              item['images'][0]
+            );
+          },
+        )
+      ),
     ]);
   }
 
   Widget _newsCard(String source, String title, bool isDark, String img) {
     return Container(
-      width: 260, margin: const EdgeInsets.only(right: 15), padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(color: isDark ? const Color(0xFF1E3E3B) : Colors.white, borderRadius: BorderRadius.circular(25)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [const CircleAvatar(radius: 12, backgroundColor: Colors.black), const SizedBox(width: 8), Text(source, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12))]),
-        const SizedBox(height: 12),
-        Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(15), child: Image.network(img, fit: BoxFit.cover, width: double.infinity))),
-        const SizedBox(height: 12),
-        Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14), maxLines: 2),
-      ]),
+      width: 260,
+      margin: const EdgeInsets.only(right: 15),
+      padding: const EdgeInsets.all(15),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E3E3B) : Colors.white,
+        borderRadius: BorderRadius.circular(25),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ---- HEADER ----
+          Row(
+            children: [
+              const CircleAvatar(
+                radius: 12,
+                backgroundColor: Colors.black,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  source,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // ---- IMAGE ----
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(15),
+              child: Image.network(
+                img,
+                fit: BoxFit.cover,
+                width: double.infinity,
+
+                // 🔄 Loader
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Container(
+                    color: Colors.black12,
+                    child: const Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  );
+                },
+
+                // ❌ Fallback si image cassée / 404
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    color: Colors.black12,
+                    child: const Center(
+                      child: Icon(
+                        Icons.broken_image_outlined,
+                        size: 40,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          // ---- TITLE ----
+          Text(
+            title,
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+              color: isDark ? Colors.white : Colors.black,
+            ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
     );
   }
+
 
   Widget _buildServicesSection() {
     return Column(children: [
@@ -438,27 +651,177 @@ class _ModernDashboardState extends State<ModernDashboard> {
   }
 
   Widget _buildProfilePage(bool isDark, Color textColor) {
-    return SafeArea(child: Padding(padding: const EdgeInsets.all(24.0), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text("Paramètres", style: TextStyle(color: textColor, fontSize: 28, fontWeight: FontWeight.bold)),
-      const SizedBox(height: 25),
-      ListTile(leading: const Icon(Icons.dark_mode_outlined), title: const Text("Mode Sombre"), trailing: CupertinoSwitch(value: _isDarkMode, onChanged: (v) => setState(() => _isDarkMode = v))),
-      const Spacer(),
-      Center(child: TextButton(onPressed: () => FirebaseAuth.instance.signOut(), child: const Text("Se déconnecter", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)))),
-      const SizedBox(height: 100),
-    ])));
+    final Color cardBg = isDark ? const Color(0xFF1E3E3B) : Colors.white;
+    final Color subText = isDark ? Colors.white60 : Colors.black54;
+
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildActionTile("Ma Santé", "Dossier médical, RDV, IA Santé", Icons.favorite_border, const Color(0xFF00CBA9)),
+            const SizedBox(height: 12),
+            _buildActionTile("Espace Adultes (+18)", "Rencontres, Jeux & Fun", Icons.whatshot, Colors.redAccent),
+            const SizedBox(height: 25),
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(color: const Color(0xFF0F171A), borderRadius: BorderRadius.circular(24)),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    const Row(children: [
+                      Icon(Icons.wifi, color: Colors.greenAccent, size: 20),
+                      SizedBox(width: 8),
+                      Text("Lualaba Premium", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                    ]),
+                    Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4), decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(8)), child: const Text("Actif", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold))),
+                  ]),
+                  const SizedBox(height: 15),
+                  const Text("Data LAN Utilisée : 45GB / Illimité", style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  const SizedBox(height: 8),
+                  LinearProgressIndicator(value: 0.45, backgroundColor: Colors.white10, color: Colors.orange.withOpacity(0.8), minHeight: 6),
+                  const SizedBox(height: 15),
+                  const Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    Text("Accès prioritaire activé", style: TextStyle(color: Colors.white38, fontSize: 11)),
+                    Icon(Icons.arrow_forward_ios, color: Colors.white38, size: 12),
+                  ]),
+                ],
+              ),
+            ),
+            const SizedBox(height: 30),
+            _sectionTitle("COMPTE", subText),
+            _settingsTile(Icons.person_outline, "Informations personnelles", cardBg, textColor),
+            _settingsTile(Icons.account_balance_wallet_outlined, "Portefeuille & Factures", cardBg, textColor, trailing: "3.50 \$"),
+            const SizedBox(height: 20),
+            _sectionTitle("PRÉFÉRENCES", subText),
+            _settingsSwitchTile(Icons.notifications_none, "Notifications", true, cardBg, textColor),
+            _settingsSwitchTile(Icons.dark_mode_outlined, "Mode Sombre", _isDarkMode, cardBg, textColor, (v) => setState(() => _isDarkMode = v)),
+            const SizedBox(height: 20),
+            _sectionTitle("SUPPORT", subText),
+            _settingsTile(Icons.help_outline, "Centre d'aide", cardBg, textColor),
+            const SizedBox(height: 30),
+            Center(
+              child: TextButton.icon(
+                onPressed: () => FirebaseAuth.instance.signOut(),
+                icon: const Icon(Icons.logout, color: Colors.redAccent),
+                label: const Text("Se déconnecter", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16)),
+              ),
+            ),
+            const SizedBox(height: 120),
+          ],
+        ),
+      ),
+    );
   }
 
-  Widget _buildFloatingBottomNav(bool isDark) {
-    return Align(alignment: Alignment.bottomCenter, child: Container(
-      margin: const EdgeInsets.fromLTRB(24, 0, 24, 30), height: 75,
-      decoration: BoxDecoration(color: isDark ? const Color(0xFF1A2C38) : Colors.white, borderRadius: BorderRadius.circular(40), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20)]),
-      child: Row(mainAxisAlignment: MainAxisAlignment.spaceAround, children: [
-        IconButton(icon: Icon(Icons.home_filled, color: _selectedIndex == 0 ? Colors.orange : Colors.grey, size: 28), onPressed: () => setState(() => _selectedIndex = 0)),
-        const Icon(Icons.chat_bubble_outline, color: Colors.grey, size: 28),
-        Container(height: 58, width: 58, decoration: const BoxDecoration(color: Color(0xFF012E32), shape: BoxShape.circle), child: const Icon(Icons.subscriptions_rounded, color: Colors.white, size: 26)),
-        const Icon(Icons.shopping_bag_outlined, color: Colors.grey, size: 28),
-        IconButton(icon: Icon(Icons.person_outline, color: _selectedIndex == 4 ? Colors.orange : Colors.grey, size: 28), onPressed: () => setState(() => _selectedIndex = 4)),
+  Widget _buildActionTile(String title, String sub, IconData icon, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(20), border: Border.all(color: color.withOpacity(0.5), width: 1.5)),
+      child: Row(children: [
+        CircleAvatar(backgroundColor: color.withOpacity(0.1), child: Icon(icon, color: color)),
+        const SizedBox(width: 15),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          Text(sub, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+        ])),
+        const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
       ]),
-    ));
+    );
   }
+
+  Widget _sectionTitle(String title, Color color) {
+    return Padding(padding: const EdgeInsets.only(left: 8, bottom: 12), child: Text(title, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1.2)));
+  }
+
+  Widget _settingsTile(IconData icon, String title, Color bg, Color text, {String? trailing}) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 2),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(15)),
+      child: ListTile(
+        leading: Icon(icon, color: text.withOpacity(0.7)),
+        title: Text(title, style: TextStyle(color: text, fontSize: 15)),
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (trailing != null) Text(trailing, style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+          const SizedBox(width: 5),
+          const Icon(Icons.arrow_forward_ios, size: 14, color: Colors.grey),
+        ]),
+      ),
+    );
+  }
+
+  Widget _settingsSwitchTile(IconData icon, String title, bool value, Color bg, Color text, [Function(bool)? onChanged]) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 2),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(15)),
+      child: ListTile(
+        leading: Icon(icon, color: text.withOpacity(0.7)),
+        title: Text(title, style: TextStyle(color: text, fontSize: 15)),
+        trailing: CupertinoSwitch(value: value, activeColor: Colors.orange, onChanged: onChanged ?? (v){}),
+      ),
+    );
+  }
+
+Widget _buildFloatingBottomNav(bool isDark) {
+  return Align(
+    alignment: Alignment.bottomCenter,
+    child: Container(
+      margin: const EdgeInsets.fromLTRB(24, 0, 24, 30),
+      height: 75,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1A2C38) : Colors.white,
+        borderRadius: BorderRadius.circular(40),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 20)],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          // 0. ACCUEIL
+          IconButton(
+            icon: Icon(Icons.home_filled, 
+              color: _selectedIndex == 0 ? Colors.orange : Colors.grey, size: 28),
+            onPressed: () => setState(() => _selectedIndex = 0),
+          ),
+          
+          // 1. CHAT (Liaison avec ton nouveau fichier)
+          IconButton(
+            icon: Icon(Icons.chat_bubble_outline, 
+              color: _selectedIndex == 1 ? Colors.orange : Colors.grey, size: 28),
+            onPressed: () => setState(() => _selectedIndex = 1), // Index 1
+          ),
+
+          // 2. LUALABA TV (Centre)
+          GestureDetector(
+            onTap: () => setState(() => _selectedIndex = 2),
+            child: Container(
+              height: 58, width: 58,
+              decoration: const BoxDecoration(color: Color(0xFF012E32), shape: BoxShape.circle),
+              child: Icon(
+                Icons.subscriptions_rounded,
+                color: _selectedIndex == 2 ? Colors.orange : Colors.white,
+                size: 26
+              ),
+            ),
+          ),
+
+          // 3. MARKET
+          IconButton(
+            icon: Icon(Icons.shopping_bag_outlined, 
+              color: _selectedIndex == 3 ? Colors.orange : Colors.grey, size: 28),
+            onPressed: () => setState(() => _selectedIndex = 3), // Index 3
+          ),
+
+          // 4. PROFIL
+          IconButton(
+            icon: Icon(Icons.person_outline, 
+              color: _selectedIndex == 4 ? Colors.orange : Colors.grey, size: 28),
+            onPressed: () => setState(() => _selectedIndex = 4), // Index 4
+          ),
+        ],
+      ),
+    ),
+  );
+}
 }
