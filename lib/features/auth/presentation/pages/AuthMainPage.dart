@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'account_choice_page.dart';
 import 'ModernDashboard.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthMainPage extends StatefulWidget {
   const AuthMainPage({super.key});
@@ -11,10 +12,16 @@ class AuthMainPage extends StatefulWidget {
 }
 
 class _AuthMainPageState extends State<AuthMainPage> {
+  @override
+void initState() {
+  super.initState();
+  _loadRememberMe();
+}
   bool isLoginMode = true; 
   bool _obscurePassword = true;
   final TextEditingController _idController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  bool _rememberMe = false; // <-- Ajouter cette ligne
 
   @override
   void dispose() {
@@ -22,6 +29,34 @@ class _AuthMainPageState extends State<AuthMainPage> {
     _passwordController.dispose();
     super.dispose();
   }
+Future<void> _loadRememberMe() async {
+  final prefs = await SharedPreferences.getInstance();
+  
+  bool remember = prefs.getBool('remember_me') ?? false;
+  String savedId = prefs.getString('saved_id') ?? "";
+
+  if (remember && savedId.isNotEmpty) {
+    // Si l'utilisateur a coché "Se souvenir", on ne perd pas de temps
+    // On le redirige directement au Dashboard
+    _navigateToDashboard();
+  } else {
+    // Sinon, on reste sur la page et on pré-remplit juste l'ID s'il existe
+    setState(() {
+      _rememberMe = remember;
+      _idController.text = savedId;
+    });
+  }
+}
+Future<void> _handleRememberMe() async {
+  final prefs = await SharedPreferences.getInstance();
+  if (_rememberMe) {
+    await prefs.setBool('remember_me', true);
+    await prefs.setString('saved_id', _idController.text.trim());
+  } else {
+    await prefs.remove('remember_me');
+    await prefs.remove('saved_id');
+  }
+}
 
 void _navigateToDashboard() {
   Navigator.pushAndRemoveUntil(
@@ -199,48 +234,80 @@ void _navigateToDashboard() {
   }
 
   // --- FORMULAIRE DE CONNEXION ---
-  Widget _buildLoginForm() {
-    return SingleChildScrollView( // Permet le défilement indépendant du formulaire de connexion
-      key: const ValueKey("login_form_content"), // Clé indispensable pour AnimatedSwitcher
-      padding: const EdgeInsets.fromLTRB(30, 0, 30, 30), // Padding seulement en bas ici
-      child: Column(
-        children: [
-          _buildProfileImage(),
-          const SizedBox(height: 20),
-          const Text(
-            "Bon retour, Bienvenue !",
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1A237E)),
-          ),
-          const Text("Connectez-vous pour continuer.", style: TextStyle(color: Colors.grey)),
-          const SizedBox(height: 30),
-          _buildInputField(
-            label: "IDENTIFIANT",
-            hint: "0999000000",
-            icon: Icons.person_outline,
-            controller: _idController,
-          ),
-          const SizedBox(height: 20),
-          _buildInputField(
-            label: "MOT DE PASSE",
-            hint: "........",
-            icon: Icons.lock_outline,
-            isPassword: true,
-            controller: _passwordController,
-          ),
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: () { /* Logique mot de passe oublié */ },
-              child: const Text("Mot de passe oublié ?", style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold)),
+Widget _buildLoginForm() {
+  return SingleChildScrollView(
+    key: const ValueKey("login_form_content"),
+    padding: const EdgeInsets.fromLTRB(30, 0, 30, 30),
+    child: Column(
+      children: [
+        _buildProfileImage(),
+        const SizedBox(height: 20),
+        const Text(
+          "Bon retour, Bienvenue !",
+          style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1A237E)),
+        ),
+        const Text("Connectez-vous pour continuer.", style: TextStyle(color: Colors.grey)),
+        const SizedBox(height: 30),
+        _buildInputField(
+          label: "IDENTIFIANT",
+          hint: "0999000000",
+          icon: Icons.person_outline,
+          controller: _idController,
+        ),
+        const SizedBox(height: 20),
+        _buildInputField(
+          label: "MOT DE PASSE",
+          hint: "........",
+          icon: Icons.lock_outline,
+          isPassword: true,
+          controller: _passwordController,
+        ),
+        
+        // --- NOUVELLE SECTION : SE SOUVENIR DE MOI & MOT DE PASSE OUBLIÉ ---
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                SizedBox(
+                  height: 24,
+                  width: 24,
+                  child: Checkbox(
+                    value: _rememberMe,
+                    activeColor: Colors.orange,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+                    onChanged: (value) {
+                      setState(() {
+                        _rememberMe = value ?? false;
+                      });
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const Text(
+                  "Se souvenir",
+                  style: TextStyle(color: Colors.grey, fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ],
             ),
-          ),
-          const SizedBox(height: 25),
-          _buildSubmitButton(),
-          const SizedBox(height: 20), // Espace sous le bouton
-        ],
-      ),
-    );
-  }
+            TextButton(
+              onPressed: () { /* Logique mot de passe oublié */ },
+              child: const Text(
+                "Mot de passe oublié ?",
+                style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+        // ------------------------------------------------------------------
+        
+        const SizedBox(height: 20),
+        _buildSubmitButton(),
+        const SizedBox(height: 20),
+      ],
+    ),
+  );
+}
 
   // --- WIDGETS DE SOUTIEN ---
   Widget _buildProfileImage() {
@@ -299,27 +366,25 @@ Widget _buildSubmitButton() {
     height: 55,
     child: ElevatedButton(
       style: ElevatedButton.styleFrom(
-        backgroundColor: const Color(0xFFE65100), // Couleur plus vive pour le bouton
+        backgroundColor: const Color(0xFFE65100),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        elevation: 0,
       ),
-      onPressed: () {
+      onPressed: () async { // Ajout de async
         HapticFeedback.mediumImpact();
         
         String id = _idController.text.trim();
         String pass = _passwordController.text.trim();
 
-        // --- LOGIQUE DE TEST ---
-        // On vérifie si c'est votre numéro fictif
-        if (id.contains("857263544") && pass == "123456") {
-          _navigateToDashboard();
-          return;
-        }
-
-        // --- LOGIQUE NORMALE ---
         if (id.isNotEmpty && pass.isNotEmpty) {
-           // Ici vous ajouterez votre appel API/Firebase plus tard
-           _navigateToDashboard();
+          // --- SAUVEGARDE ICI ---
+          await _handleRememberMe(); 
+
+          // Logique de test ou réelle
+          if (id.contains("857263544") && pass == "123456") {
+            _navigateToDashboard();
+          } else {
+            _navigateToDashboard();
+          }
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text("Veuillez remplir tous les champs")),

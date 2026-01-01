@@ -14,6 +14,7 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 // --- AJOUTS FIREBASE ---
 import 'package:firebase_auth/firebase_auth.dart';
 import 'otp_verification_page.dart';
+import 'AuthMainPage.dart';
 
 class RegistrationFormPage extends StatefulWidget {
   final int profileType; // 0: Classique, 1: Pro, 2: Entreprise
@@ -240,89 +241,6 @@ void _completeRegistration(bool autoValidated) async {
     }
   }
 }
-
-  void _showFinalSummary(bool autoValidated) {
-    HapticFeedback.vibrate();
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(35)),
-        backgroundColor: Colors.transparent,
-        child: TweenAnimationBuilder(
-          duration: const Duration(milliseconds: 900),
-          tween: Tween<Offset>(begin: const Offset(0, 1.5), end: const Offset(0, 0)),
-          curve: Curves.easeOutBack,
-          builder: (context, Offset offset, child) {
-            return FractionalTranslation(
-              translation: offset,
-              child: Container(
-                padding: const EdgeInsets.all(30),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(35),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.15),
-                      blurRadius: 30,
-                      offset: const Offset(0, -10),
-                    )
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      height: 90, width: 90,
-                      decoration: BoxDecoration(
-                        color: autoValidated ? Colors.green.shade50 : Colors.blue.shade50,
-                        shape: BoxShape.circle,
-                      ),
-                      child: Center(
-                        child: Text(autoValidated ? "🥰" : "😎", style: const TextStyle(fontSize: 50)),
-                      ),
-                    ),
-                    const SizedBox(height: 25),
-                    Text(
-                      autoValidated ? "Certification lancée !" : "Dossier en route !",
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Color(0xFFE65100)),
-                    ),
-                    const SizedBox(height: 15),
-                    Text(
-                      autoValidated 
-                        ? "Check terminé ! Tes documents sont validés. Nous finalisons ta certification maintenant."
-                        : "Tes documents ont été envoyés avec succès. Nous vérifions tout ça tout de suite.",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 15, color: Colors.grey.shade600, height: 1.4, fontWeight: FontWeight.w500),
-                    ),
-                    const SizedBox(height: 35),
-                    GestureDetector(
-                      onTap: () {
-                        HapticFeedback.mediumImpact();
-                        Navigator.pop(context);
-                      },
-                      child: Container(
-                        height: 60, width: double.infinity,
-                        decoration: BoxDecoration(
-                          gradient: const LinearGradient(colors: [Color(0xFFF57C00), Color(0xFFE65100)]),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Center(
-                          child: Text("PARFAIT, MERCI !", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
   void _validateAndNext() {
     if (_currentStep == 2) {
       if (!_isPhoneValid(_phoneController.text) || !_isEmailValid(_emailController.text) || !_isPasswordMatch()) {

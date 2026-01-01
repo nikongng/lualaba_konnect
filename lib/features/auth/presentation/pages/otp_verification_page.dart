@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
-import 'dart:ui'; // Pour les effets de flou si besoin
 import 'account_choice_page.dart';
 import 'AuthMainPage.dart';
+import 'registration_form_page.dart';
+import 'package:flutter/services.dart';
 
 class OTPVerificationPage extends StatefulWidget {
   final String verificationId;
@@ -80,23 +81,19 @@ Future<void> _verifyOTP() async {
 
   setState(() => _isLoading = true);
 
-  // --- TRICHE POUR TEST SANS FACTURATION ---
-  // On vérifie si c'est ton numéro de test et le bon code fictif
+  // --- TEST SANS FACTURATION ---
   if (widget.phoneNumber == "+243857263544" && otp == "123456") {
-    await Future.delayed(const Duration(seconds: 1)); // Petit délai pour le réalisme
+    await Future.delayed(const Duration(seconds: 1));
     if (mounted) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const AuthMainPage()),
-        (route) => false,
-      );
+      setState(() => _isLoading = false);
+      // On affiche le message de succès au lieu de naviguer
+      _showFinalSummary(true); 
     }
-    return; // On arrête la fonction ici pour ne pas appeler Firebase
+    return;
   }
-  // ------------------------------------------
+  // -----------------------------
 
   try {
-    // Utilisation de widget.verificationId (passé depuis la page précédente)
     PhoneAuthCredential credential = PhoneAuthProvider.credential(
       verificationId: widget.verificationId, 
       smsCode: otp,
@@ -105,11 +102,9 @@ Future<void> _verifyOTP() async {
     await FirebaseAuth.instance.signInWithCredential(credential);
 
     if (mounted) {
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const AccountChoicePage()),
-        (route) => false,
-      );
+      setState(() => _isLoading = false);
+      // Succès réel Firebase -> On affiche aussi le message
+      _showFinalSummary(true); 
     }
   } catch (e) {
     _showError("Code incorrect. Veuillez réessayer.");
@@ -117,6 +112,92 @@ Future<void> _verifyOTP() async {
     if (mounted) setState(() => _isLoading = false);
   }
 }
+    void _showFinalSummary(bool autoValidated) {
+    HapticFeedback.vibrate();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(35)),
+        backgroundColor: Colors.transparent,
+        child: TweenAnimationBuilder(
+          duration: const Duration(milliseconds: 900),
+          tween: Tween<Offset>(begin: const Offset(0, 1.5), end: const Offset(0, 0)),
+          curve: Curves.easeOutBack,
+          builder: (context, Offset offset, child) {
+            return FractionalTranslation(
+              translation: offset,
+              child: Container(
+                padding: const EdgeInsets.all(30),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(35),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.15),
+                      blurRadius: 30,
+                      offset: const Offset(0, -10),
+                    )
+                  ],
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      height: 90, width: 90,
+                      decoration: BoxDecoration(
+                        color: autoValidated ? Colors.green.shade50 : Colors.blue.shade50,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(autoValidated ? "🥰" : "😎", style: const TextStyle(fontSize: 50)),
+                      ),
+                    ),
+                    const SizedBox(height: 25),
+                    Text(
+                      autoValidated ? "Certification lancée !" : "Dossier en route !",
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Color(0xFFE65100)),
+                    ),
+                    const SizedBox(height: 15),
+                    Text(
+                      autoValidated 
+                        ? "Check terminé ! Tes documents sont validés. Nous finalisons ta certification maintenant."
+                        : "Tes documents ont été envoyés avec succès. Nous vérifions tout ça tout de suite.",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 15, color: Colors.grey.shade600, height: 1.4, fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 35),
+                    GestureDetector(
+                      onTap: () {
+                        HapticFeedback.mediumImpact();
+                        Navigator.pop(context);
+                        Navigator.pushAndRemoveUntil(
+                        context,
+                        MaterialPageRoute(builder: (context) => const AuthMainPage()),
+                        (route) => false,
+                      );
+                      },
+                      child: Container(
+                        height: 60, width: double.infinity,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(colors: [Color(0xFFF57C00), Color(0xFFE65100)]),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: const Center(
+                          child: Text("Se connecter", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
 
   void _showError(String msg) => ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(content: Text(msg), backgroundColor: Colors.redAccent, behavior: SnackBarBehavior.floating)
