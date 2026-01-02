@@ -1,5 +1,6 @@
 import 'dart:ui'; // INDISPENSABLE pour le flou
 import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart'; // Pour les icônes modernes
 import 'chat_detail_screen.dart';
 
 class ChatListPage extends StatefulWidget {
@@ -12,11 +13,15 @@ class ChatListPage extends StatefulWidget {
 
 class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixin {
   late TabController _tabController;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   
   // --- VARIABLES DE SÉCURITÉ ---
   String? _savedPin; 
   bool _isUnlocked = false;
   String _inputPin = ""; 
+  
+  // Couleur accent (Orange)
+  final Color accentColor = const Color(0xFFFF8C00);
 
   @override
   void initState() {
@@ -62,7 +67,10 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
           maxLength: 4,
           obscureText: true,
           style: TextStyle(color: widget.isDark ? Colors.white : Colors.black),
-          decoration: const InputDecoration(hintText: "4 chiffres"),
+          decoration: InputDecoration(
+            hintText: "4 chiffres",
+            focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: accentColor)),
+          ),
         ),
         actions: [
           TextButton(
@@ -73,6 +81,7 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
             child: const Text("DÉSACTIVER", style: TextStyle(color: Colors.red)),
           ),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: accentColor),
             onPressed: () {
               if (pinController.text.length == 4) {
                 setState(() {
@@ -94,9 +103,12 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
     bool isLocked = _savedPin != null && !_isUnlocked;
 
     return Scaffold(
+      key: _scaffoldKey,
+      // Drawer stylé avec largeur contrôlée
+      drawer: _buildModernCarouselDrawer(),
       body: Stack(
         children: [
-          // 1. LE CONTENU (Flouté séparément via ImageFiltered)
+          // 1. LE CONTENU (Flouté si verrouillé)
           ImageFiltered(
             imageFilter: ImageFilter.blur(
               sigmaX: isLocked ? 20 : 0, 
@@ -105,10 +117,10 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
             child: _buildChatContent(),
           ),
 
-          // 2. L'INTERFACE DE SAISIE (Nette et centrée)
+          // 2. L'INTERFACE DE SAISIE
           if (isLocked) 
             Container(
-              color: Colors.black.withOpacity(0.5), // Voile pour faire ressortir le clavier
+              color: Colors.black.withOpacity(0.5), 
               child: Center(
                 child: _buildLockScreenOverlayUI(),
               ),
@@ -118,7 +130,6 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
     );
   }
 
-  // --- TON CONTENU ORIGINAL (SANS TOUCHE) ---
   Widget _buildChatContent() {
     final bgColor = widget.isDark ? const Color(0xFF0F1D27) : Colors.white;
     final appBarColor = widget.isDark ? const Color(0xFF162530) : Colors.white;
@@ -128,15 +139,18 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
       appBar: AppBar(
         backgroundColor: appBarColor,
         elevation: 0,
-        leading: const Icon(Icons.menu),
+        leading: IconButton(
+          icon: const Icon(CupertinoIcons.bars),
+          onPressed: () => _scaffoldKey.currentState?.openDrawer(),
+        ), 
         title: const Text("Chat", style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
-            icon: Icon(_savedPin == null ? Icons.lock_outline : Icons.lock, 
-                 color: _savedPin == null ? null : const Color(0xFF00CBA9)), 
+            icon: Icon(_savedPin == null ? CupertinoIcons.lock : CupertinoIcons.lock_fill, 
+                 color: _savedPin == null ? null : accentColor), 
             onPressed: _showPinSetupDialog
           ),
-          IconButton(icon: const Icon(Icons.search), onPressed: () {}),
+          IconButton(icon: const Icon(CupertinoIcons.search), onPressed: () {}),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(150),
@@ -161,10 +175,195 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
     );
   }
 
-  // --- INTERFACE DE VERROUILLAGE RÉDUITE ---
+  // --- DRAWER MODERNE STYLE CAROUSEL TELEGRAM PREMIUM ---
+  Widget _buildModernCarouselDrawer() {
+    final double drawerWidth = MediaQuery.of(context).size.width * 0.75; // Largeur réduite
+
+    return Drawer(
+      width: drawerWidth,
+      backgroundColor: Colors.transparent,
+      child: TweenAnimationBuilder<double>(
+        tween: Tween(begin: 0.0, end: 1.0),
+        duration: const Duration(milliseconds: 400),
+        curve: Curves.easeOutCubic,
+        builder: (context, value, child) {
+          return Transform.scale(
+            scale: 0.95 + (0.05 * value),
+            child: Opacity(
+              opacity: value,
+              child: child,
+            ),
+          );
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            color: widget.isDark ? const Color(0xFF162530) : Colors.white,
+            borderRadius: const BorderRadius.only(
+              topRight: Radius.circular(30),
+              bottomRight: Radius.circular(30),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.3),
+                blurRadius: 30,
+                spreadRadius: 5,
+              )
+            ],
+          ),
+          child: Column(
+            children: [
+              _buildDrawerHeader(),
+              Expanded(
+                child: ListView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  children: [
+                    _buildCarouselItem("Nouveau groupe", CupertinoIcons.group, Colors.blueAccent),
+                    _buildCarouselItem("Contacts", CupertinoIcons.person_2, Colors.orangeAccent),
+                    _buildCarouselItem("Appels", CupertinoIcons.phone, Colors.greenAccent),
+                    _buildCarouselItem("Messages enregistrés", CupertinoIcons.bookmark, Colors.purpleAccent),
+                    _buildCarouselItem("Paramètres", CupertinoIcons.settings, Colors.blueGrey),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+                      child: Divider(color: Colors.white10, thickness: 0.5),
+                    ),
+                    _buildCarouselItem("Inviter des amis", CupertinoIcons.person_add, Colors.cyan),
+                    _buildCarouselItem("Aide Telegram", CupertinoIcons.question_circle, Colors.pinkAccent),
+                  ],
+                ),
+              ),
+              _buildDrawerFooter(),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDrawerHeader() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(20, 50, 20, 25),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            accentColor.withOpacity(0.8),
+            accentColor,
+          ],
+        ),
+        borderRadius: const BorderRadius.only(topRight: Radius.circular(30)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white24, width: 2),
+                ),
+                child: const CircleAvatar(
+                  radius: 32,
+                  backgroundImage: NetworkImage("https://i.pravatar.cc/150?u=me"),
+                ),
+              ),
+              IconButton(
+                onPressed: () {},
+                icon: Icon(
+                  widget.isDark ? CupertinoIcons.sun_max_fill : CupertinoIcons.moon_fill,
+                  color: Colors.white.withOpacity(0.9),
+                  size: 22,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 15),
+          const Text(
+            "Moshé Ismaël",
+            style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            "+243 999 000 000",
+            style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCarouselItem(String title, IconData icon, Color color) {
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 2),
+      child: ListTile(
+        onTap: () => Navigator.pop(context),
+        dense: true,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: color, size: 20),
+        ),
+        title: Text(
+          title,
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w500,
+            color: widget.isDark ? Colors.white.withOpacity(0.9) : Colors.black87,
+          ),
+        ),
+        trailing: Icon(
+          CupertinoIcons.chevron_right,
+          size: 14,
+          color: widget.isDark ? Colors.white24 : Colors.black12,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDrawerFooter() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: widget.isDark ? Colors.black26 : Colors.grey.shade50,
+        borderRadius: const BorderRadius.only(bottomRight: Radius.circular(30)),
+      ),
+      child: InkWell(
+        onTap: () {},
+        child: Row(
+          children: [
+            ShaderMask(
+              shaderCallback: (bounds) => const LinearGradient(
+                colors: [Color(0xFF8E2DE2), Color(0xFF4A00E0)],
+              ).createShader(bounds),
+              child: const Icon(CupertinoIcons.star_circle_fill, color: Colors.white, size: 24),
+            ),
+            const SizedBox(width: 15),
+            const Expanded(
+              child: Text(
+                "Telegram Premium",
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+              ),
+            ),
+            Icon(CupertinoIcons.chevron_right, size: 16, color: accentColor),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- INTERFACE DE VERROUILLAGE ---
   Widget _buildLockScreenOverlayUI() {
     return Container(
-      width: 250, // Taille centrée et réduite
+      width: 250, 
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -172,10 +371,10 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
             padding: const EdgeInsets.all(15),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: const Color(0xFF00CBA9).withOpacity(0.1),
-              border: Border.all(color: const Color(0xFF00CBA9).withOpacity(0.2)),
+              color: accentColor.withOpacity(0.1),
+              border: Border.all(color: accentColor.withOpacity(0.2)),
             ),
-            child: const Icon(Icons.lock_rounded, size: 35, color: Color(0xFF00CBA9)),
+            child: Icon(CupertinoIcons.lock_shield_fill, size: 35, color: accentColor),
           ),
           const SizedBox(height: 15),
           const Text(
@@ -183,8 +382,6 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
             style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 1.5),
           ),
           const SizedBox(height: 30),
-
-          // Indicateurs PIN
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: List.generate(4, (i) => Container(
@@ -192,14 +389,12 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
               width: 10, height: 10,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: i < _inputPin.length ? const Color(0xFF00CBA9) : Colors.white10,
+                color: i < _inputPin.length ? accentColor : Colors.white10,
                 border: Border.all(color: Colors.white24),
               ),
             )),
           ),
           const SizedBox(height: 40),
-
-          // Pavé numérique réduit
           Column(
             children: [
               _buildKeyboardRow(["1", "2", "3"]),
@@ -220,7 +415,7 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: keys.map((key) => SizedBox(
-        width: 55, height: 55, // Touches plus petites
+        width: 55, height: 55, 
         child: _buildKeypadButton(key),
       )).toList(),
     );
@@ -251,7 +446,7 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
         child: Text(
           val,
           style: TextStyle(
-            color: val == "OK" ? const Color(0xFF00CBA9) : (val == "C" ? Colors.redAccent : Colors.white),
+            color: val == "OK" ? accentColor : (val == "C" ? Colors.redAccent : Colors.white),
             fontSize: (val == "OK" || val == "C") ? 14 : 20,
             fontWeight: FontWeight.bold,
           ),
@@ -260,7 +455,7 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
     );
   }
 
-  // --- TES MÉTHODES DE DESIGN ORIGINALES ---
+  // --- SECTIONS STORIES / TABS / LISTES ---
   Widget _buildStoriesSection() {
     final List<Map<String, String>> stories = [
       {"name": "Ma story", "img": "https://i.pravatar.cc/150?u=a"},
@@ -284,7 +479,7 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
                   padding: const EdgeInsets.all(2.5),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: index == 0 ? null : const LinearGradient(colors: [Colors.purple, Colors.blue, Colors.green]),
+                    gradient: index == 0 ? null : LinearGradient(colors: [accentColor.withOpacity(0.5), accentColor]),
                     border: index == 0 ? Border.all(color: Colors.grey, width: 1) : null,
                   ),
                   child: CircleAvatar(radius: 28, backgroundImage: NetworkImage(stories[index]['img']!)),
@@ -303,8 +498,8 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
     return TabBar(
       controller: _tabController,
       isScrollable: true,
-      indicatorColor: Colors.blue,
-      labelColor: Colors.blue,
+      indicatorColor: accentColor,
+      labelColor: accentColor,
       unselectedLabelColor: Colors.grey,
       tabs: [
         _tabItem("TOUS", "2"),
@@ -324,8 +519,8 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
             const SizedBox(width: 5),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(color: Colors.blue.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
-              child: Text(count, style: const TextStyle(fontSize: 10, color: Colors.blue)),
+              decoration: BoxDecoration(color: accentColor.withOpacity(0.2), borderRadius: BorderRadius.circular(10)),
+              child: Text(count, style: TextStyle(fontSize: 10, color: accentColor)),
             )
           ]
         ],
@@ -364,7 +559,7 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
       children: [
         FloatingActionButton(mini: true, heroTag: "btn1", backgroundColor: const Color(0xFF1D2C39), onPressed: () {}, child: const Icon(Icons.edit, color: Colors.white, size: 20)),
         const SizedBox(height: 10),
-        FloatingActionButton(heroTag: "btn2", backgroundColor: const Color(0xFF4BA3E3), onPressed: () {}, child: const Icon(Icons.camera_alt, color: Colors.white)),
+        FloatingActionButton(heroTag: "btn2", backgroundColor: accentColor, onPressed: () {}, child: const Icon(Icons.camera_alt, color: Colors.white)),
         const SizedBox(height: 80), 
       ],
     );
