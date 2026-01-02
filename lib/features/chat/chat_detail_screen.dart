@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
+import '../config/api_config.dart';
 
 class ChatDetailScreen extends StatefulWidget {
   final String name;
@@ -24,9 +25,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final List<Map<String, dynamic>> _messages = [];
   bool _isTyping = false;
 
-  // --- CONFIGURATION IA ---
-  // Remplace par ta clé si celle-ci expire
-  final String _apiKey = "AIzaSyCpaRNnqn9Da05c9yXwF1XRw2c2OA69k5M"; 
+
   late final GenerativeModel _model;
   late final ChatSession _chat;
 
@@ -36,7 +35,7 @@ void initState() {
 
 _model = GenerativeModel(
   model: 'gemini-2.5-flash', // Modèle Gemini
-  apiKey: _apiKey,
+  apiKey: ApiConfig.geminiApiKey,
 
   systemInstruction: Content.system(
     "Tu es Papa Jean, un père de famille congolais bienveillant, sage et protecteur. "
