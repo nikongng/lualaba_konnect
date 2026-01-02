@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'account_choice_page.dart';
-import 'ModernDashboard.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'ModernDashboard.dart';
 
 class AuthMainPage extends StatefulWidget {
   const AuthMainPage({super.key});
