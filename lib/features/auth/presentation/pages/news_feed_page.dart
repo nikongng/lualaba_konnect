@@ -1,12 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'AuthMainPage.dart';
-import 'dart:ui';
-import '../../../chat/chat_list_page.dart';
-import '../../../live/live_page.dart';
 
 // ==========================================
 // 0. DONNÉES CENTRALISÉES (10 ACTUALITÉS)

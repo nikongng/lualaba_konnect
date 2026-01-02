@@ -14,7 +14,6 @@ import 'package:syncfusion_flutter_pdf/pdf.dart';
 // --- AJOUTS FIREBASE ---
 import 'package:firebase_auth/firebase_auth.dart';
 import 'otp_verification_page.dart';
-import 'AuthMainPage.dart';
 
 class RegistrationFormPage extends StatefulWidget {
   final int profileType; // 0: Classique, 1: Pro, 2: Entreprise
