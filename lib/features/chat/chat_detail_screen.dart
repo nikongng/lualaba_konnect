@@ -26,7 +26,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   // --- CONFIGURATION IA ---
   // Remplace par ta clé si celle-ci expire
-  final String _apiKey = "AIzaSyC0ozSaCo2isDr4cMDzeHLFdMfp3greI_g"; 
+  final String _apiKey = "AIzaSyCpaRNnqn9Da05c9yXwF1XRw2c2OA69k5M"; 
   late final GenerativeModel _model;
   late final ChatSession _chat;
 
