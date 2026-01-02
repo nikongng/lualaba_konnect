@@ -362,7 +362,7 @@ class ChatListPageState extends State<ChatListPage> with TickerProviderStateMixi
 
   // --- INTERFACE DE VERROUILLAGE ---
   Widget _buildLockScreenOverlayUI() {
-    return Container(
+    return SizedBox(
       width: 250, 
       child: Column(
         mainAxisSize: MainAxisSize.min,

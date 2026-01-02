@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
-import 'account_choice_page.dart';
 import 'AuthMainPage.dart';
-import 'registration_form_page.dart';
 import 'package:flutter/services.dart';
 
 class OTPVerificationPage extends StatefulWidget {

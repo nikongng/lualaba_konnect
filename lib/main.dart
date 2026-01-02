@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart'; // AJOUTÉ
 import 'firebase_options.dart'; // AJOUTÉ
-import 'features/auth/presentation/pages/AuthMainPage.dart';
 import 'features/auth/presentation/pages/splash_screen.dart';
 
 void main() async {

@@ -76,7 +76,7 @@ class ProfilePageWidgets {
       child: ListTile(
         leading: Icon(icon, color: text.withOpacity(0.7)),
         title: Text(title, style: TextStyle(color: text, fontSize: 15)),
-        trailing: CupertinoSwitch(value: value, activeColor: Colors.orange, onChanged: onChanged ?? (v){}),
+        trailing: CupertinoSwitch(value: value, activeTrackColor: Colors.orange, onChanged: onChanged ?? (v){}),
       ),
     );
   }
