@@ -139,7 +139,7 @@ class _ModernDashboardState extends State<ModernDashboard> {
             const SizedBox(height: 25),
             ProfilePageWidgets.buildPremiumCard(),
             const SizedBox(height: 30),
-            ProfilePageWidgets.sectionTitle("COMPTE", subText),
+            ProfilePageWidgets.sectionTitle("MON COMPTE COMPTE", subText),
             ProfilePageWidgets.settingsTile(Icons.person_outline, "Informations personnelles", cardBg, textColor),
             ProfilePageWidgets.settingsTile(Icons.account_balance_wallet_outlined, "Portefeuille & Factures", cardBg, textColor, trailing: "3.50 \$"),
             const SizedBox(height: 20),
