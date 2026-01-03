@@ -39,13 +39,11 @@ class _HeaderWidgetState extends State<HeaderWidget> with SingleTickerProviderSt
     _updateDateTime();
     _loadSavedImage();
 
-    // Animation pour le titre et le bouton SOS
     _pulseController = AnimationController(
       duration: const Duration(seconds: 2),
       vsync: this,
     )..repeat(reverse: true);
 
-    // Simulation périodique de synchronisation pour le dynamisme du titre
     Timer.periodic(const Duration(seconds: 15), (timer) {
       if (mounted) {
         setState(() => _isSyncing = true);
@@ -61,8 +59,6 @@ class _HeaderWidgetState extends State<HeaderWidget> with SingleTickerProviderSt
     _pulseController.dispose();
     super.dispose();
   }
-
-  // --- GESTION DE L'IMAGE ---
 
   Future<void> _loadSavedImage() async {
     final prefs = await SharedPreferences.getInstance();
@@ -106,8 +102,6 @@ class _HeaderWidgetState extends State<HeaderWidget> with SingleTickerProviderSt
     if (mounted) Navigator.pop(context);
   }
 
-  // --- LOGIQUE TEMPORELLE ---
-
   void _updateDateTime() {
     final now = DateTime.now();
     _dateString = DateFormat('EEEE dd MMMM', 'fr_FR').format(now);
@@ -119,22 +113,26 @@ class _HeaderWidgetState extends State<HeaderWidget> with SingleTickerProviderSt
     else _greeting = "Bonsoir";
   }
 
-  // --- BUILDERS DE WIDGETS ---
-
   @override
   Widget build(BuildContext context) {
-    _updateDateTime(); // S'assure que l'heure est à jour lors du rebuild
+    _updateDateTime();
 
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Row(
-          children: [
-            _buildAvatar(),
-            const SizedBox(width: 15),
-            _buildInfoColumn(),
-          ],
+        // Partie gauche : Avatar + Infos (Flexible pour s'adapter à l'écran)
+        Expanded(
+          child: Row(
+            children: [
+              _buildAvatar(),
+              const SizedBox(width: 12),
+              // Expanded ici pour que la colonne de texte ne pousse pas le bouton SOS hors écran
+              Expanded(
+                child: _buildInfoColumn(),
+              ),
+            ],
+          ),
         ),
+        const SizedBox(width: 10),
         _buildSOSButton(),
       ],
     );
@@ -152,7 +150,7 @@ class _HeaderWidgetState extends State<HeaderWidget> with SingleTickerProviderSt
               border: Border.all(color: const Color(0xFF00CBA9).withOpacity(0.5), width: 2),
             ),
             child: CircleAvatar(
-              radius: 28,
+              radius: 26, // Taille légèrement réduite pour plus d'élégance
               backgroundColor: widget.isDark ? Colors.grey[900] : Colors.grey[200],
               backgroundImage: _imageFile != null 
                   ? FileImage(_imageFile!) as ImageProvider
@@ -172,16 +170,28 @@ class _HeaderWidgetState extends State<HeaderWidget> with SingleTickerProviderSt
   Widget _buildInfoColumn() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min, // S'adapte à la taille du contenu
       children: [
         _buildDynamicTitle(),
         const SizedBox(height: 2),
         Text(
           "$_greeting, Ir Punga",
-          style: TextStyle(color: widget.textColor, fontSize: 20, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: widget.textColor, 
+            fontSize: 16, // Taille réduite pour un meilleur rendu
+            fontWeight: FontWeight.bold,
+          ),
+          overflow: TextOverflow.ellipsis, // Ajoute "..." si le texte est trop long
+          maxLines: 1,
         ),
         Text(
           _dateString,
-          style: TextStyle(color: widget.isDark ? Colors.white60 : Colors.black45, fontSize: 13),
+          style: TextStyle(
+            color: widget.isDark ? Colors.white60 : Colors.black45, 
+            fontSize: 12, // Taille réduite
+          ),
+          overflow: TextOverflow.ellipsis,
+          maxLines: 1,
         ),
       ],
     );
@@ -191,28 +201,26 @@ class _HeaderWidgetState extends State<HeaderWidget> with SingleTickerProviderSt
     return FadeTransition(
       opacity: Tween<double>(begin: 0.5, end: 1.0).animate(_pulseController),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Container(
             width: 6, height: 6,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: _isSyncing ? Colors.orange : const Color(0xFF00CBA9),
-              boxShadow: [
-                BoxShadow(
-                  color: (_isSyncing ? Colors.orange : const Color(0xFF00CBA9)).withOpacity(0.4),
-                  blurRadius: 4, spreadRadius: 1,
-                )
-              ],
             ),
           ),
           const SizedBox(width: 6),
-          Text(
-            _isSyncing ? "SYNCHRONISATION..." : "LUALABACONNECT",
-            style: TextStyle(
-              color: _isSyncing ? Colors.orange : const Color(0xFF00CBA9),
-              fontSize: 10,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 1.5,
+          Flexible( // Permet au titre de se réduire si nécessaire
+            child: Text(
+              _isSyncing ? "SYNCHRONISATION..." : "LUALABACONNECT",
+              style: TextStyle(
+                color: _isSyncing ? Colors.orange : const Color(0xFF00CBA9),
+                fontSize: 9, // Légèrement réduit
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.2,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
         ],
@@ -228,16 +236,16 @@ class _HeaderWidgetState extends State<HeaderWidget> with SingleTickerProviderSt
           CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
         ),
         child: Container(
-          height: 50, width: 50,
+          height: 48, width: 48,
           decoration: BoxDecoration(
             color: const Color(0xFFD32F2F),
             shape: BoxShape.circle,
             boxShadow: [
-              BoxShadow(color: const Color(0xFFD32F2F).withOpacity(0.3), blurRadius: 10, spreadRadius: 2),
+              BoxShadow(color: const Color(0xFFD32F2F).withOpacity(0.3), blurRadius: 8, spreadRadius: 1),
             ],
           ),
           child: const Center(
-            child: Text("SOS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13)),
+            child: Text("SOS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12)),
           ),
         ),
       ),

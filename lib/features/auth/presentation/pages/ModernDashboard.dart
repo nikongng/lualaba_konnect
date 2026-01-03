@@ -232,20 +232,49 @@ Widget _buildHomePage(bool isDark, Color textColor) {
       child: const Row(children: [Icon(Icons.search, color: Colors.grey), SizedBox(width: 10), Text("Rechercher un service, un produit...", style: TextStyle(color: Colors.grey, fontSize: 14))]),
     );
   }
-  Widget _buildNewsSection(Color text, bool isDark) {
-    return Column(children: [
-      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Text("Actu", style: TextStyle(color: text, fontSize: 18, fontWeight: FontWeight.bold)),
-        GestureDetector(
-          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => const NewsFeedPage())),
-          child: const Text("Tout voir", style: TextStyle(color: Colors.orange, fontSize: 13))
-        )
-      ]),
-      const SizedBox(height: 15),
+// Voici la section et la carte optimisées pour un affichage parfait dans votre application
+
+Widget _buildNewsSection(Color text, bool isDark) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start, 
+    children: [
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4.0),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween, 
+          children: [
+            Text(
+              "Actu", 
+              style: TextStyle(
+                color: text, 
+                fontSize: 18, 
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.5,
+              )
+            ),
+            GestureDetector(
+              onTap: () => Navigator.push(
+                context, 
+                MaterialPageRoute(builder: (context) => const NewsFeedPage())
+              ),
+              child: const Text(
+                "Tout voir", 
+                style: TextStyle(
+                  color: Colors.orange, 
+                  fontSize: 13, 
+                  fontWeight: FontWeight.w600
+                )
+              )
+            )
+          ]
+        ),
+      ),
+      const SizedBox(height: 16),
       SizedBox(
-        height: 280,
+        height: 250, // Hauteur légèrement augmentée pour éviter les coupures de texte
         child: ListView.builder(
           scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.only(left: 4, bottom: 10), // Padding pour l'ombre portée
           itemCount: lualabaNewsData.length,
           itemBuilder: (context, index) {
             final item = lualabaNewsData[index];
@@ -258,53 +287,119 @@ Widget _buildHomePage(bool isDark, Color textColor) {
           },
         )
       ),
-    ]);
-  }
+    ]
+  );
+}
 
-  Widget _newsCard(String source, String title, bool isDark, String img) {
-    return Container(
-      width: 260,
-      margin: const EdgeInsets.only(right: 15),
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: isDark ? const Color(0xFF1E3E3B) : Colors.white,
-        borderRadius: BorderRadius.circular(25),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const CircleAvatar(radius: 12, backgroundColor: Colors.black),
-              const SizedBox(width: 8),
-              Expanded(child: Text(source, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12), overflow: TextOverflow.ellipsis)),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(15),
-              child: Image.network(
-                img,
-                fit: BoxFit.cover,
-                width: double.infinity,
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return Container(color: Colors.black12, child: const Center(child: CircularProgressIndicator(strokeWidth: 2)));
-                },
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(color: Colors.black12, child: const Center(child: Icon(Icons.broken_image_outlined, size: 40, color: Colors.grey)));
-                },
-              ),
+Widget _newsCard(String source, String title, bool isDark, String imageUrl) {
+  return Container(
+    width: 220, // Largeur optimisée pour la lisibilité
+    margin: const EdgeInsets.only(right: 16),
+    decoration: BoxDecoration(
+      color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+      borderRadius: BorderRadius.circular(20),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
+          blurRadius: 10,
+          offset: const Offset(0, 4),
+        )
+      ],
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Zone de l'image avec un ratio fixe
+        ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          child: Image.network(
+            imageUrl,
+            height: 130, 
+            width: double.infinity,
+            fit: BoxFit.cover,
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) return child;
+              return Container(
+                height: 130,
+                color: isDark ? Colors.white10 : Colors.grey[100],
+                child: const Center(
+                  child: SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.orange),
+                  ),
+                ),
+              );
+            },
+            errorBuilder: (context, error, stackTrace) => Container(
+              height: 130,
+              width: double.infinity,
+              color: isDark ? Colors.white10 : Colors.grey[200],
+              child: const Icon(Icons.broken_image_outlined, color: Colors.grey),
             ),
           ),
-          const SizedBox(height: 12),
-          Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: isDark ? Colors.white : Colors.black), maxLines: 2, overflow: TextOverflow.ellipsis),
-        ],
-      ),
-    );
-  }
-
+        ),
+        // Zone de contenu textuel
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      source.toUpperCase(),
+                      style: const TextStyle(
+                        color: Colors.orange, 
+                        fontSize: 10, 
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.1,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black87,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+                // Petit indicateur de temps ou d'action (optionnel)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    Icon(
+                      Icons.access_time, 
+                      size: 12, 
+                      color: isDark ? Colors.white38 : Colors.black38
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      "2h", 
+                      style: TextStyle(
+                        fontSize: 11, 
+                        color: isDark ? Colors.white38 : Colors.black38
+                      )
+                    ),
+                  ],
+                )
+              ],
+            ),
+          ),
+        )
+      ],
+    ),
+  );
+}
   Widget _buildServicesSection() {
     return Column(children: [
       _serviceTile("Services Rapides", "Food, Ménage, Auto & plus...", [const Color(0xFF448AFF), const Color(0xFF2962FF)], Icons.grid_view_rounded, "NOUVEAU"),
