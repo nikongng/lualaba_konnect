@@ -1,5 +1,5 @@
 name: lualaba_konnect
-description: "A new Flutter project."
+description: "A new Flutter project for Lualaba Konnect."
 publish_to: 'none'
 
 version: 1.0.0+1
@@ -31,7 +31,6 @@ dependencies:
   http: ^1.1.0
   flutter_dotenv: ^5.1.0
 
-
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -40,10 +39,14 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  assets:
-    - assets/logo.png
-    - .env
 
+  # Section Assets - Configuration optimisée
+  assets:
+    - .env
+    - assets/logo.png
+    - assets/images/ # Déclarer le dossier complet est souvent plus fiable
+
+# Configuration des icônes de l'application
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true

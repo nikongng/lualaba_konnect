@@ -13,9 +13,53 @@ class CopperCard extends StatefulWidget {
 }
 
 class _CopperCardState extends State<CopperCard> {
-  // Simuler ou récupérer les données réelles
-  String copperPrice = "9,450.50";
-  bool isLoading = false;
+  // Données dynamiques initialisées avec des valeurs par défaut
+  String copperPrice = "Chargement...";
+  String cobaltPrice = "Chargement...";
+  String copperChange = "0.00%";
+  String cobaltChange = "0.00%";
+  bool isCopperUp = true;
+  bool isCobaltUp = true;
+  bool isLoading = true;
+
+  // Utilisation d'URLs d'images plus directes et robustes (Source: Wikimedia/Pexels)
+  final String copperUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/NatCopper.jpg/200px-NatCopper.jpg";
+  final String cobaltUrl = "https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/Cobalt_ore_2.jpg/200px-Cobalt_ore_2.jpg";
+
+  @override
+  void initState() {
+    super.initState();
+    fetchPrices();
+  }
+
+  // Fonction pour récupérer les données depuis une API ou un service
+  Future<void> fetchPrices() async {
+    setState(() => isLoading = true);
+    try {
+      // Simulation d'un appel au service (À remplacer par votre service réel)
+      await Future.delayed(const Duration(seconds: 2)); 
+
+      if (mounted) {
+        setState(() {
+          copperPrice = "9,450.50";
+          cobaltPrice = "24,290.00";
+          copperChange = "+1.25%";
+          cobaltChange = "-0.45%";
+          isCopperUp = true;
+          isCobaltUp = false;
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          copperPrice = "Erreur";
+          cobaltPrice = "Erreur";
+          isLoading = false;
+        });
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -38,20 +82,27 @@ class _CopperCardState extends State<CopperCard> {
             context,
             label: "CUIVRE (LME)",
             price: copperPrice,
-            change: "+1.25%",
-            isUp: true,
+            change: copperChange,
+            isUp: isCopperUp,
             color: Colors.orange.shade800,
             chartPoints: [10, 12, 9, 15, 14, 18, 20],
+            imageUrl: copperUrl,
           ),
-          Divider(height: 1, color: Colors.grey.withOpacity(0.1), indent: 20, endIndent: 20),
+          Divider(
+            height: 1, 
+            color: Colors.grey.withOpacity(0.1), 
+            indent: 20, 
+            endIndent: 20
+          ),
           _buildMetalRow(
             context,
             label: "COBALT (LME)",
-            price: "24,290.00",
-            change: "-0.45%",
-            isUp: false,
+            price: cobaltPrice,
+            change: cobaltChange,
+            isUp: isCobaltUp,
             color: Colors.blue.shade900,
             chartPoints: [18, 17, 19, 16, 15, 14, 13],
+            imageUrl: cobaltUrl,
           ),
         ],
       ),
@@ -66,9 +117,9 @@ class _CopperCardState extends State<CopperCard> {
     required bool isUp,
     required Color color,
     required List<double> chartPoints,
+    required String imageUrl,
   }) {
     return InkWell(
-      // ACTION DE CLIC ACTIVÉE
       onTap: () {
         Navigator.push(
           context,
@@ -88,47 +139,87 @@ class _CopperCardState extends State<CopperCard> {
         padding: const EdgeInsets.all(20),
         child: Row(
           children: [
-            // Icône
+            // Affichage de l'image réseau avec indicateur de progression
             Container(
-              height: 45,
-              width: 45,
+              height: 52,
+              width: 52,
               decoration: BoxDecoration(
+                shape: BoxShape.circle,
                 color: color.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(15),
+                border: Border.all(
+                  color: color.withOpacity(0.2), 
+                  width: 1
+                ),
               ),
-              child: Icon(Icons.analytics_rounded, color: color),
+              child: ClipOval(
+                child: Image.network(
+                  imageUrl,
+                  fit: BoxFit.cover,
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return Center(
+                      child: SizedBox(
+                        width: 15,
+                        height: 15,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(color),
+                        ),
+                      ),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) {
+                    // Si l'URL échoue, on affiche une icône stylisée
+                    return Icon(Icons.layers_rounded, color: color, size: 28);
+                  },
+                ),
+              ),
             ),
             const SizedBox(width: 15),
-            
-            // Textes
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 1.2, color: Colors.grey)),
+                  Text(
+                    label, 
+                    style: const TextStyle(
+                      fontSize: 10, 
+                      fontWeight: FontWeight.w900, 
+                      letterSpacing: 1.2, 
+                      color: Colors.grey
+                    )
+                  ),
                   const SizedBox(height: 2),
-                  Text("\$$price", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  isLoading 
+                    ? const Text("...", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))
+                    : Text(
+                        "\$$price", 
+                        style: const TextStyle(
+                          fontSize: 18, 
+                          fontWeight: FontWeight.bold
+                        )
+                      ),
                 ],
               ),
             ),
-
-            // Mini Graphique
             SizedBox(
               width: 60,
               height: 30,
               child: CustomPaint(
-                painter: SparklinePainter(chartPoints, isUp ? Colors.green : Colors.red),
+                painter: SparklinePainter(
+                  chartPoints, 
+                  isUp ? Colors.green : Colors.red
+                ),
               ),
             ),
-            
             const SizedBox(width: 15),
-
-            // Badge %
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
-                color: isUp ? Colors.green.withOpacity(0.1) : Colors.red.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
+                color: isUp 
+                    ? Colors.green.withOpacity(0.1) 
+                    : Colors.red.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(10),
               ),
               child: Text(
                 change,
@@ -146,7 +237,6 @@ class _CopperCardState extends State<CopperCard> {
   }
 }
 
-// Le Peintre pour la petite courbe
 class SparklinePainter extends CustomPainter {
   final List<double> points;
   final Color color;
@@ -154,18 +244,18 @@ class SparklinePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (points.isEmpty) return;
     final paint = Paint()
       ..color = color
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.0
-      ..strokeCap = StrokeCap.round;
-
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
     final path = Path();
     final double stepX = size.width / (points.length - 1);
     final double maxY = points.reduce((a, b) => a > b ? a : b);
     final double minY = points.reduce((a, b) => a < b ? a : b);
     final double range = (maxY - minY) == 0 ? 1 : (maxY - minY);
-
     for (int i = 0; i < points.length; i++) {
       final x = i * stepX;
       final y = size.height - ((points[i] - minY) / range * size.height);
