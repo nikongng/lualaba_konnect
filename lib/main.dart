@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart'; // AJOUTÉ
 import 'firebase_options.dart'; // AJOUTÉ
 import 'features/auth/presentation/pages/splash_screen.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 void main() async {
   // AJOUTÉ : Indispensable pour Firebase
@@ -11,7 +12,7 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-
+  await dotenv.load(fileName: ".env"); // Chargement crucial
   runApp(const MyApp());
 }
 

@@ -35,7 +35,7 @@ void initState() {
 
 _model = GenerativeModel(
   model: 'gemini-2.5-flash', // Modèle Gemini
-  apiKey: ApiConfig.geminiApiKey,
+  apiKey: ApiConfig.geminiKey,
 
   systemInstruction: Content.system(
     "Tu es Papa Jean, un père de famille congolais bienveillant, sage et protecteur. "

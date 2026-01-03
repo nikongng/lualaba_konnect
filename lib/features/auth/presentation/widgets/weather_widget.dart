@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
+import '../../../config/api_config.dart';
 
 class WeatherWidget extends StatefulWidget {
   final bool isDark;
@@ -57,9 +58,9 @@ class _WeatherWidgetState extends State<WeatherWidget> with SingleTickerProvider
 
   Future<void> fetchWeatherData() async {
     // REMPLACE PAR TA CLÉ RÉELLE ICI
-    const String apiKey = "e58c0e86611320659c9e44676621201e"; 
-    const String city = "Kolwezi";
-    const String url = "https://api.openweathermap.org/data/2.5/weather?q=$city&appid=$apiKey&units=metric&lang=fr";
+    final String apiKey = ApiConfig.openWeatherKey; 
+    final String city = "Kolwezi";
+    final String url = "https://api.openweathermap.org/data/2.5/weather?q=$city&appid=$apiKey&units=metric&lang=fr";
 
     try {
       final response = await http.get(Uri.parse(url));
