@@ -29,7 +29,7 @@ class _MastaCardState extends State<MastaCard> with SingleTickerProviderStateMix
     
 _model = GenerativeModel(
   model: 'gemini-2.5-flash', // Modèle Gemini
-  apiKey: ApiConfig.geminiApiKey,
+  apiKey: ApiConfig.geminiKey,
 
   systemInstruction: Content.system(
    "Tu es Masta, un ami bienveillant, sage et protecteur. "
