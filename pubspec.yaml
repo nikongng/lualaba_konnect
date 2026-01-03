@@ -42,9 +42,10 @@ flutter:
 
   # Section Assets - Configuration optimisée
   assets:
+assets:
     - .env
     - assets/logo.png
-    - assets/images/ # Déclarer le dossier complet est souvent plus fiable
+    - assets/images/
 
 # Configuration des icônes de l'application
 flutter_launcher_icons:
