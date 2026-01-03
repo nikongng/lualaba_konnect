@@ -1,7 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
-import '../config/api_config.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // Import indispensable
 
 class ChatDetailScreen extends StatefulWidget {
   final String name;
@@ -25,38 +25,43 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   final List<Map<String, dynamic>> _messages = [];
   bool _isTyping = false;
 
-
   late final GenerativeModel _model;
   late final ChatSession _chat;
 
-@override
-void initState() {
-  super.initState();
+  @override
+  void initState() {
+    super.initState();
+    _initGemini();
+  }
 
-_model = GenerativeModel(
-  model: 'gemini-2.5-flash', // Modèle Gemini
-  apiKey: ApiConfig.geminiKey,
+  void _initGemini() {
+    // On récupère la clé depuis le .env (géré par Codemagic en prod)
+    final String apiKey ='AIzaSyC1HAM3Poy6oQYR_Y0pT0duyv_Hxib4knU';
 
-  systemInstruction: Content.system(
-    "Tu es Papa Jean, un père de famille congolais bienveillant, sage et protecteur. "
-    "Tu t'adresses à ton enfant avec affection (utilise des mots comme 'mon fils', 'ma fille', 'mon enfant'). "
-    "Tu es actuellement au Lualaba pour superviser un projet important. "
-    "Ton ton est encourageant, tu donnes souvent des conseils de vie et tu insistes sur l'importance du travail et de la famille. "
-    "Tu réponds de manière concise, comme sur WhatsApp, et tu utilises parfois des expressions chaleureuses."
-  ),
-);
+    _model = GenerativeModel(
+      model: 'gemini-2.5-flash', // Modèle stable et gratuit
+      apiKey: apiKey,
+      systemInstruction: Content.system(
+        "Tu es Papa Jean, un père de famille congolais bienveillant, sage et protecteur. "
+        "Tu t'adresses à ton enfant avec affection (utilise des mots comme 'mon fils', 'ma fille', 'mon enfant'). "
+        "Tu es actuellement au Lualaba pour superviser un projet important. "
+        "Ton ton est encourageant, tu donnes souvent des conseils de vie et tu insistes sur l'importance du travail et de la famille. "
+        "Tu réponds de manière concise, comme sur WhatsApp, et tu utilises parfois des expressions chaleureuses."
+      ),
+    );
 
+    _chat = _model.startChat();
 
-  _chat = _model.startChat();
+    _messages.add({
+      "text": "Bonjour ! Je suis l'IA de ${widget.name}. Comment puis-je t'aider ?",
+      "isMe": false,
+      "time": _getTime(),
+    });
+  }
 
-  _messages.add({
-    "text": "Bonjour ! Je suis l'IA de ${widget.name}. Comment puis-je t'aider ?",
-    "isMe": false,
-    "time": _getTime(),
-  });
-}
   String _getTime() {
-    return "${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}";
+    final now = DateTime.now();
+    return "${now.hour}:${now.minute.toString().padLeft(2, '0')}";
   }
 
   void _scrollToBottom() {
@@ -83,7 +88,6 @@ _model = GenerativeModel(
     _scrollToBottom();
 
     try {
-      // 3. Envoi du message à Gemini via la session de chat
       final response = await _chat.sendMessage(Content.text(userText));
       
       setState(() {
@@ -97,12 +101,17 @@ _model = GenerativeModel(
         }
       });
     } catch (e) {
-  setState(() => _isTyping = false);
-  print("ERREUR TECHNIQUE GEMINI : $e"); // Cela va afficher l'erreur précise en bas
-  
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(content: Text("Détail de l'erreur : $e")), 
-  );
+      setState(() => _isTyping = false);
+      debugPrint("ERREUR TECHNIQUE GEMINI : $e");
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Détail de l'erreur : $e"),
+            backgroundColor: Colors.redAccent,
+          ), 
+        );
+      }
     }
     _scrollToBottom();
   }
@@ -152,7 +161,6 @@ _model = GenerativeModel(
       ),
       body: Stack(
         children: [
-          // Wallpaper de fond
           Positioned.fill(
             child: Opacity(
               opacity: widget.isDark ? 0.05 : 0.08,
@@ -296,7 +304,6 @@ _model = GenerativeModel(
   }
 }
 
-// --- CLASSE PULSE (Animation d'apparition) ---
 class PulseBubble extends StatefulWidget {
   final Widget child;
   const PulseBubble({super.key, required this.child});

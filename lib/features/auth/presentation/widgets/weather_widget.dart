@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:async';
-import '../../../config/api_config.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart'; // Import indispensable
+
 
 class WeatherWidget extends StatefulWidget {
   final bool isDark;
@@ -58,7 +59,7 @@ class _WeatherWidgetState extends State<WeatherWidget> with SingleTickerProvider
 
   Future<void> fetchWeatherData() async {
     // REMPLACE PAR TA CLÉ RÉELLE ICI
-    final String apiKey = ApiConfig.openWeatherKey; 
+    final String apiKey ='e58c0e86611320659c9e44676621201e'; 
     final String city = "Kolwezi";
     final String url = "https://api.openweathermap.org/data/2.5/weather?q=$city&appid=$apiKey&units=metric&lang=fr";
 

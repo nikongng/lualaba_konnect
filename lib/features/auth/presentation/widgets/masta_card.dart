@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
-import '../../../config/api_config.dart';
+
 
 class MastaCard extends StatefulWidget {
   final Function(String) onChatSubmit;
@@ -26,10 +26,10 @@ class _MastaCardState extends State<MastaCard> with SingleTickerProviderStateMix
   @override
   void initState() {
     super.initState();
-    
+final String apiKey ='AIzaSyC1HAM3Poy6oQYR_Y0pT0duyv_Hxib4knU';
 _model = GenerativeModel(
   model: 'gemini-2.5-flash', // Modèle Gemini
-  apiKey: ApiConfig.geminiKey,
+  apiKey: apiKey,
 
   systemInstruction: Content.system(
    "Tu es Masta, un ami bienveillant, sage et protecteur. "

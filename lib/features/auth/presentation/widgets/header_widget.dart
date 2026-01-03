@@ -127,7 +127,7 @@ class _HeaderWidgetState extends State<HeaderWidget> with SingleTickerProviderSt
               const SizedBox(width: 12),
               // Expanded ici pour que la colonne de texte ne pousse pas le bouton SOS hors écran
               Expanded(
-                child: _buildInfoColumn(),
+                child: _buildInfoColumn(), 
               ),
             ],
           ),
