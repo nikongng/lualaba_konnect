@@ -59,7 +59,7 @@ class _WeatherWidgetState extends State<WeatherWidget> with SingleTickerProvider
 
   Future<void> fetchWeatherData() async {
     // REMPLACE PAR TA CLÉ RÉELLE ICI
-    final String apiKey ='e58c0e86611320659c9e44676621201e'; 
+  const String apiKey = String.fromEnvironment('OPENWEATHER_KEY');
     final String city = "Kolwezi";
     final String url = "https://api.openweathermap.org/data/2.5/weather?q=$city&appid=$apiKey&units=metric&lang=fr";
 

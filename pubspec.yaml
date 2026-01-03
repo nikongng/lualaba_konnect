@@ -29,6 +29,7 @@ dependencies:
   video_player: ^2.8.1
   google_generative_ai: ^0.4.7
   http: ^1.1.0
+  # Note : flutter_dotenv peut être retiré si vous utilisez uniquement Codemagic/dart-define
   flutter_dotenv: ^5.1.0
 
 dev_dependencies:
@@ -40,10 +41,8 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-  # Section Assets - Configuration optimisée
+  # Section Assets corrigée : Respectez bien ces 2 espaces d'indentation
   assets:
-assets:
-    - .env
     - assets/logo.png
     - assets/images/
 
