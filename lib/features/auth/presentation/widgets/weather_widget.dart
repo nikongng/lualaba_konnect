@@ -189,7 +189,7 @@ class _WeatherWidgetState extends State<WeatherWidget> with SingleTickerProvider
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text("KOLWEZI • LIVE", style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 2)),
+              const Text("KOLWEZI •", style: TextStyle(color: Colors.white70, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 2)),
               const SizedBox(height: 5),
               Text("$temperature°", style: const TextStyle(color: Colors.white, fontSize: 55, fontWeight: FontWeight.bold)),
               Text(condition.toUpperCase(), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w400, letterSpacing: 1)),
