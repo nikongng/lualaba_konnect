@@ -12,7 +12,12 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  await dotenv.load(fileName: ".env"); // Chargement crucial
+ try {
+    await dotenv.load(fileName: ".env");
+    debugPrint("Fichier .env chargé avec succès");
+  } catch (e) {
+    debugPrint("⚠️ Attention : Le fichier .env est introuvable. L'IA utilisera la clé par défaut.");
+  }
   runApp(const MyApp());
 }
 
