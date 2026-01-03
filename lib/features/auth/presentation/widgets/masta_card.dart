@@ -26,7 +26,7 @@ class _MastaCardState extends State<MastaCard> with SingleTickerProviderStateMix
   @override
   void initState() {
     super.initState();
-final String apiKey ='AIzaSyC1HAM3Poy6oQYR_Y0pT0duyv_Hxib4knU';
+const String apiKey = String.fromEnvironment('GEMINI_KEY');
 _model = GenerativeModel(
   model: 'gemini-2.5-flash', // Modèle Gemini
   apiKey: apiKey,

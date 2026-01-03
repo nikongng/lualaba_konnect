@@ -36,7 +36,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   void _initGemini() {
     // On récupère la clé depuis le .env (géré par Codemagic en prod)
-    final String apiKey ='AIzaSyC1HAM3Poy6oQYR_Y0pT0duyv_Hxib4knU';
+    const String apiKey = String.fromEnvironment('GEMINI_KEY'); 
 
     _model = GenerativeModel(
       model: 'gemini-2.5-flash', // Modèle stable et gratuit
