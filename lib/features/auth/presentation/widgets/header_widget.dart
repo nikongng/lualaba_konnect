@@ -26,6 +26,7 @@ class _HeaderWidgetState extends State<HeaderWidget> with SingleTickerProviderSt
   File? _imageFile;
   final ImagePicker _picker = ImagePicker();
   static const String _storageKey = "user_profile_image_path";
+  Timer? _syncTimer;
   
   late String _dateString;
   late String _greeting;
@@ -36,6 +37,7 @@ class _HeaderWidgetState extends State<HeaderWidget> with SingleTickerProviderSt
   void initState() {
     super.initState();
     initializeDateFormatting('fr_FR', null);
+    _syncTimer = Timer.periodic(const Duration(seconds: 15), (timer) {  });
     _updateDateTime();
     _loadSavedImage();
 
@@ -58,6 +60,7 @@ class _HeaderWidgetState extends State<HeaderWidget> with SingleTickerProviderSt
   void dispose() {
     _pulseController.dispose();
     super.dispose();
+    _syncTimer?.cancel();
   }
 
   Future<void> _loadSavedImage() async {

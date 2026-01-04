@@ -29,8 +29,9 @@ dependencies:
   video_player: ^2.8.1
   google_generative_ai: ^0.4.7
   http: ^1.1.0
-  # Note : flutter_dotenv peut être retiré si vous utilisez uniquement Codemagic/dart-define
-  flutter_dotenv: ^5.1.0
+  sensors_plus: ^6.1.1
+  flutter_local_notifications: ^17.2.1
+
 
 dev_dependencies:
   flutter_test:
@@ -52,5 +53,5 @@ flutter_launcher_icons:
   ios: true
   image_path: "assets/logo.png"
   min_sdk_android: 21
-  adaptive_icon_background: "#012E32"
+  adaptive_icon_background: "#f26522"
   adaptive_icon_foreground: "assets/logo.png"

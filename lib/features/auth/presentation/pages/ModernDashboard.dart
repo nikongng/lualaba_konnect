@@ -2,21 +2,29 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:ui';
+import 'package:geolocator/geolocator.dart';
+import 'package:flutter/services.dart';
 
+// Tes imports originaux
+import '../widgets/services/services_tiles/rapid_services_tile.dart';
+import '../widgets/services/services_tiles/job_announcement_tile.dart';
+import '../widgets/services/services_tiles/daily_tip_tile.dart';
 import '../../../chat/chat_list_page.dart';
 import '../../../live/live_page.dart';
+import '../../../marketplace/marketplace_page.dart';
 import 'news_feed_page.dart';
 import 'profile_page_widgets.dart';
 import '../widgets/floating_nav_bar.dart';
-// Import du nouveau widget météo
-import '../widgets/weather_widget.dart'; 
-import '../widgets/header_widget.dart'; 
+import '../widgets/weather_widget.dart';
+import '../widgets/header_widget.dart';
 import '../widgets/masta_card.dart';
 import '../widgets/copper_card.dart';
 
-// ==========================================
-// 2. DASHBOARD PRINCIPAL (MODULARISÉ)
-// ==========================================
+final List<Map<String, dynamic>> lualabaNewsData = [
+  {'source': 'Lualaba News', 'title': 'Nouveau projet minier à Kolwezi', 'images': ['https://placeholder.com/150']},
+  {'source': 'Info DRC', 'title': 'Météo : Fortes pluies prévues', 'images': ['https://placeholder.com/150']},
+];
+
 class ModernDashboard extends StatefulWidget {
   const ModernDashboard({super.key});
   @override
@@ -28,14 +36,23 @@ class _ModernDashboardState extends State<ModernDashboard> {
   int _selectedIndex = 0;
   bool _isDarkMode = true;
 
+  // --- FONCTIONS SOS ---
   Future<void> _makeCall(String phoneNumber) async {
     final Uri launchUri = Uri(scheme: 'tel', path: phoneNumber);
     if (await canLaunchUrl(launchUri)) {
       await launchUrl(launchUri);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Impossible d'ouvrir l'application de téléphone")));
-      }
+    }
+  }
+
+  Future<void> _sendGPSAlert() async {
+    try {
+      HapticFeedback.heavyImpact();
+      Position position = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+      final String message = "🚨 SOS URGENCE - Ir Punga 🚨\nPosition : https://www.google.com/maps?q=${position.latitude},${position.longitude}";
+      final Uri smsUri = Uri(scheme: 'sms', path: '112', queryParameters: {'body': message});
+      if (await canLaunchUrl(smsUri)) await launchUrl(smsUri);
+    } catch (e) {
+      debugPrint("Erreur GPS : $e");
     }
   }
 
@@ -50,10 +67,6 @@ class _ModernDashboardState extends State<ModernDashboard> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              const Row(children: [Icon(Icons.warning_rounded, color: Colors.red, size: 30), SizedBox(width: 10), Text("URGENCE", style: TextStyle(color: Colors.red, fontSize: 22, fontWeight: FontWeight.w900))]),
-              IconButton(onPressed: () => Navigator.pop(context), icon: const CircleAvatar(backgroundColor: Color(0xFFF5F5F5), child: Icon(Icons.close, color: Colors.black54))),
-            ]),
             const SizedBox(height: 25),
             _buildSOSItem("Police", "Intervention rapide", "112", const Color(0xFF2962FF), Icons.shield),
             const SizedBox(height: 15),
@@ -61,10 +74,13 @@ class _ModernDashboardState extends State<ModernDashboard> {
             const SizedBox(height: 15),
             _buildSOSItem("Pompiers", "Incendie & Sauvetage", "119", const Color(0xFFFF9100), Icons.local_fire_department),
             const SizedBox(height: 30),
-            Container(
-              width: double.infinity, height: 60,
-              decoration: BoxDecoration(color: const Color(0xFFFFEBEE), borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFFFCDD2))),
-              child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.location_on_outlined, color: Colors.red), SizedBox(width: 10), Text("Envoyer ma position GPS", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))]),
+            InkWell(
+              onTap: () { Navigator.pop(context); _sendGPSAlert(); },
+              child: Container(
+                width: double.infinity, height: 60,
+                decoration: BoxDecoration(color: const Color(0xFFFFEBEE), borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFFFCDD2))),
+                child: const Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.location_on_outlined, color: Colors.red), SizedBox(width: 10), Text("Envoyer ma position GPS", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))]),
+              ),
             ),
             const SizedBox(height: 20),
           ],
@@ -84,7 +100,30 @@ class _ModernDashboardState extends State<ModernDashboard> {
           const SizedBox(width: 15),
           Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)), Text(sub, style: const TextStyle(color: Colors.white70, fontSize: 12))])),
           Text(number, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 24)),
-        ]), 
+        ]),
+      ),
+    );
+  }
+
+  void _showFilterMenu(BuildContext context, bool isDark) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: isDark ? const Color(0xFF012E32) : Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text("Filtrer la recherche", style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
+            ListTile(
+              leading: const Icon(Icons.location_on, color: Colors.orange),
+              title: Text("Proximité (Kolwezi Centre)", style: TextStyle(color: isDark ? Colors.white : Colors.black)),
+              onTap: () => Navigator.pop(context),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -95,332 +134,256 @@ class _ModernDashboardState extends State<ModernDashboard> {
     final Color bgColor = isDark ? const Color(0xFF012E32) : const Color(0xFFF2F4F5);
     final Color textColor = isDark ? Colors.white : const Color(0xFF012E32);
 
-    return Scaffold(
-      backgroundColor: bgColor,
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 414),
-          child: Stack(
-            children: [
-          IndexedStack(
-            index: _selectedIndex,
-            children: [
-              _buildHomePage(isDark, textColor), // Index 0
-              ChatListPage(key: _chatKey, isDark: isDark),       // Index 1
-              const LivePage(),                  // Index 2
-              const Center(child: Text("Market")),
-              _buildProfilePage(isDark, textColor),
-            ],
-          ),
-              FloatingNavBar(
-                isDark: isDark,
-                selectedIndex: _selectedIndex,
-                onIndexChanged: (index) => setState(() => _selectedIndex = index),
-                chatKey: _chatKey,
-              ),
-            ],
+    // CACHER LA NAVBAR SUR LIVE (2) ET MARKET (3)
+    bool isNavBarVisible = _selectedIndex != 2 && _selectedIndex != 3;
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        if (_selectedIndex != 0) setState(() => _selectedIndex = 0);
+        else SystemNavigator.pop();
+      },
+      child: Scaffold(
+        backgroundColor: bgColor,
+        body: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 414),
+            child: Stack(
+              children: [
+                // TRANSITION DE LUXE (ZOOM + FADE)
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 600),
+                  switchInCurve: Curves.easeInOutQuart,
+                  switchOutCurve: Curves.easeInOutQuart,
+                  transitionBuilder: (Widget child, Animation<double> animation) {
+                    final scaleAnimation = Tween<double>(begin: 0.92, end: 1.0).animate(animation);
+                    final fadeAnimation = CurvedAnimation(parent: animation, curve: const Interval(0.5, 1.0));
+                    return FadeTransition(opacity: fadeAnimation, child: ScaleTransition(scale: scaleAnimation, child: child));
+                  },
+                  child: _buildCurrentPage(isDark, textColor),
+                ),
+
+                // NAVBAR ANIMÉE
+                AnimatedPositioned(
+                  duration: const Duration(milliseconds: 500),
+                  curve: Curves.fastOutSlowIn,
+                  left: 0, right: 0,
+                  bottom: isNavBarVisible ? 0 : -120, // Disparaît complètement
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 300),
+                    opacity: isNavBarVisible ? 1.0 : 0.0,
+                    child: FloatingNavBar(
+                      isDark: isDark,
+                      selectedIndex: _selectedIndex,
+                      onIndexChanged: (index) => setState(() => _selectedIndex = index),
+                      chatKey: _chatKey,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildProfilePage(bool isDark, Color textColor) {
-    final Color cardBg = isDark ? const Color(0xFF1E3E3B) : Colors.white;
-    final Color subText = isDark ? Colors.white60 : Colors.black54;
+  Widget _buildCurrentPage(bool isDark, Color textColor) {
+    switch (_selectedIndex) {
+      case 0: return _buildHomePage(isDark, textColor, key: const ValueKey('home_ui'));
+      case 1: return ChatListPage(key: _chatKey, isDark: isDark);
+      case 2: return LivePage(key: const ValueKey('live_ui'), onBack: () => setState(() => _selectedIndex = 0));
+      case 3: return MarketplacePage(key: const ValueKey('market_ui'), onBack: () => setState(() => _selectedIndex = 0));
+      case 4: return _buildProfilePage(isDark, textColor, key: const ValueKey('profile_ui'));
+      default: return _buildHomePage(isDark, textColor, key: const ValueKey('home_ui'));
+    }
+  }
 
+  // --- SECTIONS DU DASHBOARD ---
+  Widget _buildHomePage(bool isDark, Color textColor, {Key? key}) {
+    final Color cardBg = isDark ? const Color(0xFF1E3E3B).withOpacity(0.8) : Colors.white;
     return SafeArea(
+      key: key,
       child: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 24.0),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ProfilePageWidgets.buildActionTile("Ma Santé", "Dossier médical, RDV, IA Santé", Icons.favorite_border, const Color(0xFF00CBA9)),
-            const SizedBox(height: 12),
-            ProfilePageWidgets.buildActionTile("Espace Adultes (+18)", "Rencontres, Jeux & Fun", Icons.whatshot, Colors.redAccent),
+            const SizedBox(height: 20),
+            HeaderWidget(isDark: isDark, textColor: textColor, onSOSPressed: _showSOSMenu),
             const SizedBox(height: 25),
-            ProfilePageWidgets.buildPremiumCard(),
+            WeatherWidget(isDark: isDark, bg: cardBg, text: textColor, sub: isDark ? Colors.white70 : Colors.black54),
+            const SizedBox(height: 25),
+            MastaCard(onChatSubmit: (q) => debugPrint(q)),
+            const SizedBox(height: 25),
+            _buildSearchBar(isDark),
             const SizedBox(height: 30),
-            ProfilePageWidgets.sectionTitle("MON COMPTE COMPTE", subText),
-            ProfilePageWidgets.settingsTile(Icons.person_outline, "Informations personnelles", cardBg, textColor),
-            ProfilePageWidgets.settingsTile(Icons.account_balance_wallet_outlined, "Portefeuille & Factures", cardBg, textColor, trailing: "3.50 \$"),
-            const SizedBox(height: 20),
-            ProfilePageWidgets.sectionTitle("PRÉFÉRENCES", subText),
-            ProfilePageWidgets.settingsSwitchTile(Icons.notifications_none, "Notifications", true, cardBg, textColor),
-            ProfilePageWidgets.settingsSwitchTile(Icons.dark_mode_outlined, "Mode Sombre", _isDarkMode, cardBg, textColor, (v) => setState(() => _isDarkMode = v)),
-            const SizedBox(height: 20),
-            ProfilePageWidgets.sectionTitle("SUPPORT", subText),
-            ProfilePageWidgets.settingsTile(Icons.help_outline, "Centre d'aide", cardBg, textColor),
+            const CopperCard(),
             const SizedBox(height: 30),
-            ProfilePageWidgets.logoutButton(),
-            const SizedBox(height: 120),
+            _buildNewsSection(textColor, isDark),
+            const SizedBox(height: 30),
+            _buildServicesSection(isDark),
+            const SizedBox(height: 130),
           ],
         ),
       ),
     );
   }
 
-Widget _buildHomePage(bool isDark, Color textColor) {
-  final Color cardBg = isDark ? const Color(0xFF1E3E3B).withOpacity(0.8) : Colors.white;
-  final Color subTextColor = isDark ? Colors.white70 : Colors.black54;
-
-  return SafeArea(
-    child: SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 24.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 20),
-          
-          // 1. NOUVEAU HEADER EXTERNE DYNAMIQUE
-          HeaderWidget(
-            isDark: isDark,
-            textColor: textColor,
-            onSOSPressed: _showSOSMenu, // Assurez-vous que cette fonction existe toujours
-          ),
-          
-          const SizedBox(height: 25),
-
-          // 2. WIDGET MÉTÉO (KOLWEZI)
-          WeatherWidget(
-            isDark: isDark,
-            bg: cardBg,
-            text: textColor,
-            sub: subTextColor,
-          ),
-          
-          const SizedBox(height: 25),
-
-          // 3. CARTE MASTA CHAT
-          MastaCard(
-            onChatSubmit: (question) {
-              print("Question reçue : $question");
-              // C'est ici que vous gérerez la réponse de l'assistant
-            },
-          ),
-
-          const SizedBox(height: 25),
-
-          // 4. BARRE DE RECHERCHE
-          _buildSearchBar(isDark),
-
-          const SizedBox(height: 30),
-
-          // 5. COURS DU CUIVRE (BOURSE LUALABA)
-          const CopperCard(),
-
-          const SizedBox(height: 30),
-
-          // 6. ACTUALITÉS
-          _buildNewsSection(textColor, isDark),
-
-          const SizedBox(height: 30),
-
-          // 7. SERVICES RAPIDES
-          _buildServicesSection(),
-
-          const SizedBox(height: 130), // Espace pour la barre de navigation
-        ],
-      ),
-    ),
-  );
-}
   Widget _buildSearchBar(bool isDark) {
     return Container(
-      height: 55, decoration: BoxDecoration(color: isDark ? Colors.white.withOpacity(0.05) : Colors.white, borderRadius: BorderRadius.circular(30), border: isDark ? null : Border.all(color: Colors.black12)),
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: const Row(children: [Icon(Icons.search, color: Colors.grey), SizedBox(width: 10), Text("Rechercher un service, un produit...", style: TextStyle(color: Colors.grey, fontSize: 14))]),
+      height: 55,
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E3E3B).withOpacity(0.5) : Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: isDark ? Colors.white10 : Colors.black12),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 15),
+      child: Row(
+        children: [
+          Icon(Icons.search_rounded, color: isDark ? Colors.white54 : Colors.grey, size: 22),
+          const Expanded(child: TextField(decoration: InputDecoration(hintText: "Rechercher...", border: InputBorder.none))),
+          IconButton(icon: const Icon(Icons.tune_rounded, color: Colors.orange), onPressed: () => _showFilterMenu(context, isDark)),
+        ],
+      ),
     );
   }
-// Voici la section et la carte optimisées pour un affichage parfait dans votre application
 
 Widget _buildNewsSection(Color text, bool isDark) {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start, 
-    children: [
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 4.0),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween, 
-          children: [
-            Text(
-              "Actu", 
-              style: TextStyle(
-                color: text, 
-                fontSize: 18, 
-                fontWeight: FontWeight.bold,
-                letterSpacing: 0.5,
-              )
+  return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+      Text("Actu", 
+        style: TextStyle(color: text, fontSize: 18, fontWeight: FontWeight.bold)
+      ),
+      
+      // On rend le "Tout voir" cliquable
+      GestureDetector(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const NewsFeedPage(), // Ouvre ta page existante
             ),
-            GestureDetector(
-              onTap: () => Navigator.push(
-                context, 
-                MaterialPageRoute(builder: (context) => const NewsFeedPage())
-              ),
-              child: const Text(
-                "Tout voir", 
-                style: TextStyle(
-                  color: Colors.orange, 
-                  fontSize: 13, 
-                  fontWeight: FontWeight.w600
-                )
-              )
+          );
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: const Text(
+            "Tout voir", 
+            style: TextStyle(
+              color: Colors.orange, 
+              fontSize: 13, 
+              fontWeight: FontWeight.bold
             )
-          ]
-        ),
-      ),
-      const SizedBox(height: 16),
-      SizedBox(
-        height: 250, // Hauteur légèrement augmentée pour éviter les coupures de texte
-        child: ListView.builder(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.only(left: 4, bottom: 10), // Padding pour l'ombre portée
-          itemCount: lualabaNewsData.length,
-          itemBuilder: (context, index) {
-            final item = lualabaNewsData[index];
-            return _newsCard(
-              item['source'],
-              item['title'],
-              isDark,
-              item['images'][0]
-            );
-          },
-        )
-      ),
-    ]
-  );
-}
-
-Widget _newsCard(String source, String title, bool isDark, String imageUrl) {
-  return Container(
-    width: 220, // Largeur optimisée pour la lisibilité
-    margin: const EdgeInsets.only(right: 16),
-    decoration: BoxDecoration(
-      color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
-      borderRadius: BorderRadius.circular(20),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withOpacity(isDark ? 0.3 : 0.05),
-          blurRadius: 10,
-          offset: const Offset(0, 4),
-        )
-      ],
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Zone de l'image avec un ratio fixe
-        ClipRRect(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          child: Image.network(
-            imageUrl,
-            height: 130, 
-            width: double.infinity,
-            fit: BoxFit.cover,
-            loadingBuilder: (context, child, loadingProgress) {
-              if (loadingProgress == null) return child;
-              return Container(
-                height: 130,
-                color: isDark ? Colors.white10 : Colors.grey[100],
-                child: const Center(
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.orange),
-                  ),
-                ),
-              );
-            },
-            errorBuilder: (context, error, stackTrace) => Container(
-              height: 130,
-              width: double.infinity,
-              color: isDark ? Colors.white10 : Colors.grey[200],
-              child: const Icon(Icons.broken_image_outlined, color: Colors.grey),
-            ),
           ),
         ),
-        // Zone de contenu textuel
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      source.toUpperCase(),
-                      style: const TextStyle(
-                        color: Colors.orange, 
-                        fontSize: 10, 
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.1,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: isDark ? Colors.white : Colors.black87,
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        height: 1.3,
-                      ),
-                    ),
-                  ],
-                ),
-                // Petit indicateur de temps ou d'action (optionnel)
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    Icon(
-                      Icons.access_time, 
-                      size: 12, 
-                      color: isDark ? Colors.white38 : Colors.black38
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      "2h", 
-                      style: TextStyle(
-                        fontSize: 11, 
-                        color: isDark ? Colors.white38 : Colors.black38
-                      )
-                    ),
-                  ],
-                )
-              ],
-            ),
-          ),
-        )
-      ],
+      ),
+    ]),
+    const SizedBox(height: 16),
+    SizedBox(
+      height: 250, 
+      child: ListView.builder(
+        scrollDirection: Axis.horizontal, 
+        itemCount: lualabaNewsData.length, 
+        itemBuilder: (context, index) {
+          final item = lualabaNewsData[index];
+          return _newsCard(item['source'], item['title'], isDark, item['images'][0]);
+        }
+      )
     ),
-  );
+  ]);
 }
-  Widget _buildServicesSection() {
-    return Column(children: [
-      _serviceTile("Services Rapides", "Food, Ménage, Auto & plus...", [const Color(0xFF448AFF), const Color(0xFF2962FF)], Icons.grid_view_rounded, "NOUVEAU"),
-      const SizedBox(height: 16),
-      _serviceTile("Emploi & Annonce", "Recrutement, Freelance, Annonces", [const Color(0xFFD500F9), const Color(0xFFAA00FF)], Icons.work_outline, "OPPORTUNITÉS"),
-      const SizedBox(height: 16),
-      _serviceTile("Conseil du jour", "Hydratez-vous régulièrement aujourd'hui.", [const Color(0xFF00CBA9), const Color(0xFF00A88E)], Icons.lightbulb_outline, "SANTÉ"),
-    ]);
-  }
 
-  Widget _serviceTile(String title, String sub, List<Color> colors, IconData icon, String tag) {
-    return Container(
-      padding: const EdgeInsets.all(20), decoration: BoxDecoration(gradient: LinearGradient(colors: colors), borderRadius: BorderRadius.circular(28)),
-      child: Row(children: [
-        Container(padding: const EdgeInsets.all(12), decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(15)), child: Icon(icon, color: Colors.white, size: 28)),
-        const SizedBox(width: 15),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(tag, style: const TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)), Text(title, style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)), Text(sub, style: const TextStyle(color: Colors.white70, fontSize: 11))])),
-        const CircleAvatar(backgroundColor: Colors.white, radius: 18, child: Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.black)),
+  Widget _newsCard(String source, String title, bool isDark, String imageUrl) {
+    return Container(width: 220, margin: const EdgeInsets.only(right: 16), decoration: BoxDecoration(color: isDark ? const Color(0xFF1E1E1E) : Colors.white, borderRadius: BorderRadius.circular(20)),
+      child: Column(children: [
+        ClipRRect(borderRadius: const BorderRadius.vertical(top: Radius.circular(20)), child: Image.network(imageUrl, height: 130, width: double.infinity, fit: BoxFit.cover)),
+        Padding(padding: const EdgeInsets.all(12), child: Text(title, maxLines: 2, style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontWeight: FontWeight.bold))),
       ]),
     );
   }
 
-  // Les autres widgets utilitaires (_settingsTile, etc.) restent inchangés...
+  Widget _buildServicesSection(bool isDark) {
+    return Column(children: [RapidServicesTile(isDark: isDark), const SizedBox(height: 16), const JobAnnouncementTile(), const SizedBox(height: 16), const DailyTipTile()]);
+  }
+
+Widget _buildProfilePage(bool isDark, Color textColor, {Key? key}) {
+  return SafeArea(
+    key: key, 
+    child: SingleChildScrollView(
+      physics: const BouncingScrollPhysics(), 
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10), 
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. TES TUILES D'ACTION
+          ProfilePageWidgets.buildActionTile("Ma Santé", "Dossier médical", Icons.favorite_border, const Color(0xFF00CBA9), isDark),
+          const SizedBox(height: 12),
+          ProfilePageWidgets.buildActionTile("Espace Adultes", "Rencontres", Icons.whatshot, Colors.redAccent, isDark),
+          
+          const SizedBox(height: 25),
+
+          // 2. TA CARTE PREMIUM
+          ProfilePageWidgets.buildPremiumCard(),
+          
+          const SizedBox(height: 25),
+
+          // --- SECTION : MON COMPTE ---
+          ProfilePageWidgets.sectionTitle("MON COMPTE", Colors.orange),
+          ProfilePageWidgets.settingsTile(
+            Icons.person_outline, "Profil", 
+            isDark ? Colors.white.withOpacity(0.05) : Colors.white, textColor
+          ),
+          ProfilePageWidgets.settingsTile(
+            Icons.account_balance_wallet_outlined, "Portefeuille", 
+            isDark ? Colors.white.withOpacity(0.05) : Colors.white, textColor, trailing: "CDF"
+          ),
+
+          const SizedBox(height: 15),
+
+          // --- SECTION : PRÉFÉRENCES ---
+          ProfilePageWidgets.sectionTitle("PRÉFÉRENCES", Colors.orange),
+          ProfilePageWidgets.settingsSwitchTile(
+            Icons.notifications_none, "Notifications", true, 
+            isDark ? Colors.white.withOpacity(0.05) : Colors.white, textColor, (val) {}
+          ),
+          ProfilePageWidgets.settingsTile(
+            Icons.language, "Langue", 
+            isDark ? Colors.white.withOpacity(0.05) : Colors.white, textColor, trailing: "Français"
+          ),
+          // RÉINTÉGRATION DU MODE SOMBRE ICI
+          ProfilePageWidgets.settingsSwitchTile(
+            Icons.dark_mode_outlined, 
+            "Mode Sombre", 
+            _isDarkMode, // Utilise ta variable d'état
+            isDark ? Colors.white.withOpacity(0.05) : Colors.white, 
+            textColor, 
+            (val) => setState(() => _isDarkMode = val)
+          ),
+
+          const SizedBox(height: 15),
+
+          // --- SECTION : SUPPORT ---
+          ProfilePageWidgets.sectionTitle("SUPPORT", Colors.orange),
+          ProfilePageWidgets.settingsTile(
+            Icons.help_outline, "Centre d'aide", 
+            isDark ? Colors.white.withOpacity(0.05) : Colors.white, textColor
+          ),
+          ProfilePageWidgets.settingsTile(
+            Icons.info_outline, "À propos", 
+            isDark ? Colors.white.withOpacity(0.05) : Colors.white, textColor
+          ),
+
+          const SizedBox(height: 30),
+
+          // 3. TON BOUTON DÉCONNEXION
+          ProfilePageWidgets.logoutButton(context),
+
+          const SizedBox(height: 140), 
+        ]
+      )
+    )
+  );
+}
 }
