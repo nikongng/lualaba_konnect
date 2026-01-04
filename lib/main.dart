@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'features/auth/presentation/pages/splash_screen.dart';
+import 'features/auth/presentation/pages/AuthMainPage.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,7 +39,7 @@ class MyApp extends StatelessWidget {
       ),
       home: const SplashScreen(), 
       routes: {
-        '/login': (context) => const SplashScreen(),
+        '/login': (context) => const AuthMainPage(),
       },
     );
   }

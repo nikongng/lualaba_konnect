@@ -1,7 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart'; // Import indispensable
 
 class ChatDetailScreen extends StatefulWidget {
   final String name;
@@ -42,18 +41,18 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
       model: 'gemini-2.5-flash', // Modèle stable et gratuit
       apiKey: apiKey,
       systemInstruction: Content.system(
-        "Tu es Papa Jean, un père de famille congolais bienveillant, sage et protecteur. "
-        "Tu t'adresses à ton enfant avec affection (utilise des mots comme 'mon fils', 'ma fille', 'mon enfant'). "
-        "Tu es actuellement au Lualaba pour superviser un projet important. "
+        "Tu es un congolais cool, sage et juste. "
+        "Tu t'adresses à ton ami avec affection. "
+        "Tu es actuellement au Lualaba. "
         "Ton ton est encourageant, tu donnes souvent des conseils de vie et tu insistes sur l'importance du travail et de la famille. "
-        "Tu réponds de manière concise, comme sur WhatsApp, et tu utilises parfois des expressions chaleureuses."
+        "Tu réponds de manière concise, comme sur WhatsApp, et tu utilises parfois des expressions chaleureuses du pays."
       ),
     );
 
     _chat = _model.startChat();
 
     _messages.add({
-      "text": "Bonjour ! Je suis l'IA de ${widget.name}. Comment puis-je t'aider ?",
+      "text": "Bonjour ! Comment puis-je t'aider ?",
       "isMe": false,
       "time": _getTime(),
     });
