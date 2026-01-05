@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart'; // Import Firestore ajouté
 import 'dart:async';
 import 'AuthMainPage.dart';
 import 'package:flutter/services.dart';
@@ -7,8 +8,28 @@ import 'package:flutter/services.dart';
 class OTPVerificationPage extends StatefulWidget {
   final String verificationId;
   final String? phoneNumber;
+  
+  // --- NOUVEAUX CHAMPS POUR RECEVOIR LES DONNÉES ---
+  final String firstName;
+  final String lastName;
+  final String email;
+  final String password;
+  final int profileType;
+  final String bio;
+  final String address;
 
-  const OTPVerificationPage({super.key, required this.verificationId, this.phoneNumber});
+  const OTPVerificationPage({
+    super.key, 
+    required this.verificationId, 
+    this.phoneNumber,
+    required this.firstName,
+    required this.lastName,
+    required this.email,
+    required this.password,
+    required this.profileType,
+    this.bio = "",
+    this.address = "",
+  });
 
   @override
   State<OTPVerificationPage> createState() => _OTPVerificationPageState();
@@ -51,7 +72,6 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
     });
   }
 
-  // --- LOGIQUE FIREBASE CONSERVÉE ---
   Future<void> _resendCode() async {
     if (widget.phoneNumber == null) return;
     setState(() => _isLoading = true);
@@ -73,44 +93,54 @@ class _OTPVerificationPageState extends State<OTPVerificationPage> {
     }
   }
 
-Future<void> _verifyOTP() async {
-  String otp = _controllers.map((c) => c.text).join();
-  if (otp.length < 6) return;
+  Future<void> _verifyOTP() async {
+    String otp = _controllers.map((c) => c.text).join();
+    if (otp.length < 6) return;
 
-  setState(() => _isLoading = true);
+    setState(() => _isLoading = true);
 
-  // --- TEST SANS FACTURATION ---
-  if (widget.phoneNumber == "+243857263544" && otp == "123456") {
-    await Future.delayed(const Duration(seconds: 1));
-    if (mounted) {
+    try {
+      // 1. Authentification avec le vrai code SMS
+      PhoneAuthCredential credential = PhoneAuthProvider.credential(
+        verificationId: _currentVerificationId, 
+        smsCode: otp,
+      );
+      
+      UserCredential userCredential = await FirebaseAuth.instance.signInWithCredential(credential);
+      User? user = userCredential.user;
+
+      if (user != null) {
+        // 2. Création du profil utilisateur dans Firestore
+        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+          'uid': user.uid,
+          'firstName': widget.firstName,
+          'lastName': widget.lastName,
+          'email': widget.email,
+          'phone': widget.phoneNumber,
+          'profileType': widget.profileType,
+          'address': widget.address,
+          'bio': widget.bio,
+          'idKonnect': "LK-${user.uid.substring(0, 5).toUpperCase()}", // Génération de l'ID
+          'isVerified': true,
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+
+        if (mounted) {
+          setState(() => _isLoading = false);
+          _showFinalSummary(true); 
+        }
+      }
+    } catch (e) {
       setState(() => _isLoading = false);
-      // On affiche le message de succès au lieu de naviguer
-      _showFinalSummary(true); 
+      if (e is FirebaseAuthException && e.code == 'invalid-verification-code') {
+         _showError("Code incorrect.");
+      } else {
+         _showError("Erreur : $e");
+      }
     }
-    return;
   }
-  // -----------------------------
 
-  try {
-    PhoneAuthCredential credential = PhoneAuthProvider.credential(
-      verificationId: widget.verificationId, 
-      smsCode: otp,
-    );
-    
-    await FirebaseAuth.instance.signInWithCredential(credential);
-
-    if (mounted) {
-      setState(() => _isLoading = false);
-      // Succès réel Firebase -> On affiche aussi le message
-      _showFinalSummary(true); 
-    }
-  } catch (e) {
-    _showError("Code incorrect. Veuillez réessayer.");
-  } finally {
-    if (mounted) setState(() => _isLoading = false);
-  }
-}
-    void _showFinalSummary(bool autoValidated) {
+  void _showFinalSummary(bool autoValidated) {
     HapticFeedback.vibrate();
     showDialog(
       context: context,
@@ -207,7 +237,6 @@ Future<void> _verifyOTP() async {
 
   @override
   Widget build(BuildContext context) {
-    // Thème cohérent avec le Dashboard
     const Color primaryColor = Color(0xFF012E32); 
 
     return Scaffold(
@@ -216,7 +245,6 @@ Future<void> _verifyOTP() async {
         onTap: () => FocusScope.of(context).unfocus(),
         child: Stack(
           children: [
-            // Dégradé de fond subtil
             Container(
               decoration: const BoxDecoration(
                 gradient: LinearGradient(
@@ -232,7 +260,6 @@ Future<void> _verifyOTP() async {
                   padding: const EdgeInsets.symmetric(horizontal: 30),
                   child: Column(
                     children: [
-                      // Icône stylisée
                       Container(
                         padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
@@ -261,16 +288,11 @@ Future<void> _verifyOTP() async {
                         ),
                       ),
                       const SizedBox(height: 50),
-                      
-                      // BOÎTES OTP MODERNES
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: List.generate(6, (index) => _buildOtpBox(index)),
                       ),
-                      
                       const SizedBox(height: 40),
-                      
-                      // TIMER / RESEND
                       _canResend
                           ? TextButton(
                               onPressed: _isLoading ? null : _resendCode,
@@ -286,10 +308,7 @@ Future<void> _verifyOTP() async {
                                   style: const TextStyle(color: Colors.white54, fontSize: 15)),
                               ],
                             ),
-                      
                       const SizedBox(height: 40),
-                      
-                      // BOUTON DE VALIDATION
                       _isLoading 
                         ? const CircularProgressIndicator(color: Colors.orange)
                         : SizedBox(
