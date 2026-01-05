@@ -11,9 +11,9 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:syncfusion_flutter_pdf/pdf.dart';
-// --- AJOUTS FIREBASE ---
 import 'package:firebase_auth/firebase_auth.dart';
-import 'otp_verification_page.dart';
+// Assure-toi que le nom du fichier est correct pour l'import
+import 'otp_verification_page.dart'; 
 
 class RegistrationFormPage extends StatefulWidget {
   final int profileType; // 0: Classique, 1: Pro, 2: Entreprise
@@ -115,7 +115,6 @@ class _RegistrationFormPageState extends State<RegistrationFormPage>
 
   bool _isPhoneValid(String phone) {
     String clean = phone.replaceAll(' ', '');
-    // Comme le +243 est géré automatiquement, on vérifie juste qu'il y a 9 chiffres
     return clean.length >= 9;
   }
 
@@ -192,54 +191,62 @@ void _completeRegistration(bool autoValidated) async {
   if (mounted) {
     setState(() {
       _isLoading = true;
-      _loadingMessage = "Envoi du code de certification...";
+      _loadingMessage = "Envoi du code SMS...";
     });
 
+    // Nettoyage et formatage du numéro
     String cleanPhone = _phoneController.text.replaceAll(RegExp(r'\D'), '');
     String phoneForFirebase = "+243$cleanPhone";
-
-    // --- TEST SANS CARTE BANCAIRE ---
-    // Si c'est ton numéro fictif, on saute l'appel Firebase
-    if (cleanPhone == "857263544") { 
-      await Future.delayed(const Duration(seconds: 2)); // Simule un délai réseau
-      setState(() => _isLoading = false);
-      
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => OTPVerificationPage(
-            verificationId: "fake_id_for_test", // ID fictif
-            phoneNumber: phoneForFirebase,
-          ),
-        ),
-      );
-      return; 
-    }
-    // ---------------------------------
 
     try {
       await _auth.verifyPhoneNumber(
         phoneNumber: phoneForFirebase,
-        // ... reste de ton code Firebase habituel
-        verificationCompleted: (credential) async { /* ... */ },
-        verificationFailed: (e) {
+        
+        // 1. Détection auto (optionnel, on gère souvent tout via le code manuel)
+        verificationCompleted: (PhoneAuthCredential credential) {},
+
+        // 2. En cas d'échec de l'envoi
+        verificationFailed: (FirebaseAuthException e) {
           setState(() => _isLoading = false);
-          _showError("Erreur : ${e.message}");
+          if (e.code == 'invalid-phone-number') {
+             _showError("Le numéro est invalide.");
+          } else {
+             _showError("Erreur : ${e.message}");
+          }
         },
-        codeSent: (id, token) {
+
+        // 3. CODE ENVOYÉ -> On passe à la page suivante avec TOUTES les infos
+        codeSent: (String verificationId, int? resendToken) {
           setState(() => _isLoading = false);
-          Navigator.push(context, MaterialPageRoute(
-            builder: (context) => OTPVerificationPage(verificationId: id, phoneNumber: phoneForFirebase)
-          ));
+          
+          Navigator.push(
+            context, 
+            MaterialPageRoute(
+              builder: (context) => OTPVerificationPage(
+                verificationId: verificationId,
+                phoneNumber: phoneForFirebase,
+                // --- TRANSFERT DES DONNÉES ---
+                firstName: _firstNameController.text.trim(),
+                lastName: _lastNameController.text.trim(),
+                email: _emailController.text.trim(),
+                password: _passwordController.text.trim(),
+                profileType: widget.profileType,
+                bio: _bioController.text.trim(),
+                address: _addressController.text.trim(),
+              )
+            )
+          );
         },
-        codeAutoRetrievalTimeout: (id) {},
+
+        codeAutoRetrievalTimeout: (String verificationId) {},
       );
     } catch (e) {
       setState(() => _isLoading = false);
-      _showError("Erreur : $e");
+      _showError("Erreur système : $e");
     }
   }
 }
+
   void _validateAndNext() {
     if (_currentStep == 2) {
       if (!_isPhoneValid(_phoneController.text) || !_isEmailValid(_emailController.text) || !_isPasswordMatch()) {
@@ -347,7 +354,6 @@ void _completeRegistration(bool autoValidated) async {
             ),
             const SizedBox(height: 15),
           ],
-          // MODIFICATION CHAMP TÉLÉPHONE
           _buildField(
             "Téléphone", 
             Icons.phone, 
@@ -458,7 +464,6 @@ void _completeRegistration(bool autoValidated) async {
     );
   }
 
-  // MODIFICATION DE LA SIGNATURE DE _buildField POUR LE PREFIXE
   Widget _buildField(String label, IconData icon, TextEditingController ctr, FocusNode node, {bool isPass = false, TextInputType? type, String? hintText, List<TextInputFormatter>? inputFormatters, Widget? suffix, Widget? prefix}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -652,7 +657,6 @@ class LiquidWavePainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
 
-// FORMATEUR AVEC ESPACES AUTOMATIQUES
 class PhoneInputFormatter extends TextInputFormatter {
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
