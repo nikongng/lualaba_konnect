@@ -916,10 +916,10 @@ packages:
     dependency: "direct main"
     description:
       name: record
-      sha256: "2e3d56d196abcd69f1046339b75e5f3855b2406fc087e5991f6703f188aa03a6"
+      sha256: "90dae13f3edb582c19e148a32dae9f643f03ab368d70ec7d0b872014018a94da"
       url: "https://pub.dev"
     source: hosted
-    version: "5.2.1"
+    version: "5.1.0"
   record_android:
     dependency: transitive
     description:
