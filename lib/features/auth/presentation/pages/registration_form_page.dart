@@ -12,8 +12,11 @@ import 'package:geocoding/geocoding.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-// Assure-toi que le nom du fichier est correct pour l'import
-import 'otp_verification_page.dart'; 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'final_summary_dialog.dart';
+import 'data/userdata/registration_storage_service.dart';
+import 'AuthMainPage.dart';
 
 class RegistrationFormPage extends StatefulWidget {
   final int profileType; // 0: Classique, 1: Pro, 2: Entreprise
@@ -37,6 +40,7 @@ class _RegistrationFormPageState extends State<RegistrationFormPage>
   double _uploadProgress = 0.0;
   late AnimationController _waveController;
   Uint8List? _faceImageBytesWeb; 
+  String? _currentCollectionName;
 
   // --- CONTRÔLEURS ---
   final _firstNameController = TextEditingController(); 
@@ -109,6 +113,55 @@ class _RegistrationFormPageState extends State<RegistrationFormPage>
     super.dispose();
   }
 
+  Future<void> _retryUploads() async {
+    final String? uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Utilisateur non connecté. Veuillez vous reconnecter.')));
+      return;
+    }
+
+    try {
+      if (mounted) setState(() { _isLoading = true; _loadingMessage = 'Réessai envoi...'; });
+
+      String? identityPdfUrl;
+      String? selfieUrl;
+      bool anyFailed = false;
+
+      try {
+        identityPdfUrl = await RegistrationStorageService.uploadIdentityPdf(uid: uid, file: _identityFile, webBytes: _pdfBytesWeb);
+        await FirebaseFirestore.instance.collection(_currentCollectionName!).doc(uid).update({'documents.identityPdf': identityPdfUrl});
+      } catch (e) {
+        anyFailed = true;
+        await FirebaseFirestore.instance.collection(_currentCollectionName!).doc(uid).update({'uploadStatus': 'identity_failed', 'uploadError': 'Retry PDF: ${e.toString()}'});
+      }
+
+      try {
+        selfieUrl = await RegistrationStorageService.uploadSelfie(uid: uid, file: _faceImage, webBytes: _faceImageBytesWeb);
+        await FirebaseFirestore.instance.collection(_currentCollectionName!).doc(uid).update({'documents.selfie': selfieUrl});
+      } catch (e) {
+        anyFailed = true;
+        await FirebaseFirestore.instance.collection(_currentCollectionName!).doc(uid).update({'uploadStatus': FieldValue.arrayUnion(['selfie_failed']), 'uploadError': 'Retry Selfie: ${e.toString()}'});
+      }
+
+      if (anyFailed) {
+        await FirebaseFirestore.instance.collection(_currentCollectionName!).doc(uid).update({'uploadStatus': 'partial_failed'});
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Certains uploads ont échoué.')));
+      } else {
+        await FirebaseFirestore.instance.collection(_currentCollectionName!).doc(uid).update({'uploadStatus': 'complete', 'finalizedAt': FieldValue.serverTimestamp()});
+        // déconnexion et retour à l'écran principal
+        await FirebaseAuth.instance.signOut();
+        if (mounted) {
+          Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const AuthMainPage()), (route) => false);
+        }
+      }
+    } catch (e) {
+      debugPrint('Erreur _retryUploads: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur lors du réessai: ${e.toString()}')));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   bool _isEmailValid(String email) => RegExp(
         r"^[a-zA-Z0-9.a-zA-Z0-9.!#$%&'*+-/=?^_`{|}~]+@gmail\.com$",
       ).hasMatch(email);
@@ -121,13 +174,12 @@ class _RegistrationFormPageState extends State<RegistrationFormPage>
   bool _isPasswordMatch() =>
       _passwordController.text.length >= 6 &&
       _passwordController.text == _confirmPasswordController.text;
-
-  Future<void> _startFinalization() async {
+  
+    Future<void> _startFinalization() async {
     if (widget.profileType != 2 && _selectedDate == null) {
       _showError("Veuillez renseigner votre date de naissance.");
       return;
     }
-    
     if (widget.profileType != 2) {
       final age = DateTime.now().year - _selectedDate!.year;
       if (age < 18) {
@@ -135,7 +187,6 @@ class _RegistrationFormPageState extends State<RegistrationFormPage>
         return;
       }
     }
-
     if (_identityFile == null) {
       _showError("Veuillez charger votre pièce d'identité.");
       return;
@@ -150,6 +201,7 @@ class _RegistrationFormPageState extends State<RegistrationFormPage>
     Future<void> smoothProgress(double target) async {
       while (_uploadProgress < target) {
         await Future.delayed(const Duration(milliseconds: 10));
+        if (!mounted) return;
         setState(() {
           _uploadProgress += 0.005;
           if (_uploadProgress > target) _uploadProgress = target;
@@ -158,20 +210,30 @@ class _RegistrationFormPageState extends State<RegistrationFormPage>
     }
 
     try {
+      debugPrint("Start finalization - reading pdf...");
       setState(() => _loadingMessage = "Lecture du document PDF...");
       await smoothProgress(0.25);
 
-      Uint8List bytes = kIsWeb ? _pdfBytesWeb! : await _identityFile!.readAsBytes();
+      Uint8List bytes;
+      if (kIsWeb) {
+        if (_pdfBytesWeb == null) throw Exception("pdfBytesWeb est null (web).");
+        bytes = _pdfBytesWeb!;
+      } else {
+        bytes = await _identityFile!.readAsBytes();
+      }
+
       final PdfDocument document = PdfDocument(inputBytes: bytes);
       String pdfText = PdfTextExtractor(document).extractText();
       document.dispose();
 
+      debugPrint("PDF read, analyze...");
       setState(() => _loadingMessage = "Analyse de conformité...");
       await smoothProgress(0.55);
 
       String nomSaisi = _lastNameController.text.trim().toUpperCase();
       bool isAutomaticSuccess = pdfText.toUpperCase().contains(nomSaisi);
 
+      debugPrint("Biometric check...");
       setState(() => _loadingMessage = "Vérification biométrique...");
       await smoothProgress(0.85);
       await Future.delayed(const Duration(seconds: 1));
@@ -180,72 +242,181 @@ class _RegistrationFormPageState extends State<RegistrationFormPage>
       await smoothProgress(1.0);
 
       await Future.delayed(const Duration(milliseconds: 500));
-      _completeRegistration(isAutomaticSuccess);
-    } catch (e) {
+
+      // IMPORTANT : attendre la fin de l'enregistrement
+      await _completeRegistration(isAutomaticSuccess);
+    } catch (e, st) {
+      debugPrint("Erreur dans _startFinalization: $e\n$st");
+      // assure que la progress monte à 100% visuellement puis on termine proprement
       await smoothProgress(1.0);
-      _completeRegistration(false);
+      await _completeRegistration(false);
     }
   }
 
-void _completeRegistration(bool autoValidated) async {
-  if (mounted) {
-    setState(() {
-      _isLoading = true;
-      _loadingMessage = "Envoi du code SMS...";
-    });
+Future<void> _completeRegistration(bool isAutomaticSuccess) async {
+  try {
+    debugPrint("Création utilisateur Firebase...");
 
-    // Nettoyage et formatage du numéro
-    String cleanPhone = _phoneController.text.replaceAll(RegExp(r'\D'), '');
-    String phoneForFirebase = "+243$cleanPhone";
+    // Déterminer la collection en fonction du type de profil
+    String collectionName;
+    if (widget.profileType == 0) {
+      collectionName = 'classic_users';
+    } else if (widget.profileType == 1) {
+      collectionName = 'pro_users';
+    } else {
+      collectionName = 'enterprise_users';
+    }
+    _currentCollectionName = collectionName;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('user_collection', collectionName);
+
+    // 1️⃣ Création du compte Firebase
+    UserCredential userCredential =
+        await _auth.createUserWithEmailAndPassword(
+      email: _emailController.text.trim(),
+      password: _passwordController.text.trim(),
+    );
+
+    if (userCredential.user == null) {
+      if (mounted) setState(() => _isLoading = false);
+      _showError("Impossible de créer le compte.");
+      return;
+    }
+
+    final String uid = userCredential.user!.uid;
+    debugPrint("Utilisateur créé ($uid)");
+
+    debugPrint("Écriture Firestore initiale...");
+    // 2️⃣ Écrire d'abord les informations utilisateur (sans URLs de documents)
+    setState(() => _loadingMessage = "Enregistrement du profil...");
+    final userData = {
+      'firstName': _firstNameController.text.trim(),
+      'lastName': _lastNameController.text.trim(),
+      'phone': '+243${_phoneController.text.replaceAll(' ', '')}',
+      'address': _addressController.text.trim(),
+      'email': _emailController.text.trim(),
+      'profileType': widget.profileType,
+      'genre': selectedGenre,
+      'birthDate': _selectedDate?.toIso8601String(),
+      // On écrit le résultat de la vérification PDF mais on mettra à jour
+      // les documents après tentative d'upload.
+      'isValidated': isAutomaticSuccess,
+      'isCertified': false,
+      'createdAt': FieldValue.serverTimestamp(),
+
+      // Pro / Entreprise
+      'bio': _bioController.text.trim(),
+      'rccm': _rccmController.text.trim(),
+      'idNat': _idNatController.text.trim(),
+      'nationality': _nationalityController.text.trim(),
+      'profession': _professionController.text.trim(),
+      'experience': _experienceController.text.trim(),
+      'currentCompany': _currentCompanyController.text.trim(),
+
+      // Documents placeholders
+      'documents': {
+        'identityPdf': '',
+        'selfie': '',
+      },
+      'uploadStatus': 'pending',
+    };
 
     try {
-      await _auth.verifyPhoneNumber(
-        phoneNumber: phoneForFirebase,
-        
-        // 1. Détection auto (optionnel, on gère souvent tout via le code manuel)
-        verificationCompleted: (PhoneAuthCredential credential) {},
-
-        // 2. En cas d'échec de l'envoi
-        verificationFailed: (FirebaseAuthException e) {
-          setState(() => _isLoading = false);
-          if (e.code == 'invalid-phone-number') {
-             _showError("Le numéro est invalide.");
-          } else {
-             _showError("Erreur : ${e.message}");
-          }
-        },
-
-        // 3. CODE ENVOYÉ -> On passe à la page suivante avec TOUTES les infos
-        codeSent: (String verificationId, int? resendToken) {
-          setState(() => _isLoading = false);
-          
-          Navigator.push(
-            context, 
-            MaterialPageRoute(
-              builder: (context) => OTPVerificationPage(
-                verificationId: verificationId,
-                phoneNumber: phoneForFirebase,
-                // --- TRANSFERT DES DONNÉES ---
-                firstName: _firstNameController.text.trim(),
-                lastName: _lastNameController.text.trim(),
-                email: _emailController.text.trim(),
-                password: _passwordController.text.trim(),
-                profileType: widget.profileType,
-                bio: _bioController.text.trim(),
-                address: _addressController.text.trim(),
-              )
-            )
-          );
-        },
-
-        codeAutoRetrievalTimeout: (String verificationId) {},
-      );
+      await FirebaseFirestore.instance.collection(collectionName).doc(uid).set(userData).timeout(const Duration(seconds: 10));
+      debugPrint("Firestore initial écrit");
     } catch (e) {
-      setState(() => _isLoading = false);
-      _showError("Erreur système : $e");
+      debugPrint("Erreur écriture Firestore: $e");
+      // Continuer quand même pour essayer les uploads
     }
+
+    // 3️⃣ Tentative d'upload des documents (on mettra à jour le doc existant)
+    String? identityPdfUrl;
+    String? selfieUrl;
+    bool anyUploadFailed = false;
+
+    try {
+      setState(() => _loadingMessage = "Envoi du document...");
+      identityPdfUrl = await RegistrationStorageService.uploadIdentityPdf(
+        uid: uid,
+        file: _identityFile,
+        webBytes: _pdfBytesWeb,
+      );
+      debugPrint("PDF uploadé");
+      await FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
+        'documents.identityPdf': identityPdfUrl,
+      }).timeout(const Duration(seconds: 10));
+    } catch (e) {
+      anyUploadFailed = true;
+      debugPrint("uploadIdentityPdf error: $e");
+      await FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
+        'uploadStatus': 'identity_failed',
+        'uploadError': 'Erreur upload PDF: ${e.toString()}'
+      }).timeout(const Duration(seconds: 10));
+    }
+
+    try {
+      setState(() => _loadingMessage = "Envoi du selfie...");
+      selfieUrl = await RegistrationStorageService.uploadSelfie(
+        uid: uid,
+        file: _faceImage,
+        webBytes: _faceImageBytesWeb,
+      );
+      debugPrint("Selfie uploadé");
+      await FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
+        'documents.selfie': selfieUrl,
+      }).timeout(const Duration(seconds: 10));
+    } catch (e) {
+      anyUploadFailed = true;
+      debugPrint("uploadSelfie error: $e");
+      await FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
+        'uploadStatus': FieldValue.arrayUnion(['selfie_failed']),
+        'uploadError': 'Erreur upload selfie: ${e.toString()}'
+      }).timeout(const Duration(seconds: 10));
+    }
+
+    // Mise à jour finale du status d'upload
+    if (anyUploadFailed) {
+      await FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
+        'uploadStatus': 'partial_failed',
+      }).timeout(const Duration(seconds: 10));
+    } else {
+      await FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
+        'uploadStatus': 'complete',
+        'finalizedAt': FieldValue.serverTimestamp(),
+      }).timeout(const Duration(seconds: 10));
+    }
+
+    debugPrint("Firestore OK");
+
+    // 5️⃣ Déconnexion volontaire
+    await FirebaseAuth.instance.signOut();
+
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+    debugPrint("Avant _showFinalSummary: anyUploadFailed=$anyUploadFailed");
+    await showFinalSummaryDialog(context, autoValidated: isAutomaticSuccess, showRetryUploads: anyUploadFailed, onRetryUploads: _retryUploads);
+  } on FirebaseAuthException catch (e) {
+    if (mounted) setState(() => _isLoading = false);
+
+    String errorMsg = "Erreur d'inscription";
+    if (e.code == 'email-already-in-use') {
+      errorMsg = "Cet email est déjà utilisé.";
+    } else if (e.code == 'weak-password') {
+      errorMsg = "Mot de passe trop faible.";
+    }
+
+    await showFinalSummaryDialog(context, autoValidated: false, customMessage: errorMsg, isError: true);
+  } catch (e, st) {
+    debugPrint("Erreur _completeRegistration: $e\n$st");
+    if (mounted) setState(() => _isLoading = false);
+    final String msg = e.toString();
+    await showFinalSummaryDialog(context, autoValidated: false, customMessage: msg, isError: true);
   }
 }
+
+
+
 
   void _validateAndNext() {
     if (_currentStep == 2) {
@@ -626,6 +797,8 @@ void _completeRegistration(bool autoValidated) async {
       ),
     );
   }
+
+
 }
 
 class LiquidWavePainter extends CustomPainter {
@@ -652,7 +825,6 @@ class LiquidWavePainter extends CustomPainter {
     canvas.save(); canvas.clipPath(Path()..addOval(Rect.fromLTWH(0, 0, size.width, size.height)));
     canvas.drawPath(path, paint); canvas.restore();
   }
-
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

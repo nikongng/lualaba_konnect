@@ -238,7 +238,7 @@ class _WeatherWidgetState extends State<WeatherWidget> with SingleTickerProvider
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: List.generate(hourlyForecast.length, (index) {
           final item = hourlyForecast[index];
-          String time = DateTime.fromMillisecondsSinceEpoch(item['dt'] * 1000).hour.toString() + "h";
+          String time = "${DateTime.fromMillisecondsSinceEpoch(item['dt'] * 1000).hour}h";
           return TweenAnimationBuilder<double>(
             tween: Tween(begin: 0.0, end: 1.0),
             duration: Duration(milliseconds: 500 + (index * 150)), // Effet cascade

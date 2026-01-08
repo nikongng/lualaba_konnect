@@ -4,7 +4,6 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'AuthMainPage.dart';
 import 'ModernDashboard.dart';
-import 'ModernDashboard.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});

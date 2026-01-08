@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // Ajouté
 import 'account_choice_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'ModernDashboard.dart';
@@ -15,6 +16,8 @@ class _AuthMainPageState extends State<AuthMainPage> {
   bool isLoginMode = true;
   bool _obscurePassword = true;
   bool _rememberMe = false;
+  bool _isLoading = false; // Ajouté pour le feedback visuel
+
   final TextEditingController _idController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
@@ -37,11 +40,9 @@ class _AuthMainPageState extends State<AuthMainPage> {
     String savedId = prefs.getString('saved_id') ?? "";
 
     if (remember && savedId.isNotEmpty) {
-      _navigateToDashboard();
-    } else {
+      _idController.text = savedId;
       setState(() {
         _rememberMe = remember;
-        _idController.text = savedId;
       });
     }
   }
@@ -65,83 +66,110 @@ class _AuthMainPageState extends State<AuthMainPage> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Builder(builder: (context) {
-        return Container(
-          width: double.infinity,
-          height: double.infinity,
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [Color(0xFFE65100), Color(0xFFF57C00)],
-            ),
-          ),
-          child: Column(
-            children: [
-              const SizedBox(height: 60),
-              _buildLogoHeader(),
-              const SizedBox(height: 30),
-              Expanded(
-                child: _buildMainFormCard(context),
-              ),
-            ],
-          ),
-        );
-      }),
+  // --- NOUVELLE LOGIQUE FIREBASE DANS TON DESIGN ---
+  Future<void> _login() async {
+    if (_idController.text.isEmpty || _passwordController.text.isEmpty) {
+      _showError("Veuillez remplir tous les champs");
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: _idController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+
+      await _handleRememberMe();
+      _navigateToDashboard();
+    } on FirebaseAuthException catch (e) {
+      _showError(e.message ?? "Erreur de connexion");
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: Colors.redAccent, behavior: SnackBarBehavior.floating),
     );
   }
 
-Widget _buildLogoHeader() {
-  return Column(
-    children: [
-      Container(
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.15),
-              blurRadius: 25,
-              spreadRadius: 2,
-            )
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFFE65100), Color(0xFFF57C00)],
+          ),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: 60),
+            _buildLogoHeader(),
+            const SizedBox(height: 30),
+            Expanded(
+              child: _buildMainFormCard(context),
+            ),
           ],
         ),
-        child: CircleAvatar(
-          radius: 50, // Taille totale (moitié de 100)
-          backgroundColor: Colors.transparent, // On garde le fond transparent
-          child: ClipOval(
-            child: Image.asset(
-              'assets/logo.png',
-              width: 100,
-              height: 100,
-              fit: BoxFit.cover,
-              errorBuilder: (context, error, stackTrace) {
-                print("Erreur chargement image: $error"); // Pour debugger en console
-                return const Icon(Icons.wifi_tethering, color: Colors.white, size: 50);
-              },
+      ),
+    );
+  }
+
+  Widget _buildLogoHeader() {
+    return Column(
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.15),
+                blurRadius: 25,
+                spreadRadius: 2,
+              )
+            ],
+          ),
+          child: CircleAvatar(
+            radius: 50,
+            backgroundColor: Colors.transparent,
+            child: ClipOval(
+              child: Image.asset(
+                'assets/logo.png',
+                width: 100,
+                height: 100,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return const Icon(Icons.wifi_tethering, color: Colors.white, size: 50);
+                },
+              ),
             ),
           ),
         ),
-      ),
-      const SizedBox(height: 15),
-      const Text(
-        "Lualaba Konnect",
-        style: TextStyle(
-          color: Colors.white, 
-          fontSize: 28, 
-          fontWeight: FontWeight.bold,
-          letterSpacing: 1.2
+        const SizedBox(height: 15),
+        const Text(
+          "Lualaba Konnect",
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 28,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.2,
+          ),
         ),
-      ),
-      const Text(
-        "La super-app de la province",
-        style: TextStyle(color: Colors.white70, fontSize: 14),
-      ),
-    ],
-  );
-}
+        const Text(
+          "La super-app de la province",
+          style: TextStyle(color: Colors.white70, fontSize: 14),
+        ),
+      ],
+    );
+  }
 
   Widget _buildMainFormCard(BuildContext context) {
     return Container(
@@ -253,8 +281,8 @@ Widget _buildLogoHeader() {
           const Text("Connectez-vous pour continuer.", style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 30),
           _buildInputField(
-            label: "IDENTIFIANT",
-            hint: "0999000000",
+            label: "IDENTIFIANT (EMAIL)",
+            hint: "exemple@mail.com",
             icon: Icons.person_outline,
             controller: _idController,
           ),
@@ -350,14 +378,10 @@ Widget _buildLogoHeader() {
           backgroundColor: const Color(0xFFE65100),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
         ),
-        onPressed: () async {
-          HapticFeedback.mediumImpact();
-          if (_idController.text.isNotEmpty && _passwordController.text.isNotEmpty) {
-            await _handleRememberMe();
-            _navigateToDashboard();
-          }
-        },
-        child: const Text("Se connecter", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+        onPressed: _isLoading ? null : _login, // Appelle maintenant _login
+        child: _isLoading 
+          ? const CircularProgressIndicator(color: Colors.white)
+          : const Text("Se connecter", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
       ),
     );
   }

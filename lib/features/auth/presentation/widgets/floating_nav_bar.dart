@@ -2,7 +2,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/cupertino.dart'; // Ajout pour des icônes style Apple
-import '../../../chat/chat_list_page.dart'; 
+import '../../../chat/presentation/pages/chat_list_page.dart'; 
 
 class FloatingNavBar extends StatefulWidget {
   final bool isDark;
@@ -49,7 +49,7 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
     HapticFeedback.mediumImpact(); 
     
     if (index == 1 && widget.selectedIndex != 1) {
-      widget.chatKey.currentState?.lockChat();
+
     }
     
     widget.onIndexChanged(index);

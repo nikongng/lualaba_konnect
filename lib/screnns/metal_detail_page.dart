@@ -97,8 +97,11 @@ class DetailChartPainter extends CustomPainter {
     for (int i = 0; i < points.length; i++) {
       final x = i * stepX;
       final y = size.height - ((points[i] - minY) / (maxY - minY) * size.height);
-      if (i == 0) path.moveTo(x, y);
-      else path.lineTo(x, y);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
     }
     canvas.drawPath(path, paint);
   }

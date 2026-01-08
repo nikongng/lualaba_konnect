@@ -17,7 +17,7 @@ class _MastaCardState extends State<MastaCard> with SingleTickerProviderStateMix
   
   bool _isExpanded = false; 
   bool _isTyping = false;
-  List<Map<String, String>> _messages = []; 
+  final List<Map<String, String>> _messages = []; 
   
   late AnimationController _pulseController;
   late Animation<double> _scaleAnimation;

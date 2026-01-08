@@ -1,8 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../../screnns/metal_detail_page.dart'; 
-import '../../../../core/services/copper_services.dart';
-import 'dart:convert';
-import 'package:http/http.dart' as http;
+import '../../../../screnns/metal_detail_page.dart';
 
 class CopperCard extends StatefulWidget {
   const CopperCard({super.key});
@@ -258,8 +255,11 @@ class SparklinePainter extends CustomPainter {
     for (int i = 0; i < points.length; i++) {
       final x = i * stepX;
       final y = size.height - ((points[i] - minY) / range * size.height);
-      if (i == 0) path.moveTo(x, y);
-      else path.lineTo(x, y);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
     }
     canvas.drawPath(path, paint);
   }
