@@ -28,8 +28,7 @@ dependencies:
   photo_manager: ^3.3.0
   video_player: ^2.8.1
   shared_preferences: ^2.5.4
-  record: 5.1.0
-  record_android: 1.0.4
+  record: ^5.1.0
   record_platform_interface: 1.1.0
   path_provider: ^2.1.2
   audioplayers: ^5.2.1
