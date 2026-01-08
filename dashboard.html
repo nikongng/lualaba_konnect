@@ -1,0 +1,1012 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Lualaba Konnect</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Roboto', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+            transition: background 0.3s ease;
+        }
+        body.dark {
+            background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%) !important;
+            color: #ecf0f1 !important;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            overflow: hidden;
+            transition: background 0.3s ease;
+        }
+        body.dark .container {
+            background: rgba(44, 62, 80, 0.95) !important;
+        }
+        h1 {
+            text-align: center;
+            padding: 20px;
+            margin: 0;
+            background: linear-gradient(45deg, #00cba9, #764ba2);
+            color: white;
+            font-weight: 700;
+        }
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            padding: 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+        }
+        body.dark .stats {
+            background: #34495e !important;
+            border-bottom: 1px solid #7f8c8d !important;
+        }
+        .stat-item {
+            text-align: center;
+            flex: 1;
+        }
+        .stat-item h2 {
+            margin: 0;
+            font-size: 2em;
+            color: #00cba9;
+        }
+        .stat-item p {
+            margin: 5px 0 0 0;
+            color: #6c757d;
+        }
+        body.dark .stat-item p {
+            color: #bdc3c7;
+        }
+        .chart-container {
+            width: 200px;
+            height: 200px;
+            margin: 0 auto;
+        }
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            background: #f8f9fa;
+            border-bottom: 1px solid #e9ecef;
+            flex-wrap: wrap;
+        }
+        body.dark .controls {
+            background: #34495e !important;
+            border-bottom: 1px solid #7f8c8d !important;
+        }
+        .search-bar {
+            flex: 1;
+            margin-right: 20px;
+            min-width: 200px;
+        }
+        .search-bar input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #00cba9;
+            border-radius: 25px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+        .search-bar input:focus {
+            outline: none;
+            box-shadow: 0 0 10px rgba(0,203,169,0.5);
+            border-color: #00cba9;
+        }
+        .filters {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .filters select, .filters input {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .sort-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        .sort-buttons button {
+            padding: 8px 12px;
+            border: none;
+            background: #00cba9;
+            color: white;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .sort-buttons button:hover {
+            background: #009688;
+        }
+        .bulk-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .bulk-actions button {
+            padding: 8px 12px;
+            border: none;
+            background: #ffc107;
+            color: black;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .bulk-actions button:hover {
+            background: #e0a800;
+        }
+        .theme-toggle {
+            padding: 8px 12px;
+            border: none;
+            background: #6c757d;
+            color: white;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .theme-toggle:hover {
+            background: #5a6268;
+        }
+        .export-btn {
+            padding: 8px 12px;
+            border: none;
+            background: #28a745;
+            color: white;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .export-btn:hover {
+            background: #218838;
+        }
+        .tab {
+            overflow: hidden;
+            background: #343a40;
+            display: flex;
+        }
+        .tab button {
+            flex: 1;
+            background: inherit;
+            border: none;
+            outline: none;
+            cursor: pointer;
+            padding: 16px 20px;
+            transition: all 0.3s ease;
+            color: #adb5bd;
+            font-weight: 500;
+            position: relative;
+        }
+        .tab button:hover {
+            background: rgba(255,255,255,0.1);
+            color: white;
+        }
+        .tab button.active {
+            background: #00cba9;
+            color: white;
+        }
+        .tab button.active::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 3px;
+            background: white;
+            animation: slideIn 0.3s ease forwards;
+        }
+        @keyframes slideIn {
+            to { width: 60%; }
+        }
+        .tabcontent {
+            display: none;
+            padding: 20px;
+            animation: fadeIn 0.5s ease;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .user-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+        }
+        .user-card {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            padding: 20px;
+            transition: all 0.3s ease;
+            border: 1px solid #e9ecef;
+            position: relative;
+            overflow: hidden;
+            cursor: pointer;
+        }
+        body.dark .user-card {
+            background: #2c3e50 !important;
+            border: 1px solid #7f8c8d !important;
+        }
+        .user-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+        .user-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #00cba9, #764ba2);
+        }
+        .user-card h4 {
+            margin: 0 0 15px 0;
+            color: #495057;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+        }
+        body.dark .user-card h4 {
+            color: #ecf0f1 !important;
+        }
+        .badge {
+            background: linear-gradient(45deg, #007bff, #0056b3);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.75em;
+            margin-left: 10px;
+            display: inline-flex;
+            align-items: center;
+            font-weight: 600;
+        }
+        .badge::before {
+            content: '✓';
+            margin-right: 4px;
+        }
+        .user-card p {
+            margin: 8px 0;
+            color: #6c757d;
+            font-size: 14px;
+        }
+        body.dark .user-card p {
+            color: #bdc3c7 !important;
+        }
+        .user-card button {
+            background: linear-gradient(45deg, #28a745, #20c997);
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+        .user-card button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 4px 15px rgba(40,167,69,0.3);
+        }
+        .user-card button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .checkbox {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+        }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            padding: 20px;
+            gap: 10px;
+        }
+        .pagination button {
+            padding: 8px 12px;
+            border: 1px solid #ccc;
+            background: white;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: all 0.3s ease;
+        }
+        .pagination button:hover, .pagination button.active {
+            background: #00cba9;
+            color: white;
+        }
+        .status-complete { color: #28a745; font-weight: 600; }
+        .status-error { color: #dc3545; font-weight: 600; }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+        }
+        body.dark .loading {
+            color: #bdc3c7;
+        }
+        .skeleton {
+            background: #e9ecef;
+            border-radius: 12px;
+            height: 200px;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .no-users {
+            text-align: center;
+            padding: 40px;
+            color: #6c757d;
+            font-style: italic;
+        }
+        body.dark .no-users {
+            color: #bdc3c7;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            animation: fadeIn 0.3s ease;
+        }
+        .modal-content {
+            background: white;
+            margin: 5% auto;
+            padding: 20px;
+            border-radius: 12px;
+            width: 80%;
+            max-width: 600px;
+            position: relative;
+        }
+        body.dark .modal-content {
+            background: #2c3e50 !important;
+            color: #ecf0f1 !important;
+        }
+        .close {
+            position: absolute;
+            top: 10px;
+            right: 15px;
+            font-size: 28px;
+            cursor: pointer;
+        }
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 120px;
+            background-color: #555;
+            color: #fff;
+            text-align: center;
+            border-radius: 6px;
+            padding: 5px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -60px;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
+        footer {
+            text-align: center;
+            padding: 20px;
+            background: #f8f9fa;
+            border-top: 1px solid #e9ecef;
+            color: #6c757d;
+        }
+        body.dark footer {
+            background: #34495e !important;
+            border-top: 1px solid #7f8c8d !important;
+            color: #bdc3c7 !important;
+        }
+        .avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            margin-right: 15px;
+            border: 2px solid #00cba9;
+        }
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #28a745;
+            color: white;
+            padding: 15px;
+            border-radius: 5px;
+            z-index: 1001;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .toast.show {
+            opacity: 1;
+        }
+        .toast.error {
+            background: #dc3545;
+        }
+        .clock {
+            font-size: 14px;
+            color: #6c757d;
+            text-align: center;
+            padding: 10px;
+        }
+        body.dark .clock {
+            color: #bdc3c7 !important;
+        }
+        .settings-modal .modal-content {
+            max-width: 400px;
+        }
+        .settings-modal input, .settings-modal select {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        @media (max-width: 768px) {
+            .user-grid {
+                grid-template-columns: 1fr;
+            }
+            .tab button {
+                padding: 12px 16px;
+                font-size: 14px;
+            }
+            .stats {
+                flex-direction: column;
+            }
+            .controls {
+                flex-direction: column;
+                gap: 10px;
+            }
+            .search-bar {
+                margin-right: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Dashboard Utilisateurs Lualaba Konnect</h1>
+        <div class="stats">
+            <div class="stat-item">
+                <h2 id="total-users">0</h2>
+                <p>Total Utilisateurs</p>
+            </div>
+            <div class="stat-item">
+                <div class="chart-container">
+                    <canvas id="certificationChart"></canvas>
+                </div>
+                <p>Certification</p>
+            </div>
+            <div class="stat-item">
+                <h2 id="pending-users">0</h2>
+                <p>En Attente</p>
+            </div>
+        </div>
+        <div class="controls">
+            <div class="search-bar">
+                <input type="text" id="searchInput" placeholder="Rechercher un utilisateur...">
+            </div>
+            <div class="filters">
+                <select id="statusFilter">
+                    <option value="">Tous les statuts</option>
+                    <option value="certified">Certifié</option>
+                    <option value="pending">En attente</option>
+                </select>
+                <input type="date" id="startDate">
+                <input type="date" id="endDate">
+            </div>
+            <div class="sort-buttons">
+                <button data-sort="name">Trier par Nom</button>
+                <button data-sort="date">Trier par Date</button>
+                <button data-sort="status">Trier par Statut</button>
+            </div>
+            <div class="bulk-actions">
+                <button data-action="bulkCertify">Certifier Sélectionnés</button>
+                <button data-action="bulkUncertify">Décertifier Sélectionnés</button>
+            </div>
+            <button class="theme-toggle">Mode Sombre</button>
+            <button class="export-btn tooltip">
+                Exporter CSV
+                <span class="tooltiptext">Ctrl+S</span>
+            </button>
+            <button data-action="refresh">Actualiser</button>
+            <button data-action="settings">Paramètres</button>
+        </div>
+        <div class="tab">
+            <button class="tablinks" data-tab="Classic">Classiques</button>
+            <button class="tablinks" data-tab="Pro">Professionnels</button>
+            <button class="tablinks" data-tab="Enterprise">Entreprises</button>
+        </div>
+
+        <div id="Classic" class="tabcontent">
+            <h3>Utilisateurs Classiques</h3>
+            <div id="classic-users" class="user-grid"></div>
+            <div class="pagination" id="classic-pagination"></div>
+        </div>
+
+        <div id="Pro" class="tabcontent">
+            <h3>Utilisateurs Professionnels</h3>
+            <div id="pro-users" class="user-grid"></div>
+            <div class="pagination" id="pro-pagination"></div>
+        </div>
+
+        <div id="Enterprise" class="tabcontent">
+            <h3>Utilisateurs Entreprises</h3>
+            <div id="enterprise-users" class="user-grid"></div>
+            <div class="pagination" id="enterprise-pagination"></div>
+        </div>
+
+        <div id="settingsModal" class="modal settings-modal">
+            <div class="modal-content">
+                <span class="close" onclick="closeSettings()">&times;</span>
+                <h2>Paramètres</h2>
+                <label>Utilisateurs par page:</label>
+                <input type="number" id="usersPerPage" value="10" min="5" max="50">
+                <label>Thème par défaut:</label>
+                <select id="defaultTheme">
+                    <option value="light">Clair</option>
+                    <option value="dark">Sombre</option>
+                </select>
+                <button onclick="saveSettings()">Sauvegarder</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="userModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal()">&times;</span>
+            <h2 id="modal-name"></h2>
+            <div id="modal-details"></div>
+        </div>
+    </div>
+    <div id="toast" class="toast"></div>
+
+    <footer>
+        <p>&copy; 2024 Lualaba Konnect. Tous droits réservés.</p>
+    </footer>
+
+    <div class="clock" id="clock"></div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
+        import { getFirestore, collection, onSnapshot, updateDoc, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyDX-hHwrPsIfY4WGrZ2wgXeAZf5KWe18Ls",
+            authDomain: "lualaba-konnect.firebaseapp.com",
+            projectId: "lualaba-konnect",
+            storageBucket: "lualaba-konnect.firebasestorage.app",
+            messagingSenderId: "1079633969142",
+            appId: "1:1079633969142:web:a051ce8850c8645365d1d7",
+            measurementId: "G-Y6HJTVSWHH"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        let certifyingUsers = new Set();
+        let allUsers = {};
+        let currentSort = 'name';
+        let currentPage = 1;
+        let usersPerPage = 10;
+        let selectedUsers = new Set();
+        let listeners = {};
+        let certificationChart;
+
+        // Horloge temps réel
+        setInterval(() => {
+            document.getElementById('clock').textContent = new Date().toLocaleString('fr-FR');
+        }, 1000);
+
+        // Charger toutes les données au démarrage
+        const collections = ['classic_users', 'pro_users', 'enterprise_users'];
+        collections.forEach(col => {
+            listeners[col] = onSnapshot(collection(db, col), (querySnapshot) => {
+                allUsers[col.replace('_', '-')] = [];
+                querySnapshot.forEach((docSnap) => {
+                    const user = docSnap.data();
+                    allUsers[col.replace('_', '-')].push({ id: docSnap.id, data: user });
+                });
+                updateStats();
+                // Rendre si l'onglet actif correspond
+                const activeTab = document.querySelector('.tabcontent[style*="display: block"]');
+                if (activeTab && activeTab.querySelector('.user-grid').id === col.replace('_', '-')) {
+                    renderUsers(col.replace('_', '-'));
+                }
+            }, (error) => {
+                console.error(error);
+            });
+        });
+
+        function showToast(message, isError = false) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${isError ? 'error' : ''} show`;
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        window.certifyUser = async function(collectionName, userId) {
+            certifyingUsers.add(userId);
+            updateUserCardButton(collectionName, userId, true);
+            try {
+                await updateDoc(doc(db, collectionName, userId), { isCertified: true });
+                showToast('Utilisateur certifié !');
+                updateStats();
+            } catch (error) {
+                showToast('Erreur lors de la certification: ' + error.message, true);
+            }
+            certifyingUsers.delete(userId);
+            updateUserCardButton(collectionName, userId, false);
+        };
+
+        window.uncertifyUser = async function(collectionName, userId) {
+            certifyingUsers.add(userId);
+            updateUserCardButton(collectionName, userId, true);
+            try {
+                await updateDoc(doc(db, collectionName, userId), { isCertified: false });
+                showToast('Certification retirée !');
+                updateStats();
+            } catch (error) {
+                showToast('Erreur lors de la décertification: ' + error.message, true);
+            }
+            certifyingUsers.delete(userId);
+            updateUserCardButton(collectionName, userId, false);
+        };
+
+        window.deleteUser = async function(collectionName, userId) {
+            if (!confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur ?')) return;
+            try {
+                await deleteDoc(doc(db, collectionName, userId));
+                showToast('Utilisateur supprimé !');
+                updateStats();
+            } catch (error) {
+                showToast('Erreur lors de la suppression: ' + error.message, true);
+            }
+        };
+
+        function updateUserCardButton(collectionName, userId, loading) {
+            const btns = document.querySelectorAll(`button[data-userid="${collectionName}_${userId}"]`);
+            btns.forEach(btn => {
+                btn.disabled = loading;
+                btn.textContent = loading ? 'Chargement...' : btn.getAttribute('data-original');
+            });
+        }
+
+        function displayUsers(collectionName, containerId) {
+            const container = document.getElementById(containerId);
+
+            // Si listener pas encore créé, le créer
+            if (!listeners[collectionName]) {
+                listeners[collectionName] = onSnapshot(collection(db, collectionName), (querySnapshot) => {
+                    allUsers[containerId] = [];
+                    querySnapshot.forEach((docSnap) => {
+                        const user = docSnap.data();
+                        allUsers[containerId].push({ id: docSnap.id, data: user });
+                    });
+                    updateStats();
+                    renderUsers(containerId);
+                }, (error) => {
+                    container.innerHTML = `<div class="no-users">Erreur: ${error.message}</div>`;
+                });
+            }
+
+            // Si données déjà chargées, afficher immédiatement
+            if (allUsers[containerId] && allUsers[containerId].length > 0) {
+                renderUsers(containerId);
+            } else {
+                // Sinon, afficher squelettes en attendant
+                container.innerHTML = '<div class="skeleton"></div>'.repeat(6);
+            }
+        }
+
+        function renderUsers(containerId) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            let users = allUsers[containerId] || [];
+            users = filterUsersArray(users);
+            sortUsersArray(users, currentSort);
+            const totalPages = Math.ceil(users.length / usersPerPage);
+            const start = (currentPage - 1) * usersPerPage;
+            const end = start + usersPerPage;
+            const pageUsers = users.slice(start, end);
+            pageUsers.forEach(({ id, data: user }) => {
+                renderUserCard(container, user, containerId.replace('-users', '_users'), id);
+            });
+            renderPagination(containerId.replace('-users', '-pagination'), totalPages);
+        }
+
+        function renderUserCard(container, user, collectionName, userId) {
+            const userCard = document.createElement('div');
+            userCard.className = 'user-card';
+            userCard.setAttribute('data-name', `${user.firstName || ''} ${user.lastName || ''}`.toLowerCase());
+            userCard.setAttribute('data-date', user.lastUpdated ? new Date(user.lastUpdated.seconds * 1000).getTime() : 0);
+            userCard.setAttribute('data-status', user.isCertified ? 'certified' : 'pending');
+            userCard.onclick = () => openModal(user);
+            userCard.innerHTML = `
+                <div style="display: flex; align-items: center;">
+                    <img src="${user.photoUrl || 'https://via.placeholder.com/50'}" alt="Avatar" class="avatar">
+                    <div>
+                        <h4>
+                            ${user.firstName || ''} ${user.lastName || ''}
+                            ${user.isCertified === true ? '<span class="badge">Certifié</span>' : ''}
+                        </h4>
+                        <p><strong>Email:</strong> ${user.email || ''}</p>
+                        <p><strong>Téléphone:</strong> ${user.phone || ''}</p>
+                        <p><strong>Adresse:</strong> ${user.address || ''}</p>
+                        <p><strong>Genre:</strong> ${user.genre || 'N/A'}</p>
+                        <p><strong>Date de naissance:</strong> ${user.birthDate ? new Date(user.birthDate).toLocaleDateString() : 'N/A'}</p>
+                        <p><strong>Statut upload:</strong> <span class="${user.uploadStatus === 'complete' ? 'status-complete' : 'status-error'}">${user.uploadStatus || 'N/A'}</span></p>
+                        ${user.isCertified === true
+                            ? `<button data-userid="${collectionName}_${userId}" data-original="Décertifier" onclick="event.stopPropagation(); uncertifyUser('${collectionName}', '${userId}')">Décertifier</button>`
+                            : `<button data-userid="${collectionName}_${userId}" data-original="Certifier" onclick="event.stopPropagation(); certifyUser('${collectionName}', '${userId}')">Certifier</button>`
+                        }
+                        <button onclick="event.stopPropagation(); deleteUser('${collectionName}', '${userId}')">Supprimer</button>
+                    </div>
+                </div>
+            `;
+            container.appendChild(userCard);
+        }
+
+        function renderPagination(paginationId, totalPages) {
+            const pagination = document.getElementById(paginationId);
+            pagination.innerHTML = '';
+            for (let i = 1; i <= totalPages; i++) {
+                const btn = document.createElement('button');
+                btn.textContent = i;
+                btn.className = i === currentPage ? 'active' : '';
+                btn.onclick = () => {
+                    currentPage = i;
+                    const activeTab = document.querySelector('.tabcontent[style*="display: block"]');
+                    if (activeTab) {
+                        const containerId = activeTab.querySelector('.user-grid').id;
+                        renderUsers(containerId);
+                    }
+                };
+                pagination.appendChild(btn);
+            }
+        }
+
+        function updateStats() {
+            let total = 0, certified = 0, pending = 0;
+            Object.values(allUsers).forEach(users => {
+                users.forEach(({ data: user }) => {
+                    total++;
+                    if (user.isCertified) certified++;
+                    else pending++;
+                });
+            });
+            document.getElementById('total-users').textContent = total;
+            document.getElementById('pending-users').textContent = pending;
+            updateChart(certified, pending);
+        }
+
+        function updateChart(certified, pending) {
+            if (certificationChart) certificationChart.destroy();
+            const ctx = document.getElementById('certificationChart').getContext('2d');
+            certificationChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Certifié', 'En attente'],
+                    datasets: [{
+                        data: [certified, pending],
+                        backgroundColor: ['#28a745', '#ffc107'],
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                }
+            });
+        }
+
+        function sortUsers(sortBy) {
+            currentSort = sortBy;
+            currentPage = 1;
+            const activeTab = document.querySelector('.tabcontent[style*="display: block"]');
+            if (activeTab) {
+                const containerId = activeTab.querySelector('.user-grid').id;
+                renderUsers(containerId);
+            }
+        }
+
+        function sortUsersArray(users, sortBy) {
+            users.sort((a, b) => {
+                if (sortBy === 'name') {
+                    const nameA = `${a.data.firstName || ''} ${a.data.lastName || ''}`.toLowerCase();
+                    const nameB = `${b.data.firstName || ''} ${b.data.lastName || ''}`.toLowerCase();
+                    return nameA.localeCompare(nameB);
+                } else if (sortBy === 'date') {
+                    const dateA = a.data.lastUpdated ? a.data.lastUpdated.seconds : 0;
+                    const dateB = b.data.lastUpdated ? b.data.lastUpdated.seconds : 0;
+                    return dateB - dateA;
+                } else if (sortBy === 'status') {
+                    return (a.data.isCertified ? 1 : 0) - (b.data.isCertified ? 1 : 0);
+                }
+                return 0;
+            });
+        }
+
+        function filterUsersArray(users) {
+            const statusFilter = document.getElementById('statusFilter').value;
+            const startDate = document.getElementById('startDate').value;
+            const endDate = document.getElementById('endDate').value;
+            return users.filter(({ data: user }) => {
+                if (statusFilter && (statusFilter === 'certified' ? !user.isCertified : user.isCertified)) return false;
+                if (startDate && user.lastUpdated && new Date(user.lastUpdated.seconds * 1000) < new Date(startDate)) return false;
+                if (endDate && user.lastUpdated && new Date(user.lastUpdated.seconds * 1000) > new Date(endDate)) return false;
+                return true;
+            });
+        }
+
+        function toggleSelection(userId) {
+            if (selectedUsers.has(userId)) {
+                selectedUsers.delete(userId);
+            } else {
+                selectedUsers.add(userId);
+            }
+        }
+
+        async function bulkCertify() {
+            const activeTab = document.querySelector('.tabcontent[style*="display: block"]');
+            if (!activeTab) return;
+            const collectionName = activeTab.querySelector('.user-grid').id.replace('-users', '_users');
+            for (const userId of selectedUsers) {
+                await updateDoc(doc(db, collectionName, userId), { isCertified: true });
+            }
+            selectedUsers.clear();
+            updateStats();
+            showToast('Utilisateurs certifiés !');
+        }
+
+        async function bulkUncertify() {
+            const activeTab = document.querySelector('.tabcontent[style*="display: block"]');
+            if (!activeTab) return;
+            const collectionName = activeTab.querySelector('.user-grid').id.replace('-users', '_users');
+            for (const userId of selectedUsers) {
+                await updateDoc(doc(db, collectionName, userId), { isCertified: false });
+            }
+            selectedUsers.clear();
+            updateStats();
+            showToast('Certifications retirées !');
+        }
+
+        function refreshData() {
+            Object.keys(listeners).forEach(col => {
+                listeners[col](); // Trigger re-fetch
+            });
+            showToast('Données actualisées !');
+        }
+
+        function openSettings() {
+            document.getElementById('settingsModal').style.display = 'block';
+        }
+
+        function closeSettings() {
+            document.getElementById('settingsModal').style.display = 'none';
+        }
+
+        function saveSettings() {
+            usersPerPage = parseInt(document.getElementById('usersPerPage').value);
+            const theme = document.getElementById('defaultTheme').value;
+            localStorage.setItem('usersPerPage', usersPerPage);
+            localStorage.setItem('theme', theme);
+            if (theme === 'dark') document.body.classList.add('dark');
+            else document.body.classList.remove('dark');
+            closeSettings();
+            showToast('Paramètres sauvegardés !');
+            renderUsers(document.querySelector('.tabcontent[style*="display: block"]').querySelector('.user-grid').id);
+        }
+
+        // Charger les paramètres
+        usersPerPage = parseInt(localStorage.getItem('usersPerPage')) || 10;
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') document.body.classList.add('dark');
+
+        // Export PDF (simple, using print)
+        function exportPDF() {
+            window.print();
+        }
+
+        // Add export PDF button
+        document.querySelector('.export-btn').insertAdjacentHTML('afterend', '<button onclick="exportPDF()">Exporter PDF</button>');
+
+        function openModal(user) {
+            document.getElementById('modal-name').textContent = `${user.firstName || ''} ${user.lastName || ''}`;
+            let details = '';
+            for (const [key, value] of Object.entries(user)) {
+                if (value) details += `<p><strong>${key}:</strong> ${value}</p>`;
+            }
+            document.getElementById('modal-details').innerHTML = details;
+            document.getElementById('userModal').style.display = 'block';
+        }
+
+        function closeModal() {
+            document.getElementById('userModal').style.display = 'none';
+        }
+
+        function openTab(evt, tabName) {
+            const tabcontent = document.getElementsByClassName("tabcontent");
+            for (let i = 0; i < tabcontent.length; i++) {
+                tabcontent[i].style.display = "none";
+            }
+            const tablinks = document.getElementsByClassName("tablinks");
+            for (let i = 0; i < tablinks.length; i++) {
+                tablinks[i].className = tablinks[i].className.replace(" active", "");
+            }
+            document.getElementById(tabName).style.display = "block";
+            evt.currentTarget.className += " active";
+            currentPage = 1;
+
+            // Load data when tab is opened
+            if (tabName === 'Classic') {
+                displayUsers('classic_users', 'classic-users');
+            } else if (tabName === 'Pro') {
+                displayUsers('pro_users', 'pro-users');
+            } else if (tabName === 'Enterprise') {
+                displayUsers('enterprise_users', 'enterprise-users');
+            }
+        }
+
+        // Open first tab by default
+        document.getElementsByClassName("tablinks")[0].click();
+
+        // Make functions global
+        window.openTab = openTab;
+        window.closeModal = closeModal;
+        window.toggleSelection = toggleSelection;
+        window.bulkCertify = bulkCertify;
+        window.bulkUncertify = bulkUncertify;
+
+        // Add event listeners
+        document.querySelectorAll('.tablinks').forEach(btn => {
+            btn.addEventListener('click', (e) => openTab(e, btn.dataset.tab));
+        });
+        document.querySelectorAll('.sort-buttons button').forEach(btn => {
+            btn.addEventListener('click', () => sortUsers(btn.dataset.sort));
+        });
+        document.querySelectorAll('.bulk-actions button').forEach(btn => {
+            btn.addEventListener('click', () => window[btn.dataset.action]());
+        });
+        document.querySelector('.theme-toggle').addEventListener('click', toggleTheme);
+        document.querySelector('.export-btn').addEventListener('click', exportData);
+        document.querySelector('button[data-action="refresh"]').addEventListener('click', refreshData);
+        document.querySelector('button[data-action="settings"]').addEventListener('click', openSettings);
+        document.getElementById('searchInput').addEventListener('input', filterUsers);
+        document.getElementById('statusFilter').addEventListener('change', filterUsers);
+        document.getElementById('startDate').addEventListener('change', filterUsers);
+        document.getElementById('endDate').addEventListener('change', filterUsers);
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.key === 's') {
+                e.preventDefault();
+                exportData();
+            }
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+[
+  {
+    "origin": ["http://localhost:*", "https://votre-domaine.com"],
+    "method": ["GET", "POST", "PUT", "HEAD", "DELETE", "OPTIONS"],
+    "responseHeader": ["Content-Type", "Authorization", "X-Goog-Upload-Protocol", "x-goog-resumable"],
+    "maxAgeSeconds": 3600
+  }
+]

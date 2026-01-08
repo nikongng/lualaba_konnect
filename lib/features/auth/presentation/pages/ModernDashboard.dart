@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'dart:ui';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/services.dart';
 
@@ -9,7 +7,7 @@ import 'package:flutter/services.dart';
 import '../widgets/services/services_tiles/rapid_services_tile.dart';
 import '../widgets/services/services_tiles/job_announcement_tile.dart';
 import '../widgets/services/services_tiles/daily_tip_tile.dart';
-import '../../../chat/chat_list_page.dart';
+import '../../../chat/presentation/pages/chat_list_page.dart'; 
 import '../../../live/live_page.dart';
 import '../../../marketplace/marketplace_page.dart';
 import 'news_feed_page.dart';
@@ -141,8 +139,11 @@ class _ModernDashboardState extends State<ModernDashboard> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-        if (_selectedIndex != 0) setState(() => _selectedIndex = 0);
-        else SystemNavigator.pop();
+        if (_selectedIndex != 0) {
+          setState(() => _selectedIndex = 0);
+        } else {
+          SystemNavigator.pop();
+        }
       },
       child: Scaffold(
         backgroundColor: bgColor,
@@ -192,7 +193,7 @@ class _ModernDashboardState extends State<ModernDashboard> {
   Widget _buildCurrentPage(bool isDark, Color textColor) {
     switch (_selectedIndex) {
       case 0: return _buildHomePage(isDark, textColor, key: const ValueKey('home_ui'));
-      case 1: return ChatListPage(key: _chatKey, isDark: isDark);
+      case 1: return ChatListPage(key: _chatKey);
       case 2: return LivePage(key: const ValueKey('live_ui'), onBack: () => setState(() => _selectedIndex = 0));
       case 3: return MarketplacePage(key: const ValueKey('market_ui'), onBack: () => setState(() => _selectedIndex = 0));
       case 4: return _buildProfilePage(isDark, textColor, key: const ValueKey('profile_ui'));
@@ -211,7 +212,11 @@ class _ModernDashboardState extends State<ModernDashboard> {
         child: Column(
           children: [
             const SizedBox(height: 20),
-            HeaderWidget(isDark: isDark, textColor: textColor, onSOSPressed: _showSOSMenu),
+            HeaderWidget(
+              isDark: isDark,
+              textColor: textColor,
+              onSOSPressed: _showSOSMenu,
+            ),
             const SizedBox(height: 25),
             WeatherWidget(isDark: isDark, bg: cardBg, text: textColor, sub: isDark ? Colors.white70 : Colors.black54),
             const SizedBox(height: 25),
