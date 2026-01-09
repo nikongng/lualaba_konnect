@@ -19,6 +19,7 @@ dependencies:
   dotted_border: ^3.1.0
   url_launcher: ^6.2.5
   timeago: ^3.7.0
+  contacts_service: ^0.6.3
   
   
 
