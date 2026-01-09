@@ -269,8 +269,89 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver 
       },
     );
   }
+  Future<void> _startChat(String otherUserId, String otherName, String otherEmail) async {
+  // 1. On crée un ID unique basé sur les deux IDs (triés pour être unique)
+  List<String> ids = [currentUser!.uid, otherUserId];
+  ids.sort();
+  String chatId = ids.join("_");
 
-  void _showNewChatDialog() {
-     // Ta logique pour créer un nouveau chat
+  // 2. On vérifie si le chat existe déjà
+  DocumentReference chatRef = FirebaseFirestore.instance.collection('chats').doc(chatId);
+  DocumentSnapshot doc = await chatRef.get();
+
+  if (!doc.exists) {
+    // 3. Si non, on le crée avec les infos nécessaires pour tes StreamBuilders
+    await chatRef.set({
+      'participants': ids,
+      'participantNames': [currentUser!.email, otherEmail],
+      'displayNames': [currentUser!.displayName ?? "Moi", otherName],
+      'lastMessage': "Nouvelle discussion lancée",
+      'lastMessageTime': FieldValue.serverTimestamp(),
+      'unreadCount': 0,
+    });
   }
+
+  // 4. On navigue vers la page de détail
+  if (mounted) {
+    Navigator.push(context, MaterialPageRoute(
+      builder: (context) => ChatDetailPage(chatId: chatId, chatName: otherName)
+    ));
+  }
+}
+
+void _showNewChatDialog() {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: primaryDark,
+    isScrollControlled: true,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+    builder: (context) => DraggableScrollableSheet(
+      initialChildSize: 0.8,
+      maxChildSize: 0.9,
+      minChildSize: 0.5,
+      expand: false,
+      builder: (context, scrollController) => Column(
+        children: [
+          const SizedBox(height: 20),
+          const Text("Nouveau Message", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          const Divider(color: Colors.white10),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              // On récupère la liste des utilisateurs (adapte 'classic_users' si besoin)
+              stream: FirebaseFirestore.instance.collection('classic_users').snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                
+                // On filtre pour ne pas se voir soi-même dans la liste
+                final users = snapshot.data!.docs.where((doc) => doc.id != currentUser?.uid).toList();
+
+                return ListView.builder(
+                  controller: scrollController,
+                  itemCount: users.length,
+                  itemBuilder: (context, index) {
+                    final user = users[index].data() as Map<String, dynamic>;
+                    final String userId = users[index].id;
+
+                    return ListTile(
+                      leading: const CircleAvatar(
+                        backgroundColor: Colors.white10,
+                        child: Icon(Icons.person, color: Colors.white70),
+                      ),
+                      title: Text(user['displayName'] ?? "Utilisateur", style: const TextStyle(color: Colors.white)),
+                      subtitle: Text(user['email'] ?? "", style: const TextStyle(color: Colors.white38, fontSize: 12)),
+                      onTap: () {
+                        Navigator.pop(context); // Fermer le menu
+                        _startChat(userId, user['displayName'] ?? "Utilisateur", user['email'] ?? "");
+                      },
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
 }
