@@ -1,15 +1,31 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:intl/intl.dart';
+import 'package:record/record.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
+import 'package:audioplayers/audioplayers.dart'; // NOUVEAU
+
+// --- CONFIGURATION COULEURS ---
+const Color tgBg = Color(0xFF0E1621);
+const Color tgBar = Color(0xFF17212B);
+const Color tgMyBubble = Color(0xFF2B5278);
+const Color tgOtherBubble = Color(0xFF182533);
+const Color tgAccent = Color(0xFF64B5F6);
 
 class ChatDetailPage extends StatefulWidget {
   final String chatId;
   final String chatName;
+
   const ChatDetailPage({super.key, required this.chatId, required this.chatName});
 
   @override
@@ -17,178 +33,266 @@ class ChatDetailPage extends StatefulWidget {
 }
 
 class _ChatState extends State<ChatDetailPage> {
-  final _msgController = TextEditingController();
-  bool _showEmoji = false;
-  bool _hasText = false;
+  final TextEditingController _msgController = TextEditingController();
+  final currentUser = FirebaseAuth.instance.currentUser;
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  final AudioPlayer _audioPlayer = AudioPlayer(); // NOUVEAU
 
-  // --- 1. SÉLECTEUR DE FICHIERS (GALERIE, VIDÉO, MUSIQUE, DOCS) ---
-  void _showAttachmentMenu() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF17212B),
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => Container(
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        child: Wrap(
-          alignment: WrapAlignment.spaceAround,
-          children: [
-            _buildActionItem(Icons.image, "Galerie", Colors.purple, () => _pickMedia(ImageSource.gallery, false)),
-            _buildActionItem(Icons.videocam, "Vidéo", Colors.pink, () => _pickMedia(ImageSource.gallery, true)),
-            _buildActionItem(Icons.insert_drive_file, "Fichier", Colors.blue, _pickGeneralFile),
-            _buildActionItem(Icons.headset, "Musique", Colors.orange, _pickAudioFile),
-            _buildActionItem(Icons.location_on, "Lieu", Colors.green, _sendLocation),
-            _buildActionItem(Icons.person, "Contact", Colors.amber, _pickContact),
-          ],
-        ),
-      ),
-    );
+  bool _hasText = false;
+  bool _isAudioMode = true;
+  bool _isRecording = false;
+  bool _showEmoji = false;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _msgController.addListener(() {
+      setState(() => _hasText = _msgController.text.trim().isNotEmpty);
+      _updateTypingStatus(_msgController.text.isNotEmpty);
+    });
+
+    // --- INITIALISATION : COMPTEURS & LECTURE ---
+    _resetMyUnreadCount();
+    _markMessagesAsRead();
   }
 
-  Widget _buildActionItem(IconData icon, String label, Color color, VoidCallback onTap) {
-    return SizedBox(
-      width: 90,
-      child: Column(
+  // NOUVEAU : Fonction pour la petite sonnerie
+  void _playReceiveSound() async {
+    try {
+      await _audioPlayer.play(AssetSource('sounds/pop.mp3'));
+    } catch (e) {
+      debugPrint("Erreur son: $e");
+    }
+  }
+
+  // --- 1. ACCUSÉS DE RÉCEPTION & COMPTEURS ---
+  void _resetMyUnreadCount() {
+    FirebaseFirestore.instance.collection('chats').doc(widget.chatId).update({
+      'unreadCounts.${currentUser?.uid}': 0,
+    });
+  }
+
+  void _markMessagesAsRead() async {
+    final query = await FirebaseFirestore.instance
+        .collection('chats')
+        .doc(widget.chatId)
+        .collection('messages')
+        .where('senderId', isNotEqualTo: currentUser?.uid)
+        .where('isRead', isEqualTo: false)
+        .get();
+
+    if (query.docs.isNotEmpty) {
+      WriteBatch batch = FirebaseFirestore.instance.batch();
+      for (var doc in query.docs) {
+        batch.update(doc.reference, {'isRead': true});
+      }
+      await batch.commit();
+      HapticFeedback.lightImpact(); // Petite vibration "Telegram style"
+    }
+  }
+
+  void _updateTypingStatus(bool isTyping) {
+    FirebaseFirestore.instance.collection('chats').doc(widget.chatId).update({
+      'typing.${currentUser?.uid}': isTyping,
+    });
+  }
+
+  // --- 2. ENVOI DE MESSAGE ---
+  Future<void> _saveToFirestore(Map<String, dynamic> data) async {
+    final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+    
+    // On récupère les participants pour savoir qui incrémenter
+    final chatSnap = await chatRef.get();
+    final participants = List<String>.from(chatSnap.get('participants'));
+    final otherUserId = participants.firstWhere((id) => id != currentUser?.uid);
+
+    final batch = FirebaseFirestore.instance.batch();
+    final msgRef = chatRef.collection('messages').doc();
+
+    batch.set(msgRef, {
+      'senderId': currentUser?.uid,
+      'timestamp': FieldValue.serverTimestamp(),
+      'isRead': false,
+      ...data,
+    });
+
+    batch.update(chatRef, {
+      'lastMessage': data['text'] ?? "Média",
+      'lastMessageTime': FieldValue.serverTimestamp(),
+      'lastSenderId': currentUser?.uid,
+      'unreadCounts.$otherUserId': FieldValue.increment(1), // Incrémente pour l'autre
+      'unreadCounts.${currentUser?.uid}': 0, // Remet le tien à zéro
+    });
+
+    await batch.commit();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: tgBg,
+      appBar: _buildAppBar(),
+      body: Column(
         children: [
-          GestureDetector(
-            onTap: () { Navigator.pop(context); onTap(); },
-            child: CircleAvatar(radius: 28, backgroundColor: color, child: Icon(icon, color: Colors.white, size: 28)),
-          ),
-          const SizedBox(height: 8),
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          Expanded(child: _buildMessageList()),
+          if (_isLoading) const LinearProgressIndicator(color: tgAccent),
+          _buildInputArea(),
+          if (_showEmoji) _buildEmojiPicker(),
         ],
       ),
     );
   }
 
-  // --- 2. LOGIQUE D'ENVOI MULTIMÉDIA ---
-
-  // Photos et Vidéos
-  Future<void> _pickMedia(ImageSource source, bool isVideo) async {
-    final picker = ImagePicker();
-    final file = isVideo ? await picker.pickVideo(source: source) : await picker.pickImage(source: source);
-    if (file != null) _uploadFile(File(file.path), isVideo ? 'video' : 'photo');
+  PreferredSizeWidget _buildAppBar() {
+    return AppBar(
+      backgroundColor: tgBar,
+      title: StreamBuilder<DocumentSnapshot>(
+        stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).snapshots(),
+        builder: (context, snapshot) {
+          bool isTyping = false;
+          if (snapshot.hasData && snapshot.data!.exists) {
+            Map typingMap = (snapshot.data!.data() as Map)['typing'] ?? {};
+            typingMap.forEach((key, value) {
+              if (key != currentUser?.uid && value == true) isTyping = true;
+            });
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(widget.chatName, style: const TextStyle(fontSize: 16)),
+              Text(
+                isTyping ? "écrit..." : "En ligne",
+                style: TextStyle(fontSize: 12, color: isTyping ? tgAccent : Colors.white54),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
-  // Fichiers (PDF, etc.) et Musique
-  Future<void> _pickGeneralFile() async => _pickFileWithFilter(FileType.any, 'fichier');
-  Future<void> _pickAudioFile() async => _pickFileWithFilter(FileType.audio, 'musique');
+  Widget _buildMessageList() {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId)
+          .collection('messages')
+          .orderBy('timestamp', descending: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
 
-  Future<void> _pickFileWithFilter(FileType type, String category) async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(type: type);
-    if (result != null) _uploadFile(File(result.files.single.path!), category);
-  }
+        // NOUVEAU : Détection de nouveaux messages pour la sonnerie
+        if (snapshot.data!.docChanges.isNotEmpty) {
+          var change = snapshot.data!.docChanges.first;
+          if (change.type == DocumentChangeType.added) {
+            var data = change.doc.data() as Map<String, dynamic>?;
+            // Si le message vient de l'autre et qu'il est récent
+            if (data != null && data['senderId'] != currentUser?.uid) {
+               _playReceiveSound(); 
+               _markMessagesAsRead(); 
+            }
+          }
+        }
 
-  // Localisation
-  Future<void> _sendLocation() async {
-    Position pos = await Geolocator.getCurrentPosition();
-    _saveMessageToFirestore(null, 'location', lat: pos.latitude, lng: pos.longitude);
-  }
-
-  // Contacts
-  void _pickContact() {
-    // Ici tu peux ouvrir contacts_service
-    _saveMessageToFirestore("Nom du Contact", 'contact');
-  }
-
-  // --- 3. UPLOAD ET FIRESTORE ---
-
-  Future<void> _uploadFile(File file, String type) async {
-    String name = "${DateTime.now().millisecondsSinceEpoch}_${file.path.split('/').last}";
-    var ref = FirebaseStorage.instance.ref().child('chats/${widget.chatId}/$name');
-    await ref.putFile(file);
-    String url = await ref.getDownloadURL();
-    _saveMessageToFirestore(url, type);
-  }
-
-  void _saveMessageToFirestore(String? content, String type, {double? lat, double? lng}) {
-    FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').add({
-      'senderId': 'ID_USER_ICI',
-      'mediaUrl': content,
-      'type': type,
-      'lat': lat,
-      'lng': lng,
-      'timestamp': FieldValue.serverTimestamp(),
-      'isRead': false,
-    });
-  }
-
-  // --- 4. INTERFACE INPUT AVEC EMOJIS ---
-
-  @override
-  Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () {
-        if (_showEmoji) { setState(() => _showEmoji = false); return Future.value(false); }
-        return Future.value(true);
+        var docs = snapshot.data!.docs;
+        return ListView.builder(
+          reverse: true,
+          itemCount: docs.length,
+          itemBuilder: (context, index) {
+            var m = docs[index].data() as Map<String, dynamic>;
+            bool isMe = m['senderId'] == currentUser?.uid;
+            return _buildBubble(m, isMe);
+          },
+        );
       },
-      child: Scaffold(
-        backgroundColor: const Color(0xFF0E1621),
-        body: Column(
+    );
+  }
+
+  Widget _buildBubble(Map m, bool isMe) {
+    bool isRead = m['isRead'] ?? false; // NOUVEAU : Récupération du statut Lu
+
+    return Align(
+      alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 5, horizontal: 10),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: isMe ? tgMyBubble : tgOtherBubble,
+          borderRadius: BorderRadius.circular(15),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Expanded(child: Center(child: Text("Messages ici", style: TextStyle(color: Colors.white)))),
+            if (m['type'] == 'text')
+              Text(m['text'], style: const TextStyle(color: Colors.white, fontSize: 16)),
             
-            // Barre d'input
-            Container(
-              padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 8),
-              color: const Color(0xFF17212B),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  // BOUTON EMOJI
-                  IconButton(
-                    icon: Icon(_showEmoji ? Icons.keyboard : Icons.sentiment_satisfied_alt, color: Colors.white54),
-                    onPressed: () {
-                      setState(() => _showEmoji = !_showEmoji);
-                      if (_showEmoji) FocusScope.of(context).unfocus();
-                    },
-                  ),
-                  
-                  // CHAMP TEXTE
-                  Expanded(
-                    child: Container(
-                      decoration: BoxDecoration(color: const Color(0xFF0E1621), borderRadius: BorderRadius.circular(25)),
-                      child: Row(
-                        children: [
-                          const SizedBox(width: 15),
-                          Expanded(
-                            child: TextField(
-                              controller: _msgController,
-                              style: const TextStyle(color: Colors.white),
-                              decoration: const InputDecoration(hintText: "Message", border: InputBorder.none, hintStyle: TextStyle(color: Colors.white24)),
-                              onChanged: (v) => setState(() => _hasText = v.trim().isNotEmpty),
-                            ),
-                          ),
-                          // BOUTON TROMBONE (SÉLECTEUR)
-                          IconButton(icon: const Icon(Icons.attach_file, color: Colors.white54), onPressed: _showAttachmentMenu),
-                        ],
-                      ),
-                    ),
-                  ),
-                  
-                  // BOUTON ENVOI / MICRO
-                  const SizedBox(width: 5),
-                  CircleAvatar(
-                    backgroundColor: Colors.blueAccent,
-                    child: Icon(_hasText ? Icons.send : Icons.mic, color: Colors.white),
-                  ),
-                ],
-              ),
-            ),
-            
-            // CLAVIER EMOJI
-            if (_showEmoji)
-              SizedBox(
-                height: 250,
-                child: EmojiPicker(
-                  onEmojiSelected: (category, emoji) {
-                    _msgController.text = _msgController.text + emoji.emoji;
-                    setState(() => _hasText = true);
-                  },
+            const SizedBox(height: 4),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  DateFormat('HH:mm').format((m['timestamp'] as Timestamp? ?? Timestamp.now()).toDate()),
+                  style: const TextStyle(color: Colors.white38, fontSize: 11),
                 ),
-              ),
+                if (isMe) ...[
+                  const SizedBox(width: 4),
+                  Icon(
+                    Icons.done_all, 
+                    size: 15, 
+                    color: isRead ? tgAccent : Colors.white30, // NOUVEAU : Bleu si lu, gris sinon
+                  ),
+                ]
+              ],
+            ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildInputArea() {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      color: tgBar,
+      child: Row(
+        children: [
+          IconButton(
+            icon: Icon(_showEmoji ? Icons.keyboard : Icons.sentiment_satisfied_alt, color: Colors.grey),
+            onPressed: () => setState(() => _showEmoji = !_showEmoji),
+          ),
+          Expanded(
+            child: TextField(
+              controller: _msgController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(hintText: "Message", border: InputBorder.none, hintStyle: TextStyle(color: Colors.white24)),
+            ),
+          ),
+          IconButton(
+            icon: Icon(_hasText ? Icons.send : Icons.mic, color: tgAccent),
+            onPressed: _hasText ? _sendTextMessage : null,
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _sendTextMessage() {
+    if (_msgController.text.trim().isEmpty) return;
+    _saveToFirestore({'text': _msgController.text.trim(), 'type': 'text'});
+    _msgController.clear();
+  }
+
+  Widget _buildEmojiPicker() {
+    return SizedBox(height: 250, child: EmojiPicker(onEmojiSelected: (cat, emoji) => _msgController.text += emoji.emoji));
+  }
+
+  @override
+  void dispose() {
+    _updateTypingStatus(false);
+    _msgController.dispose();
+    _audioPlayer.dispose(); // NOUVEAU
+    super.dispose();
   }
 }
