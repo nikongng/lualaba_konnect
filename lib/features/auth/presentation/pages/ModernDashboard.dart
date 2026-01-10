@@ -170,7 +170,7 @@ class _ModernDashboardState extends State<ModernDashboard> {
                   duration: const Duration(milliseconds: 500),
                   curve: Curves.fastOutSlowIn,
                   left: 0, right: 0,
-                  bottom: isNavBarVisible ? 0 : -120, // Disparaît complètement
+                  bottom: isNavBarVisible ? 15 : -120, // Disparaît complètement
                   child: AnimatedOpacity(
                     duration: const Duration(milliseconds: 300),
                     opacity: isNavBarVisible ? 1.0 : 0.0,

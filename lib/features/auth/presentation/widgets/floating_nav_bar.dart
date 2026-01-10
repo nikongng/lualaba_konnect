@@ -59,8 +59,8 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
   Widget build(BuildContext context) {
     return Positioned(
       bottom: 30,
-      left: 20,
-      right: 20,
+      left: 60,
+      right: 60,
       child: ScaleTransition(
         scale: _scaleAnimation,
         child: LayoutBuilder(
@@ -70,7 +70,7 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
 
             return AnimatedContainer(
               duration: const Duration(milliseconds: 500),
-              height: 75,
+              height: 65,
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(40),
                 boxShadow: [

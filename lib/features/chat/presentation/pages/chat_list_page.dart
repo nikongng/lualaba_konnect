@@ -6,10 +6,26 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:timeago/timeago.dart' as timeago;
 
-// Tes imports personnalisés (vérifie bien les chemins)
 import '../../../auth/presentation/widgets/story_widgets.dart';
 import '../../../auth/presentation/widgets/animated_fab.dart';
 import 'chat_detail_page.dart';
+
+class UserUtils {
+  static String formatName(Map<String, dynamic>? data) {
+    if (data == null) return "Utilisateur";
+    final keysFirst = ['firstName', 'firstname', 'prenom', 'givenName'];
+    final keysLast = ['lastName', 'lastname', 'nom', 'familyName'];
+    String? first, last;
+    for (var k in keysFirst) { if (data[k]?.toString().trim().isNotEmpty == true) { first = data[k].toString().trim(); break; } }
+    for (var k in keysLast) { if (data[k]?.toString().trim().isNotEmpty == true) { last = data[k].toString().trim(); break; } }
+    if (first != null && last != null) return '$first $last';
+    if (first != null) return first;
+    for (var k in ['displayName', 'name', 'fullName']) {
+      if (data[k]?.toString().trim().isNotEmpty == true) return data[k].toString().split(' ').first;
+    }
+    return 'Utilisateur';
+  }
+}
 
 class ChatListPage extends StatefulWidget {
   const ChatListPage({super.key});
@@ -21,6 +37,7 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver 
   final User? currentUser = FirebaseAuth.instance.currentUser;
   final Color primaryDark = const Color(0xFF1D2733);
   final Color orangeAccent = const Color(0xFFE57C00);
+  final Color tgAccent = const Color(0xFF64B5F6);
   String selectedCategory = "TOUS";
 
   @override
@@ -41,19 +58,12 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver 
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
-      _setOnlineStatus(true);
-    } else {
-      _setOnlineStatus(false);
-    }
+    _setOnlineStatus(state == AppLifecycleState.resumed);
   }
 
   Future<void> _setOnlineStatus(bool isOnline) async {
     if (currentUser != null) {
-      await FirebaseFirestore.instance
-          .collection('classic_users')
-          .doc(currentUser!.uid)
-          .update({
+      await FirebaseFirestore.instance.collection('classic_users').doc(currentUser!.uid).update({
         'isOnline': isOnline,
         'lastSeen': FieldValue.serverTimestamp(),
       });
@@ -62,18 +72,12 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver 
 
   Future<void> _cleanupOldStories() async {
     final now = DateTime.now();
-    final expired = await FirebaseFirestore.instance
-        .collection('stories')
-        .where('expiresAt', isLessThan: now)
-        .get();
-
+    final expired = await FirebaseFirestore.instance.collection('stories').where('expiresAt', isLessThan: now).get();
     for (var doc in expired.docs) {
       try {
         String? url = doc.data()['imageUrl'];
         if (url != null) await FirebaseStorage.instance.refFromURL(url).delete();
-      } catch (e) {
-        debugPrint("Erreur Storage Story: $e");
-      }
+      } catch (e) { debugPrint("Erreur Story: $e"); }
       await doc.reference.delete();
     }
   }
@@ -81,14 +85,12 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver 
   Future<void> _handleCameraAction() async {
     final ImagePicker picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.camera, imageQuality: 70);
-    
     if (image != null && currentUser != null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Publication de la story...")));
       String fileName = 'story_${DateTime.now().millisecondsSinceEpoch}.jpg';
       Reference ref = FirebaseStorage.instance.ref().child('stories').child(fileName);
       await ref.putFile(File(image.path));
       String url = await ref.getDownloadURL();
-
       await FirebaseFirestore.instance.collection('stories').add({
         'userId': currentUser!.uid,
         'userName': currentUser!.displayName ?? "Moi",
@@ -108,72 +110,68 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver 
         elevation: 0,
         leading: const Icon(Icons.menu, color: Colors.white54),
         title: const Text('Chat', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        actions: const [
-          Icon(Icons.search, color: Colors.white54),
-          SizedBox(width: 15),
-        ],
+        actions: const [Icon(Icons.search, color: Colors.white54), SizedBox(width: 15)],
       ),
       body: Column(
         children: [
-          StoryBar(
-            currentUserId: currentUser?.uid ?? "",
-            onAddStoryTap: _handleCameraAction,
-          ),
+          StoryBar(currentUserId: currentUser?.uid ?? "", onAddStoryTap: _handleCameraAction),
           _buildCategoryTabs(),
           Expanded(child: _buildChatList()),
         ],
       ),
-      floatingActionButton: AnimatedFabColumn(
-        onCameraTap: _handleCameraAction,
-        onEditTap: _showNewChatDialog,
-      ),
+      floatingActionButton: AnimatedFabColumn(onCameraTap: _handleCameraAction, onEditTap: _showNewChatDialog),
     );
   }
 
   Widget _buildCategoryTabs() {
+    final tabs = ["TOUS", "PRO", "ENTERPRISE", "NON LUS"];
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: ["TOUS", "PRO", "NON LUS"].map((label) {
-          bool isActive = selectedCategory == label;
-          return GestureDetector(
-            onTap: () => setState(() => selectedCategory = label),
-            child: Column(
-              children: [
-                Text(label,
-                    style: TextStyle(
-                        color: isActive ? orangeAccent : Colors.white38,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 13)),
-                const SizedBox(height: 8),
-                Container(
-                    height: 2,
-                    width: 40,
-                    color: isActive ? orangeAccent : Colors.transparent),
-              ],
-            ),
-          );
-        }).toList(),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: tabs.map((label) {
+            bool isActive = selectedCategory == label;
+            return GestureDetector(
+              onTap: () => setState(() => selectedCategory = label),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 15),
+                child: Column(
+                  children: [
+                    Text(label, style: TextStyle(color: isActive ? orangeAccent : Colors.white38, fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 8),
+                    Container(height: 2, width: 40, color: isActive ? orangeAccent : Colors.transparent),
+                  ],
+                ),
+              ),
+            );
+          }).toList(),
+        ),
       ),
     );
   }
 
   Widget _buildChatList() {
-    Query query = FirebaseFirestore.instance
-        .collection('chats')
-        .where('participants', arrayContains: currentUser?.uid);
-
-    // Filtre pour les messages non lus
-    if (selectedCategory == "NON LUS") {
-      query = query.where('unreadCount', isGreaterThan: 0);
-    }
-
+    Query query = FirebaseFirestore.instance.collection('chats').where('participants', arrayContains: currentUser?.uid);
+    
     return StreamBuilder<QuerySnapshot>(
       stream: query.orderBy('lastMessageTime', descending: true).snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-        final docs = snapshot.data!.docs;
+        var docs = snapshot.data!.docs;
+
+        // FILTRAGE LOCAL PAR TYPE & NON LUS
+        if (selectedCategory == "PRO") {
+          docs = docs.where((doc) => (doc.data() as Map)['userTypes']?.values.contains("pro_users") ?? false).toList();
+        } else if (selectedCategory == "ENTERPRISE") {
+          docs = docs.where((doc) => (doc.data() as Map)['userTypes']?.values.contains("enterprise_users") ?? false).toList();
+        } else if (selectedCategory == "NON LUS") {
+          docs = docs.where((doc) {
+            Map unreadMap = (doc.data() as Map)['unreadCounts'] ?? {};
+            return (unreadMap[currentUser?.uid] ?? 0) > 0;
+          }).toList();
+        }
+
         if (docs.isEmpty) return const Center(child: Text("Aucune discussion", style: TextStyle(color: Colors.white38)));
 
         return ListView.builder(
@@ -181,177 +179,93 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver 
           itemBuilder: (context, index) {
             final chat = docs[index].data() as Map<String, dynamic>;
             final String docId = docs[index].id;
-
+            
             List participants = chat['participants'] ?? [];
             String otherUserId = participants.firstWhere((id) => id != currentUser?.uid, orElse: () => "");
+            Map userTypes = chat['userTypes'] ?? {};
+            String collection = userTypes[otherUserId] ?? 'classic_users';
 
-            List names = chat['displayNames'] ?? ["Utilisateur", "Utilisateur"];
-            List emails = chat['participantNames'] ?? ["", ""];
-            int otherIdx = (emails[0] == currentUser?.email) ? 1 : 0;
-            String title = names[otherIdx];
+            return Dismissible(
+              key: Key(docId),
+              direction: DismissDirection.endToStart,
+              background: Container(color: Colors.redAccent, alignment: Alignment.centerRight, padding: const EdgeInsets.only(right: 20), child: const Icon(Icons.delete, color: Colors.white)),
+              onDismissed: (_) => FirebaseFirestore.instance.collection('chats').doc(docId).delete(),
+              child: StreamBuilder<DocumentSnapshot>(
+                stream: FirebaseFirestore.instance.collection(collection).doc(otherUserId).snapshots(),
+                builder: (context, userSnap) {
+                  String finalName = "Utilisateur";
+                  bool isOnline = false;
+                  bool isCert = false;
 
-            String timeDisplay = "";
-            if (chat['lastMessageTime'] != null) {
-              DateTime date = (chat['lastMessageTime'] as Timestamp).toDate();
-              timeDisplay = timeago.format(date, locale: 'fr', allowFromNow: true);
-            }
+                  if (userSnap.hasData && userSnap.data!.exists) {
+                    final userData = userSnap.data!.data() as Map<String, dynamic>;
+                    finalName = UserUtils.formatName(userData);
+                    isOnline = userData['isOnline'] ?? false;
+                    isCert = userData['isCertified'] ?? false;
+                  }
 
-            // Gestion du texte pour les types spéciaux (Audio/Vidéo)
-            Widget lastMsgWidget = Text(
-              chat['lastMessage'] ?? '',
-              style: const TextStyle(color: Colors.white54),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            );
+                  // LOGIQUE "EN TRAIN D'ÉCRIRE"
+                  Map typingMap = chat['typing'] ?? {};
+                  bool isTyping = typingMap[otherUserId] ?? false;
 
-            return StreamBuilder<DocumentSnapshot>(
-              stream: FirebaseFirestore.instance.collection('classic_users').doc(otherUserId).snapshots(),
-              builder: (context, userSnap) {
-                bool isOnline = false;
-                if (userSnap.hasData && userSnap.data!.exists) {
-                  isOnline = (userSnap.data!.data() as Map<String, dynamic>)['isOnline'] ?? false;
-                }
-
-                return ListTile(
-                  onTap: () => Navigator.push(context, MaterialPageRoute(
-                      builder: (context) => ChatDetailPage(chatId: docId, chatName: title)
-                  )),
-                  leading: Stack(
-                    children: [
-                      const CircleAvatar(
-                        radius: 26,
-                        backgroundColor: Color(0xFF2C3E50),
-                        child: Icon(Icons.person, color: Colors.white54),
-                      ),
-                      Positioned(
-                        right: 1,
-                        bottom: 1,
-                        child: Container(
-                          width: 13,
-                          height: 13,
-                          decoration: BoxDecoration(
-                            color: isOnline ? Colors.greenAccent[400] : Colors.transparent,
-                            shape: BoxShape.circle,
-                            border: Border.all(color: isOnline ? primaryDark : Colors.transparent, width: 2),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  title: Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
-                  subtitle: lastMsgWidget,
-                  trailing: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(timeDisplay, style: const TextStyle(color: Colors.white38, fontSize: 10)),
-                      const SizedBox(height: 4),
-                      // BADGE NON LU
-                      if (chat['unreadCount'] != null && chat['unreadCount'] > 0)
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: Colors.greenAccent[700],
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            chat['unreadCount'].toString(),
-                            style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                    ],
-                  ),
-                );
-              },
+                  return ListTile(
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => ChatDetailPage(chatId: docId, chatName: finalName))),
+                    leading: Stack(
+                      children: [
+                        const CircleAvatar(radius: 26, backgroundColor: Color(0xFF2C3E50), child: Icon(Icons.person, color: Colors.white54)),
+                        if (isOnline) Positioned(right: 1, bottom: 1, child: Container(width: 12, height: 12, decoration: BoxDecoration(color: Colors.greenAccent, shape: BoxShape.circle, border: Border.all(color: primaryDark, width: 2)))),
+                      ],
+                    ),
+                    title: Row(
+                      children: [
+                        Flexible(child: Text(finalName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                        if (isCert) const Padding(padding: EdgeInsets.only(left: 5), child: Icon(Icons.verified, color: Colors.blue, size: 16)),
+                        if (collection == "pro_users") const Padding(padding: EdgeInsets.only(left: 5), child: Icon(Icons.verified, color: Colors.orange, size: 16)),
+                        if (collection == "enterprise_users") const Padding(padding: EdgeInsets.only(left: 5), child: Icon(Icons.stars, color: Colors.greenAccent, size: 16)),
+                      ],
+                    ),
+                    subtitle: Text(
+                      isTyping ? "en train d'écrire..." : (chat['lastMessage'] ?? "Nouvelle discussion"), 
+                      style: TextStyle(color: isTyping ? tgAccent : Colors.white54, fontWeight: isTyping ? FontWeight.bold : FontWeight.normal), 
+                      maxLines: 1, 
+                      overflow: TextOverflow.ellipsis
+                    ),
+                    trailing: _buildTimeAndBadge(chat),
+                  );
+                },
+              ),
             );
           },
         );
       },
     );
   }
-  Future<void> _startChat(String otherUserId, String otherName, String otherEmail) async {
-  // 1. On crée un ID unique basé sur les deux IDs (triés pour être unique)
-  List<String> ids = [currentUser!.uid, otherUserId];
-  ids.sort();
-  String chatId = ids.join("_");
 
-  // 2. On vérifie si le chat existe déjà
-  DocumentReference chatRef = FirebaseFirestore.instance.collection('chats').doc(chatId);
-  DocumentSnapshot doc = await chatRef.get();
+  Widget _buildTimeAndBadge(Map chat) {
+    String time = "";
+    if (chat['lastMessageTime'] != null) time = timeago.format((chat['lastMessageTime'] as Timestamp).toDate(), locale: 'fr');
+    
+    // CORRECTION DU BADGE : On lit le compteur de l'utilisateur actuel uniquement
+    Map unreadCounts = chat['unreadCounts'] ?? {};
+    int myUnread = unreadCounts[currentUser?.uid] ?? 0;
 
-  if (!doc.exists) {
-    // 3. Si non, on le crée avec les infos nécessaires pour tes StreamBuilders
-    await chatRef.set({
-      'participants': ids,
-      'participantNames': [currentUser!.email, otherEmail],
-      'displayNames': [currentUser!.displayName ?? "Moi", otherName],
-      'lastMessage': "Nouvelle discussion lancée",
-      'lastMessageTime': FieldValue.serverTimestamp(),
-      'unreadCount': 0,
-    });
-  }
-
-  // 4. On navigue vers la page de détail
-  if (mounted) {
-    Navigator.push(context, MaterialPageRoute(
-      builder: (context) => ChatDetailPage(chatId: chatId, chatName: otherName)
-    ));
-  }
-}
-
-void _showNewChatDialog() {
-  showModalBottomSheet(
-    context: context,
-    backgroundColor: primaryDark,
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-    builder: (context) => DraggableScrollableSheet(
-      initialChildSize: 0.8,
-      maxChildSize: 0.9,
-      minChildSize: 0.5,
-      expand: false,
-      builder: (context, scrollController) => Column(
-        children: [
-          const SizedBox(height: 20),
-          const Text("Nouveau Message", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-          const Divider(color: Colors.white10),
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              // On récupère la liste des utilisateurs (adapte 'classic_users' si besoin)
-              stream: FirebaseFirestore.instance.collection('classic_users').snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
-                
-                // On filtre pour ne pas se voir soi-même dans la liste
-                final users = snapshot.data!.docs.where((doc) => doc.id != currentUser?.uid).toList();
-
-                return ListView.builder(
-                  controller: scrollController,
-                  itemCount: users.length,
-                  itemBuilder: (context, index) {
-                    final user = users[index].data() as Map<String, dynamic>;
-                    final String userId = users[index].id;
-
-                    return ListTile(
-                      leading: const CircleAvatar(
-                        backgroundColor: Colors.white10,
-                        child: Icon(Icons.person, color: Colors.white70),
-                      ),
-                      title: Text(user['displayName'] ?? "Utilisateur", style: const TextStyle(color: Colors.white)),
-                      subtitle: Text(user['email'] ?? "", style: const TextStyle(color: Colors.white38, fontSize: 12)),
-                      onTap: () {
-                        Navigator.pop(context); // Fermer le menu
-                        _startChat(userId, user['displayName'] ?? "Utilisateur", user['email'] ?? "");
-                      },
-                    );
-                  },
-                );
-              },
-            ),
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(time, style: const TextStyle(color: Colors.white38, fontSize: 10)),
+        if (myUnread > 0)
+          Container(
+            margin: const EdgeInsets.only(top: 4), 
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2), 
+            decoration: BoxDecoration(color: Colors.greenAccent[700], borderRadius: BorderRadius.circular(10)), 
+            child: Text("$myUnread", style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold))
           ),
-        ],
-      ),
-    ),
-  );
-}
+      ],
+    );
+  }
+
+  void _showNewChatDialog() {
+    // Ton code existant pour le modal de recherche...
+  }
 }
