@@ -1,0 +1,17 @@
+{
+  "name": "lualaba-fcm-functions",
+  "version": "1.0.0",
+  "engines": { "node": "18" },
+  "dependencies": {
+    "firebase-admin": "^11.10.0",
+    "firebase-functions": "^4.4.0"
+  }
+  ,
+  "devDependencies": {
+    "eslint": "^8.50.0"
+  },
+  "scripts": {
+    "lint": "eslint . --ext .js",
+    "test": "echo \"No tests defined\" && exit 0"
+  }
+}

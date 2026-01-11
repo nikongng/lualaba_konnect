@@ -6,7 +6,8 @@ list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_linux
   emoji_picker_flutter
   file_selector_linux
-  record_linux
+  flutter_sound
+  flutter_webrtc
   url_launcher_linux
 )
 

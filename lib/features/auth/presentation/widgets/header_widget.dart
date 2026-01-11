@@ -230,8 +230,11 @@ class _HeaderWidgetState extends State<HeaderWidget>
   String _displayName(Map<String, dynamic>? data) {
     // Si pas de data, fallback sur displayName du user Firebase
     if (data == null) {
-      final dn = FirebaseAuth.instance.currentUser?.displayName;
+      final user = FirebaseAuth.instance.currentUser;
+      final dn = user?.displayName;
       if (dn != null && dn.trim().isNotEmpty) return dn.split(' ').first;
+      final mail = user?.email;
+      if (mail != null && mail.trim().isNotEmpty) return _nameFromEmail(mail);
       return 'Utilisateur';
     }
 
@@ -270,7 +273,24 @@ class _HeaderWidgetState extends State<HeaderWidget>
     final dn = FirebaseAuth.instance.currentUser?.displayName;
     if (dn != null && dn.trim().isNotEmpty) return dn.split(' ').first;
 
+    // try to extract a readable name from email as last resort
+    final mail = FirebaseAuth.instance.currentUser?.email;
+    if (mail != null && mail.trim().isNotEmpty) return _nameFromEmail(mail);
+
     return 'Utilisateur';
+  }
+
+  String _nameFromEmail(String email) {
+    try {
+      final local = email.split('@').first;
+      final cleaned = local.replaceAll(RegExp(r'[._\-]'), ' ').trim();
+      if (cleaned.isEmpty) return 'Utilisateur';
+      final parts = cleaned.split(RegExp(r'\s+'));
+      final first = parts.first;
+      return first[0].toUpperCase() + (first.length > 1 ? first.substring(1) : '');
+    } catch (e) {
+      return 'Utilisateur';
+    }
   }
 
   Color _borderColor() {

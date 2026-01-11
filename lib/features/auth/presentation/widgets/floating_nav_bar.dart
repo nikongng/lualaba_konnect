@@ -57,13 +57,9 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
 
   @override
   Widget build(BuildContext context) {
-    return Positioned(
-      bottom: 30,
-      left: 60,
-      right: 60,
-      child: ScaleTransition(
-        scale: _scaleAnimation,
-        child: LayoutBuilder(
+    return ScaleTransition(
+      scale: _scaleAnimation,
+      child: LayoutBuilder(
           builder: (context, constraints) {
             final double totalWidth = constraints.maxWidth;
             final double itemWidth = totalWidth / 5;
@@ -147,8 +143,7 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
             );
           },
         ),
-      ),
-    );
+      );
   }
 
   Widget _buildNavItem(int index) {
@@ -172,12 +167,27 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
             duration: const Duration(milliseconds: 400),
             curve: Curves.easeOutBack,
             scale: isSelected ? 1.25 : 1.0,
-            child: Icon(
-              icons[index],
-              size: 24, // Taille légèrement réduite pour plus d'élégance
-              color: isSelected 
-                  ? const Color(0xFF00CBA9) 
-                  : (widget.isDark ? Colors.white38 : Colors.black38),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(
+                  icons[index],
+                  size: 24, // Taille légèrement réduite pour plus d'élégance
+                  color: isSelected 
+                      ? const Color(0xFF00CBA9) 
+                      : (widget.isDark ? Colors.white38 : Colors.black38),
+                ),
+                if (index == 1 && (widget.chatKey.currentState?.unreadTotal ?? 0) > 0)
+                  Positioned(
+                    right: -6,
+                    top: -6,
+                    child: Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(color: const Color(0xFF64B5F6), shape: BoxShape.circle, border: Border.all(color: widget.isDark ? Colors.black : Colors.white, width: 1.5)),
+                      child: Text('${widget.chatKey.currentState?.unreadTotal ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                    ),
+                ),
+              ],
             ),
           ),
         ),

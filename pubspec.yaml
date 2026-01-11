@@ -29,14 +29,13 @@ dependencies:
   photo_manager: ^3.3.0
   video_player: ^2.8.1
   shared_preferences: ^2.5.4
-  record: ^5.1.0
-  record_platform_interface: 1.1.0
+  flutter_sound: ^9.2.13
   path_provider: ^2.1.2
   audioplayers: ^5.2.1
   camera: ^0.11.0
   emoji_picker_flutter: ^3.0.0
   permission_handler: ^11.3.0
-
+  flutter_webrtc: ^0.9.28
 
   # PDF & OCR
   syncfusion_flutter_pdf: ^28.1.33
@@ -57,6 +56,8 @@ dependencies:
 
   # 🔥 FIREBASE
   firebase_core: ^3.15.2
+  firebase_messaging: ^15.2.10
+  flutter_ringtone_player: ^3.1.0
   firebase_auth: ^5.0.0
   cloud_firestore: ^5.6.0
   firebase_storage: ^12.0.0
@@ -73,6 +74,8 @@ flutter:
     - assets/logo.png
     - assets/images/
     - assets/sounds/pop.mp3
+    - assets/sounds/ringtone.mp3
+    - assets/images/chat_pattern.jpg
 
 flutter_launcher_icons:
   android: "launcher_icon"
@@ -80,4 +83,4 @@ flutter_launcher_icons:
   image_path: "assets/logo.png"
   min_sdk_android: 21
   adaptive_icon_background: "#f26522"
-  adaptive_icon_foreground: "assets/logo.png"
+  adaptive_icon_foreground: "assets/logo_foreground.png"
