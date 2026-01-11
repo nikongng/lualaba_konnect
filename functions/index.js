@@ -1,3 +1,60 @@
+const express = require('express');
+const cors = require('cors');
+const admin = require('firebase-admin');
+
+admin.initializeApp();
+const db = admin.firestore();
+
+const app = express();
+app.use(cors({ origin: true }));
+app.use(express.json());
+
+// Protect this endpoint: only callers with custom claim `admin: true` can approve requests.
+app.post('/approveAdmin', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) return res.status(401).json({ message: 'Missing Bearer token' });
+    const idToken = authHeader.split('Bearer ')[1];
+    const caller = await admin.auth().verifyIdToken(idToken);
+    if (!caller || !caller.admin) return res.status(403).json({ message: 'Forbidden: caller not admin' });
+
+    const { requestId, uid } = req.body;
+    if (!requestId || !uid) return res.status(400).json({ message: 'requestId and uid required' });
+
+    // Set custom claim
+    await admin.auth().setCustomUserClaims(uid, { admin: true });
+
+    // Update request document
+    const reqRef = db.collection('admin_requests').doc(requestId);
+    await reqRef.update({ status: 'approved', approvedBy: caller.uid, approvedAt: admin.firestore.FieldValue.serverTimestamp() });
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: err.message || 'Internal error' });
+  }
+});
+
+// Simple endpoint to list pending requests (admin-only)
+app.get('/listRequests', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    if (!authHeader.startsWith('Bearer ')) return res.status(401).json({ message: 'Missing Bearer token' });
+    const idToken = authHeader.split('Bearer ')[1];
+    const caller = await admin.auth().verifyIdToken(idToken);
+    if (!caller || !caller.admin) return res.status(403).json({ message: 'Forbidden: caller not admin' });
+
+    const snapshot = await db.collection('admin_requests').where('status', '==', 'pending').orderBy('requestedAt', 'desc').limit(100).get();
+    const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+    return res.json({ items });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: err.message || 'Internal error' });
+  }
+});
+
+// Export for Firebase Functions or standalone Express hosting
+module.exports = app;
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 

@@ -583,6 +583,30 @@
             <div id="modal-details"></div>
         </div>
     </div>
+    <!-- Login modal -->
+    <div id="loginModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeLoginModal()">&times;</span>
+            <h2>Connexion administrateur</h2>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                <input id="loginEmail" type="email" placeholder="Email" style="padding:10px;border-radius:6px;border:1px solid #ccc;">
+                <input id="loginPassword" type="password" placeholder="Mot de passe" style="padding:10px;border-radius:6px;border:1px solid #ccc;">
+                <div style="display:flex;gap:10px;justify-content:flex-end;">
+                    <button onclick="closeLoginModal()" style="padding:8px 12px;border-radius:6px;background:#6c757d;color:white;border:none;">Annuler</button>
+                    <button id="loginSubmit" style="padding:8px 12px;border-radius:6px;background:#00cba9;color:white;border:none;">Se connecter</button>
+                </div>
+                <small>Ou utilisez <strong>Connexion (Google)</strong></small>
+            </div>
+        </div>
+    </div>
+    <!-- Admin requests modal -->
+    <div id="adminRequestsModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeAdminRequestsModal()">&times;</span>
+            <h2>Demandes d'administration</h2>
+            <div id="adminRequestsList" style="display:flex;flex-direction:column;gap:10px;max-height:60vh;overflow:auto;padding-top:10px;"></div>
+        </div>
+    </div>
     <div id="toast" class="toast"></div>
 
     <footer>
@@ -593,7 +617,8 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
-        import { getFirestore, collection, onSnapshot, updateDoc, doc, deleteDoc } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+        import { getFirestore, collection, onSnapshot, updateDoc, doc, deleteDoc, addDoc, serverTimestamp, query, where, orderBy } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, getIdTokenResult, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyDX-hHwrPsIfY4WGrZ2wgXeAZf5KWe18Ls",
@@ -607,6 +632,12 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
+        const auth = getAuth();
+        const provider = new GoogleAuthProvider();
+
+        // Flags used to gate access to listeners/UI
+        window.__dashboardAuthReady = false;
+        window.__isAdmin = false;
 
         let certifyingUsers = new Set();
         let allUsers = {};
@@ -622,25 +653,256 @@
             document.getElementById('clock').textContent = new Date().toLocaleString('fr-FR');
         }, 1000);
 
-        // Charger toutes les données au démarrage
+        // Collections list (kept for listener initialization)
         const collections = ['classic_users', 'pro_users', 'enterprise_users'];
-        collections.forEach(col => {
-            listeners[col] = onSnapshot(collection(db, col), (querySnapshot) => {
-                allUsers[col.replace('_', '-')] = [];
-                querySnapshot.forEach((docSnap) => {
-                    const user = docSnap.data();
-                    allUsers[col.replace('_', '-')].push({ id: docSnap.id, data: user });
+
+        // Initialize Firestore listeners only after successful auth and admin claim verified
+        function initFirestoreListeners() {
+            collections.forEach(col => {
+                if (listeners[col]) return; // already listening
+                listeners[col] = onSnapshot(collection(db, col), (querySnapshot) => {
+                    allUsers[col.replace('_', '-')] = [];
+                    querySnapshot.forEach((docSnap) => {
+                        const user = docSnap.data();
+                        allUsers[col.replace('_', '-')].push({ id: docSnap.id, data: user });
+                    });
+                    updateStats();
+                    // Rendre si l'onglet actif correspond
+                    const activeTab = document.querySelector('.tabcontent[style*="display: block"]');
+                    if (activeTab && activeTab.querySelector('.user-grid').id === col.replace('_', '-')) {
+                        renderUsers(col.replace('_', '-'));
+                    }
+                }, (error) => {
+                    console.error(error);
+                    const container = document.getElementById(col.replace('_', '-'));
+                    if (container) container.innerHTML = `<div class="no-users">Erreur: ${error.message}</div>`;
+                    showToast('Erreur Firestore: ' + error.message, true);
                 });
-                updateStats();
-                // Rendre si l'onglet actif correspond
-                const activeTab = document.querySelector('.tabcontent[style*="display: block"]');
-                if (activeTab && activeTab.querySelector('.user-grid').id === col.replace('_', '-')) {
-                    renderUsers(col.replace('_', '-'));
-                }
-            }, (error) => {
-                console.error(error);
             });
+        }
+
+        // Auth helpers
+        async function signIn() {
+            try {
+                await signInWithPopup(auth, provider);
+                showToast('Connexion réussie');
+            } catch (e) {
+                showToast('Erreur auth: ' + e.message, true);
+            }
+        }
+
+        async function signOutUser() {
+            try {
+                await signOut(auth);
+                showToast('Déconnecté');
+            } catch (e) {
+                showToast('Erreur déconnexion: ' + e.message, true);
+            }
+        }
+
+        function initAuthControls() {
+            const container = document.querySelector('.controls');
+            if (!container) return;
+            const authDiv = document.createElement('div');
+            authDiv.style.display = 'flex';
+            authDiv.style.alignItems = 'center';
+            authDiv.style.gap = '10px';
+            authDiv.id = 'authControls';
+            authDiv.innerHTML = `
+                <button id="signInBtn" class="theme-toggle">Se connecter</button>
+                <button id="signOutBtn" class="theme-toggle" style="display:none">Se déconnecter</button>
+                <button id="emailLoginBtn" class="theme-toggle">Connexion (email)</button>
+                <button id="requestAdminBtn" class="theme-toggle" style="display:none">Demander admin</button>
+                <button id="manageRequestsBtn" class="theme-toggle" style="display:none">Gérer demandes</button>
+                <span id="userLabel" style="font-weight:500;color:#495057"></span>
+            `;
+            container.appendChild(authDiv);
+            document.getElementById('signInBtn').addEventListener('click', signIn);
+            document.getElementById('signOutBtn').addEventListener('click', signOutUser);
+            document.getElementById('requestAdminBtn').addEventListener('click', requestAdmin);
+            document.getElementById('emailLoginBtn').addEventListener('click', openLoginModal);
+            document.getElementById('manageRequestsBtn').addEventListener('click', openAdminRequestsModal);
+        }
+
+        onAuthStateChanged(auth, async (user) => {
+            window.__dashboardAuthReady = true;
+            if (user) {
+                document.getElementById('signInBtn')?.style.setProperty('display', 'none');
+                document.getElementById('signOutBtn')?.style.setProperty('display', 'inline-block');
+                document.getElementById('userLabel').textContent = user.displayName || user.email || '';
+                try {
+                    const idTokenResult = await getIdTokenResult(user);
+                    const isAdmin = !!(idTokenResult && idTokenResult.claims && idTokenResult.claims.admin === true);
+                    window.__isAdmin = isAdmin;
+                    // Show request admin button when logged in but not admin
+                    if (!isAdmin) {
+                        document.getElementById('requestAdminBtn')?.style.setProperty('display', 'inline-block');
+                    } else {
+                        document.getElementById('requestAdminBtn')?.style.setProperty('display', 'none');
+                    }
+                    if (!isAdmin) {
+                        showToast('Accès refusé : compte non administrateur', true);
+                        // Do not initialize listeners for non-admin
+                        return;
+                    }
+                    // Start listening
+                    initFirestoreListeners();
+                } catch (e) {
+                    showToast('Erreur vérification token: ' + e.message, true);
+                }
+            } else {
+                document.getElementById('signInBtn')?.style.setProperty('display', 'inline-block');
+                document.getElementById('signOutBtn')?.style.setProperty('display', 'none');
+                document.getElementById('userLabel').textContent = '';
+                window.__isAdmin = false;
+                document.getElementById('requestAdminBtn')?.style.setProperty('display', 'none');
+            }
         });
+
+        // Request admin handler -- sends POST to server endpoint (server must verify and set custom claim)
+        async function requestAdmin() {
+            const user = auth.currentUser;
+            if (!user) {
+                showToast('Veuillez vous connecter d\u00e9-fois', true);
+                return;
+            }
+            const confirmMsg = confirm('Envoyer une demande d\u00e9mancipation admin pour l\'utilisateur courant ?');
+            if (!confirmMsg) return;
+            try {
+                // Create a request document in Firestore for admins to review
+                try {
+                    await addDoc(collection(db, 'admin_requests'), {
+                        uid: user.uid,
+                        email: user.email,
+                        status: 'pending',
+                        requestedAt: serverTimestamp(),
+                    });
+                    showToast('Demande envoyée. Un administrateur la validera.');
+                } catch (e) {
+                    showToast('Erreur lors de la demande: ' + e.message, true);
+                }
+            } catch (e) {
+                showToast('Erreur lors de la demande: ' + e.message, true);
+            }
+        }
+
+        function openLoginModal() {
+            document.getElementById('loginModal').style.display = 'block';
+        }
+
+        function closeLoginModal() {
+            document.getElementById('loginModal').style.display = 'none';
+        }
+
+        function bindLoginSubmit() {
+            const btn = document.getElementById('loginSubmit');
+            if (!btn) return;
+            btn.addEventListener('click', async () => {
+                const email = document.getElementById('loginEmail').value;
+                const password = document.getElementById('loginPassword').value;
+                if (!email || !password) {
+                    showToast('Veuillez fournir email et mot de passe', true);
+                    return;
+                }
+                try {
+                    await signInWithEmailAndPassword(auth, email, password);
+                    showToast('Connecté');
+                    closeLoginModal();
+                } catch (e) {
+                    showToast('Erreur connexion: ' + e.message, true);
+                }
+            });
+        }
+
+        // Initialize auth UI controls early
+        initAuthControls();
+        bindLoginSubmit();
+
+        // Admin requests listener handle
+        let adminRequestsListener = null;
+
+        function openAdminRequestsModal() {
+            document.getElementById('adminRequestsModal').style.display = 'block';
+            loadAdminRequests();
+        }
+
+        function closeAdminRequestsModal() {
+            document.getElementById('adminRequestsModal').style.display = 'none';
+            if (adminRequestsListener) {
+                adminRequestsListener();
+                adminRequestsListener = null;
+            }
+        }
+
+        async function loadAdminRequests() {
+            const list = document.getElementById('adminRequestsList');
+            if (!window.__dashboardAuthReady || !window.__isAdmin) {
+                list.innerHTML = '<div class="no-users">Accès refusé : uniquement pour administrateurs.</div>';
+                return;
+            }
+            const q = query(collection(db, 'admin_requests'), where('status', '==', 'pending'), orderBy('requestedAt', 'desc'));
+            if (adminRequestsListener) return; // already listening
+            adminRequestsListener = onSnapshot(q, (snap) => {
+                list.innerHTML = '';
+                if (snap.empty) {
+                    list.innerHTML = '<div class="no-users">Aucune demande en attente.</div>';
+                    return;
+                }
+                snap.forEach(docSnap => {
+                    const data = docSnap.data();
+                    const id = docSnap.id;
+                    const el = document.createElement('div');
+                    el.className = 'user-card';
+                    el.style.cursor = 'auto';
+                    const requestedAt = data.requestedAt ? new Date(data.requestedAt.seconds * 1000).toLocaleString() : '';
+                    el.innerHTML = `
+                        <div style="display:flex;justify-content:space-between;align-items:center;">
+                            <div>
+                                <strong>${data.email || data.uid}</strong>
+                                <div style="font-size:0.9em;color:#6c757d">Demandé: ${requestedAt}</div>
+                            </div>
+                            <div style="display:flex;gap:8px;align-items:center;">
+                                <button onclick="approveRequest('${id}', '${data.uid}')">Approuver</button>
+                            </div>
+                        </div>
+                    `;
+                    list.appendChild(el);
+                });
+            }, (err) => {
+                console.error(err);
+                list.innerHTML = `<div class="no-users">Erreur: ${err.message}</div>`;
+            });
+        }
+
+        async function approveRequest(requestId, uid) {
+            const user = auth.currentUser;
+            if (!user) { showToast('Connectez-vous', true); return; }
+            if (!confirm('Approuver cette demande d\'administration ?')) return;
+            try {
+                const idToken = await user.getIdToken();
+                const res = await fetch('/approveAdmin', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + idToken
+                    },
+                    body: JSON.stringify({ requestId, uid })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.message || 'Erreur serveur');
+                showToast('Utilisateur promu administrateur.');
+            } catch (e) {
+                showToast('Erreur approbation: ' + e.message, true);
+            }
+        }
+
+        // Toggle theme helper (avoid ReferenceError)
+        function toggleTheme() {
+            document.body.classList.toggle('dark');
+            const btn = document.querySelector('.theme-toggle');
+            if (btn) btn.textContent = document.body.classList.contains('dark') ? 'Mode Clair' : 'Mode Sombre';
+            localStorage.setItem('theme', document.body.classList.contains('dark') ? 'dark' : 'light');
+        }
 
         function showToast(message, isError = false) {
             const toast = document.getElementById('toast');
@@ -699,7 +961,17 @@
         function displayUsers(collectionName, containerId) {
             const container = document.getElementById(containerId);
 
-            // Si listener pas encore créé, le créer
+            // Require auth+admin before creating listeners
+            if (!window.__dashboardAuthReady) {
+                container.innerHTML = `<div class="no-users">Veuillez vous connecter pour voir les utilisateurs.</div>`;
+                return;
+            }
+            if (!window.__isAdmin) {
+                container.innerHTML = `<div class="no-users">Accès refusé : compte non administrateur.</div>`;
+                return;
+            }
+
+            // Si listener pas encore créé, le créer (initFirestoreListeners est préféré)
             if (!listeners[collectionName]) {
                 listeners[collectionName] = onSnapshot(collection(db, collectionName), (querySnapshot) => {
                     allUsers[containerId] = [];
