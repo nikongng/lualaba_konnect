@@ -635,6 +635,11 @@
         const auth = getAuth();
         const provider = new GoogleAuthProvider();
 
+        // Base URL for backend functions: use local emulator when running on localhost
+        const FUNCTIONS_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+            ? 'http://127.0.0.1:5001/lualaba-konnect/us-central1/api'
+            : '';
+
         // Flags used to gate access to listeners/UI
         window.__dashboardAuthReady = false;
         window.__isAdmin = false;
@@ -880,7 +885,8 @@
             if (!confirm('Approuver cette demande d\'administration ?')) return;
             try {
                 const idToken = await user.getIdToken();
-                const res = await fetch('/approveAdmin', {
+                const endpoint = FUNCTIONS_BASE ? `${FUNCTIONS_BASE}/approveAdmin` : '/approveAdmin';
+                const res = await fetch(endpoint, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

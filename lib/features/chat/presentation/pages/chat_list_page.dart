@@ -8,6 +8,9 @@ import 'dart:io';
 import 'package:timeago/timeago.dart' as timeago;
 import 'call_webrtc_page.dart';
 import 'package:lualaba_konnect/core/notification_service.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
+import '../../../auth/presentation/pages/ModernDashboard.dart';
+import 'package:flutter/services.dart';
 
 import '../../../auth/presentation/widgets/story_widgets.dart';
 import '../../../auth/presentation/widgets/animated_fab.dart';
@@ -28,6 +31,8 @@ class UserUtils {
     }
     return 'Utilisateur';
   }
+
+  
 }
 
 class ChatListPage extends StatefulWidget {
@@ -36,7 +41,7 @@ class ChatListPage extends StatefulWidget {
   ChatListPageState createState() => ChatListPageState();
 }
 
-class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver {
+class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final User? currentUser = FirebaseAuth.instance.currentUser;
   final Color primaryDark = const Color(0xFF1D2733);
   final Color orangeAccent = const Color(0xFFE57C00);
@@ -47,6 +52,10 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver 
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _menuController = AnimationController(vsync: this, duration: const Duration(milliseconds: 300));
+    _searchController = TextEditingController();
+    _searchFocus = FocusNode();
+    _scaffoldKey = GlobalKey<ScaffoldState>();
     _setOnlineStatus(true);
     _cleanupOldStories();
     timeago.setLocaleMessages('fr', timeago.FrMessages());
@@ -61,6 +70,11 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver 
 
     int get unreadTotal => _totalUnread;
   bool _showingIncoming = false;
+  late AnimationController _menuController;
+  late TextEditingController _searchController;
+  late FocusNode _searchFocus;
+  bool _isSearchActive = false;
+  late GlobalKey<ScaffoldState> _scaffoldKey;
 
   void _listenIncomingCalls() {
     final uid = currentUser?.uid;
@@ -139,7 +153,212 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver 
     _setOnlineStatus(false);
     _incomingCallSub?.cancel();
     _unreadSub?.cancel();
+    _menuController.dispose();
+    _searchController.dispose();
+    _searchFocus.dispose();
     super.dispose();
+  }
+
+  Widget _buildSearchField() {
+    return SizedBox(
+      height: 40,
+      child: TextField(
+        controller: _searchController,
+        focusNode: _searchFocus,
+        style: const TextStyle(color: Colors.white),
+        decoration: InputDecoration(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          hintText: 'Rechercher',
+          hintStyle: const TextStyle(color: Colors.white54),
+          filled: true,
+          fillColor: Colors.white10,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+          prefixIcon: const Icon(Icons.search, color: Colors.white54, size: 20),
+        ),
+        onChanged: (v) => setState(() {}),
+      ),
+    );
+  }
+
+  Widget _menuTile(IconData icon, String title, VoidCallback onTap) {
+    return ListTile(
+      leading: Icon(icon, color: Colors.white70),
+      title: Text(title, style: const TextStyle(color: Colors.white)),
+      onTap: onTap,
+    );
+  }
+
+  void _showModernMenu() {
+    _menuController.forward();
+    showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: '',
+      barrierColor: Colors.black.withOpacity(0.6),
+      transitionDuration: const Duration(milliseconds: 450),
+      pageBuilder: (ctx, a1, a2) => const SizedBox.shrink(),
+      transitionBuilder: (ctx, anim1, anim2, child) {
+        final curved = Curves.easeOut.transform(anim1.value);
+        return Transform.translate(
+          offset: Offset(-200 * (1 - curved), 0),
+          child: Opacity(
+            opacity: anim1.value,
+            child: SafeArea(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Material(
+                  color: Colors.transparent,
+                  child: Container(
+                    width: MediaQuery.of(context).size.width * 0.78,
+                    height: MediaQuery.of(context).size.height,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F171A),
+                      borderRadius: const BorderRadius.only(topRight: Radius.circular(24), bottomRight: Radius.circular(24)),
+                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.45 * anim1.value), blurRadius: 30 * anim1.value)],
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 18.0),
+                          child: Row(children: [
+                            const CircleAvatar(radius: 26, backgroundColor: Color(0xFF2C3E50), child: Icon(Icons.person, color: Colors.white54)),
+                            const SizedBox(width: 12),
+                            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(currentUser?.displayName ?? 'Utilisateur', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              const SizedBox(height: 4),
+                              Text(currentUser?.email ?? '', style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                            ])),
+                            IconButton(icon: const Icon(Icons.close, color: Colors.white54), onPressed: () { Navigator.pop(ctx); _menuController.reverse(); }),
+                          ]),
+                        ),
+                        const SizedBox(height: 20),
+                        Expanded(
+                          child: ListView(
+                            padding: const EdgeInsets.symmetric(vertical: 6),
+                            children: [
+                              _menuTile(Icons.group, 'Nouveau groupe', () { Navigator.pop(ctx); _menuController.reverse(); _showCreateGroupDialog(); }),
+                              _menuTile(Icons.person_add, 'Contacts', () async {
+                                Navigator.pop(ctx);
+                                _menuController.reverse();
+                                if (await FlutterContacts.requestPermission()) {
+                                  final list = await FlutterContacts.getContacts(withProperties: true);
+                                  showModalBottomSheet(
+                                    context: context,
+                                    backgroundColor: const Color(0xFF0F171A),
+                                    builder: (_) {
+                                      return Material(
+                                        color: Colors.transparent,
+                                        child: SizedBox(
+                                          height: 520,
+                                          child: ListView.builder(
+                                            itemCount: list.length,
+                                            itemBuilder: (c, i) {
+                                              final contact = list[i];
+                                              return ListTile(
+                                                title: Text(contact.displayName, style: const TextStyle(color: Colors.white)),
+                                                subtitle: contact.emails.isNotEmpty ? Text(contact.emails.first.address, style: const TextStyle(color: Colors.white60)) : null,
+                                                onTap: () async {
+                                                  final email = contact.emails.isNotEmpty ? contact.emails.first.address : '';
+                                                  if (email.isEmpty) {
+                                                    Navigator.pop(context);
+                                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact sans email utilisable')));
+                                                    return;
+                                                  }
+                                                  // try to find user by email
+                                                  List<String> cols = ['classic_users', 'pro_users', 'enterprise_users'];
+                                                  String? foundId;
+                                                  String foundName = contact.displayName;
+                                                  for (var col in cols) {
+                                                    final res = await FirebaseFirestore.instance.collection(col).where('email', isEqualTo: email).limit(1).get();
+                                                    if (res.docs.isNotEmpty) { foundId = res.docs.first.id; foundName = UserUtils.formatName(res.docs.first.data() as Map<String, dynamic>?); break; }
+                                                  }
+                                                  Navigator.pop(context);
+                                                  if (foundId != null) {
+                                                    _startChatWithUser(foundId, foundName, 'classic_users');
+                                                  } else {
+                                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Aucun utilisateur trouvé avec cet email')));
+                                                  }
+                                                },
+                                              );
+                                            },
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  );
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Permission contacts refusée')));
+                                }
+                              }),
+                              _menuTile(Icons.call, 'Appels', () async {
+                                Navigator.pop(ctx); _menuController.reverse();
+                                final snap = await FirebaseFirestore.instance.collection('calls')
+                                  .where('caller', isEqualTo: currentUser?.uid)
+                                  .orderBy('createdAt', descending: true)
+                                  .limit(50)
+                                  .get();
+                                showModalBottomSheet(
+                                  context: context,
+                                  backgroundColor: const Color(0xFF0F171A),
+                                  builder: (_) {
+                                    return Material(
+                                      color: Colors.transparent,
+                                      child: SizedBox(
+                                        height: 520,
+                                        child: ListView(
+                                          children: snap.docs.map((d) {
+                                            final data = d.data();
+                                            final calleeId = data['callee'] ?? '';
+                                            final calleeName = data['calleeName'] ?? data['callerName'] ?? 'Appel';
+                                            return ListTile(
+                                              title: Text(calleeName, style: const TextStyle(color: Colors.white)),
+                                              subtitle: Text(data['status'] ?? '', style: const TextStyle(color: Colors.white60)),
+                                              trailing: IconButton(
+                                                icon: const Icon(Icons.call, color: Colors.green),
+                                                onPressed: () async {
+                                                  if (currentUser == null) return;
+                                                  try {
+                                                    final callDoc = await FirebaseFirestore.instance.collection('calls').add({
+                                                      'caller': currentUser!.uid,
+                                                      'callee': calleeId,
+                                                      'callerName': currentUser!.displayName ?? '',
+                                                      'calleeName': calleeName,
+                                                      'status': 'ringing',
+                                                      'createdAt': FieldValue.serverTimestamp(),
+                                                    });
+                                                    Navigator.pop(context);
+                                                    Navigator.push(context, MaterialPageRoute(builder: (_) => CallWebRTCPage(callId: callDoc.id, otherId: calleeId, isCaller: true, name: calleeName)));
+                                                  } catch (e) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur lors de l\'appel'))); }
+                                                },
+                                              ),
+                                            );
+                                          }).toList(),
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                );
+                              }),
+                              _menuTile(Icons.bookmark, 'Messages sauvegardés', () { Navigator.pop(ctx); _menuController.reverse(); _showSavedMessages(); }),
+                              _menuTile(Icons.settings, 'Paramètres', () { Navigator.pop(ctx); _menuController.reverse(); Navigator.push(context, MaterialPageRoute(builder: (_) => const ModernDashboard())); }),
+                              _menuTile(Icons.person, 'Profil', () { Navigator.pop(ctx); _menuController.reverse(); Navigator.push(context, MaterialPageRoute(builder: (_) => const ModernDashboard())); }),
+                              _menuTile(Icons.group_add, 'Inviter des amis', () { Navigator.pop(ctx); _menuController.reverse(); _showInviteDialog(); }),
+                            ],
+                          ),
+                        ),
+                        Padding(padding: const EdgeInsets.symmetric(horizontal: 12.0), child: ElevatedButton.icon(onPressed: () async { Navigator.pop(ctx); _menuController.reverse(); try { await FirebaseAuth.instance.signOut(); } catch (_) {} }, icon: const Icon(Icons.logout), label: const Text('Déconnexion'), style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent))),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    ).then((_) => _menuController.reverse());
   }
 
   void _listenUnreadTotals() {
@@ -368,13 +587,45 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: primaryDark,
+      onDrawerChanged: (isOpen) {
+        if (isOpen) _menuController.forward(); else _menuController.reverse();
+      },
       appBar: AppBar(
         backgroundColor: primaryDark,
         elevation: 0,
-        leading: const Icon(Icons.menu, color: Colors.white54),
-        title: const Text('Chat', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-        actions: const [Icon(Icons.search, color: Colors.white54), SizedBox(width: 15)],
+        leading: IconButton(
+          icon: AnimatedIcon(icon: AnimatedIcons.menu_arrow, progress: _menuController),
+          color: Colors.white54,
+          onPressed: () {
+            if (_menuController.isCompleted) _menuController.reverse();
+            _showModernMenu();
+          },
+        ),
+        title: _isSearchActive ? _buildSearchField() : const Text('Chat', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        actions: [
+          if (!_isSearchActive)
+            IconButton(
+              icon: const Icon(Icons.search, color: Colors.white54),
+              onPressed: () {
+                setState(() => _isSearchActive = true);
+                Future.delayed(const Duration(milliseconds: 50), () => _searchFocus.requestFocus());
+              },
+            ),
+          if (_isSearchActive)
+            IconButton(
+              icon: const Icon(Icons.close, color: Colors.white54),
+              onPressed: () {
+                setState(() {
+                  _isSearchActive = false;
+                  _searchController.clear();
+                });
+                FocusScope.of(context).unfocus();
+              },
+            ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: Column(
         children: [
@@ -384,8 +635,8 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver 
         ],
       ),
       floatingActionButton: AnimatedFabColumn(
-        onCameraTap: _handleCameraAction, 
-        onEditTap: _showNewChatDialog 
+        onCameraTap: _handleCameraAction,
+        onEditTap: _showNewChatDialog,
       ),
     );
   }
@@ -480,7 +731,11 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver 
                   else if (isTyping) subtitleText = 'en train d\'écrire...';
 
                   return ListTile(
-                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => ChatDetailPage(chatId: docId, chatName: name))),
+                    onTap: () async {
+                      ModernDashboardGlobals.navBarVisible.value = false;
+                      await Navigator.push(context, MaterialPageRoute(builder: (context) => ChatDetailPage(chatId: docId, chatName: name)));
+                      ModernDashboardGlobals.navBarVisible.value = true;
+                    },
                     leading: Stack(
                       children: [
                         const CircleAvatar(radius: 26, backgroundColor: Color(0xFF2C3E50), child: Icon(Icons.person, color: Colors.white54)),
@@ -527,6 +782,173 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver 
             child: Text("$myUnread", style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
           ),
       ],
+    );
+  }
+
+  void _showInviteDialog() {
+    final inviteLink = 'https://lualaba.app/invite';
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF0F171A),
+          title: const Text('Inviter des amis', style: TextStyle(color: Colors.white)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Partagez ce lien pour inviter vos amis :', style: TextStyle(color: Colors.white70)),
+              const SizedBox(height: 8),
+              SelectableText(inviteLink, style: const TextStyle(color: Colors.white)),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: inviteLink));
+                Navigator.pop(ctx);
+                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lien copié dans le presse-papier')));
+              },
+              child: const Text('Copier', style: TextStyle(color: Colors.white)),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Fermer', style: TextStyle(color: Colors.white70)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showCreateGroupDialog() async {
+    if (!await FlutterContacts.requestPermission()) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Permission contacts refusée')));
+      return;
+    }
+    final contacts = await FlutterContacts.getContacts(withProperties: true);
+    List<int> selected = [];
+    String groupName = '';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setState) {
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.85,
+            decoration: BoxDecoration(color: primaryDark, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              children: [
+                Container(width: 45, height: 5, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(10))),
+                const SizedBox(height: 12),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                  child: TextField(
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(hintText: 'Nom du groupe', hintStyle: const TextStyle(color: Colors.white38), filled: true, fillColor: Colors.white10, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)),
+                    onChanged: (v) => setState(() => groupName = v.trim()),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: contacts.length,
+                    itemBuilder: (c, i) {
+                      final ct = contacts[i];
+                      final hasEmail = ct.emails.isNotEmpty;
+                      return CheckboxListTile(
+                        value: selected.contains(i),
+                        onChanged: (v) => setState(() { if (v == true) selected.add(i); else selected.remove(i); }),
+                        title: Text(ct.displayName, style: const TextStyle(color: Colors.white)),
+                        subtitle: hasEmail ? Text(ct.emails.first.address, style: const TextStyle(color: Colors.white60)) : null,
+                        controlAffinity: ListTileControlAffinity.leading,
+                      );
+                    },
+                  ),
+                ),
+                Row(
+                  children: [
+                    Expanded(child: OutlinedButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler', style: TextStyle(color: Colors.white70)))),
+                    const SizedBox(width: 12),
+                    ElevatedButton(
+                      onPressed: () async {
+                        if (currentUser == null) return;
+                        // resolve selected contacts to app user ids via email
+                        List<String> participantIds = [currentUser!.uid];
+                        for (var idx in selected) {
+                          final ct = contacts[idx];
+                          if (ct.emails.isEmpty) continue;
+                          final String? email = ct.emails.first.address;
+                          if (email == null || email.isEmpty) continue;
+                          for (var col in ['classic_users', 'pro_users', 'enterprise_users']) {
+                            final res = await FirebaseFirestore.instance.collection(col).where('email', isEqualTo: email).limit(1).get();
+                            if (res.docs.isNotEmpty) { participantIds.add(res.docs.first.id); break; }
+                          }
+                        }
+                        if (participantIds.length < 2) {
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sélectionnez au moins 1 contact présent dans l\'application')));
+                          return;
+                        }
+                        // create group chat
+                        final newChat = await FirebaseFirestore.instance.collection('chats').add({
+                          'participants': participantIds,
+                          'lastMessage': '',
+                          'lastMessageTime': FieldValue.serverTimestamp(),
+                          'unreadCounts': Map.fromEntries(participantIds.map((id) => MapEntry(id, 0))),
+                          'isGroup': true,
+                          'groupName': groupName.isNotEmpty ? groupName : 'Groupe',
+                          'userTypes': Map.fromEntries(participantIds.map((p) => MapEntry(p, 'classic_users'))),
+                          'typing': Map.fromEntries(participantIds.map((p) => MapEntry(p, false))),
+                        });
+                        Navigator.pop(ctx);
+                        if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => ChatDetailPage(chatId: newChat.id, chatName: groupName.isNotEmpty ? groupName : 'Groupe')));
+                      },
+                      child: const Text('Créer'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+      },
+    );
+  }
+
+  void _showSavedMessages() async {
+    if (currentUser == null) return;
+    final snap = await FirebaseFirestore.instance.collection('saved_messages').where('userId', isEqualTo: currentUser!.uid).orderBy('createdAt', descending: true).get();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0F171A),
+      builder: (_) {
+        return Material(
+          color: Colors.transparent,
+          child: SizedBox(
+            height: 520,
+            child: snap.docs.isEmpty
+              ? const Center(child: Padding(padding: EdgeInsets.all(20), child: Text('Aucun message sauvegardé', style: TextStyle(color: Colors.white38))))
+              : ListView.builder(
+                itemCount: snap.docs.length,
+                itemBuilder: (c, i) {
+                  final d = snap.docs[i];
+                  final data = d.data();
+                  return ListTile(
+                    title: Text(data['text'] ?? '', style: const TextStyle(color: Colors.white)),
+                    subtitle: data['sourceName'] != null ? Text(data['sourceName'], style: const TextStyle(color: Colors.white60)) : null,
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.redAccent),
+                      onPressed: () async { await d.reference.delete(); if (mounted) { Navigator.pop(context); _showSavedMessages(); } },
+                    ),
+                  );
+                },
+              ),
+          ),
+        );
+      },
     );
   }
 }

@@ -29,6 +29,11 @@ class ModernDashboard extends StatefulWidget {
   State<ModernDashboard> createState() => _ModernDashboardState();
 }
 
+// global notifier to allow pages to hide/show the floating nav bar
+class ModernDashboardGlobals {
+  static ValueNotifier<bool> navBarVisible = ValueNotifier<bool>(true);
+}
+
 class _ModernDashboardState extends State<ModernDashboard> {
   final GlobalKey<ChatListPageState> _chatKey = GlobalKey<ChatListPageState>();
   int _selectedIndex = 0;
@@ -166,21 +171,27 @@ class _ModernDashboardState extends State<ModernDashboard> {
                 ),
 
                 // NAVBAR ANIMÉE
-                AnimatedPositioned(
-                  duration: const Duration(milliseconds: 500),
-                  curve: Curves.fastOutSlowIn,
-                  left: 0, right: 0,
-                  bottom: isNavBarVisible ? 40 : -120, // Remontée de la barre flottante
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 300),
-                    opacity: isNavBarVisible ? 1.0 : 0.0,
-                    child: FloatingNavBar(
-                      isDark: isDark,
-                      selectedIndex: _selectedIndex,
-                      onIndexChanged: (index) => setState(() => _selectedIndex = index),
-                      chatKey: _chatKey,
-                    ),
-                  ),
+                ValueListenableBuilder<bool>(
+                  valueListenable: ModernDashboardGlobals.navBarVisible,
+                  builder: (context, globalVisible, _) {
+                    final visible = isNavBarVisible && globalVisible;
+                    return AnimatedPositioned(
+                      duration: const Duration(milliseconds: 500),
+                      curve: Curves.fastOutSlowIn,
+                      left: 0, right: 0,
+                      bottom: visible ? 40 : -120,
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 300),
+                        opacity: visible ? 1.0 : 0.0,
+                        child: FloatingNavBar(
+                          isDark: isDark,
+                          selectedIndex: _selectedIndex,
+                          onIndexChanged: (index) => setState(() => _selectedIndex = index),
+                          chatKey: _chatKey,
+                        ),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),

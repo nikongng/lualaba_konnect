@@ -8,6 +8,8 @@
 	<string>Lualaba Connect a besoin d'accéder à votre caméra pour le scan facial.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Lualaba Connect a besoin d'accéder à votre galerie pour uploader votre pièce d'identité.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Lualaba Konnect a besoin d'accéder au microphone pour les appels et messages vocaux.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

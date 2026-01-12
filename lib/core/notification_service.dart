@@ -1,6 +1,7 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
+import 'package:flutter/foundation.dart';
 
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _fln = FlutterLocalNotificationsPlugin();
@@ -39,17 +40,29 @@ class NotificationService {
   static void playRingtone() {
     // try custom asset first
     try {
-      FlutterRingtonePlayer.play(fromAsset: 'assets/sounds/ringtone.mp3', looping: true, asAlarm: false, volume: 1.0);
+      if (!kIsWeb) {
+        final player = FlutterRingtonePlayer();
+        player.play(fromAsset: 'assets/sounds/ringtone.mp3', looping: true, asAlarm: false, volume: 1.0);
+      }
     } catch (_) {
       try {
-        FlutterRingtonePlayer.playRingtone(looping: true);
+        if (!kIsWeb) {
+          final player = FlutterRingtonePlayer();
+          player.playRingtone(looping: true);
+        }
       } catch (e) {
-        FlutterRingtonePlayer.play(looping: true);
+        if (!kIsWeb) {
+          final player = FlutterRingtonePlayer();
+          player.play(looping: true);
+        }
       }
     }
   }
 
   static void stopRingtone() {
-    FlutterRingtonePlayer.stop();
+    if (!kIsWeb) {
+      final player = FlutterRingtonePlayer();
+      player.stop();
+    }
   }
 }

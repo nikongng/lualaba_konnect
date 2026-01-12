@@ -88,7 +88,7 @@ class _ChatState extends State<ChatDetailPage> {
         'lastMessageTime': FieldValue.serverTimestamp(),
       };
       if (chatSnap.exists) {
-        final chatData = chatSnap.data() as Map<String, dynamic>? ?? {};
+        final chatData = chatSnap.data() ?? {};
         final parts = (chatData['participants'] is List) ? List.from(chatData['participants']) : [];
         if (currentUser != null && parts.isNotEmpty) {
           for (var p in parts) {
@@ -320,8 +320,57 @@ class _ChatState extends State<ChatDetailPage> {
               if (parts.isNotEmpty) otherId = parts.first as String;
             }
 
-            Widget buildRow(String name) {
+            Widget buildRow(String name, {String? otherId}) {
               final avatarLetter = name.isNotEmpty ? name[0].toUpperCase() : '?';
+
+              Widget nameAndBadge(bool isCert) {
+                return Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(child: Text(name.isNotEmpty ? name : 'Utilisateur', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                          if (isCert) const Padding(padding: EdgeInsets.only(left: 5), child: Icon(Icons.verified, color: Colors.blue, size: 16)),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      if (status.isNotEmpty) Text(status, style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.1)),
+                    ],
+                  ),
+                );
+              }
+
+              if (otherId != null && otherId.isNotEmpty) {
+                return Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(colors: [Colors.white10, Colors.white12]),
+                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 6, offset: const Offset(0, 2))],
+                      ),
+                      child: CircleAvatar(radius: 18, backgroundColor: Colors.transparent, child: Text(avatarLetter, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                    ),
+                    const SizedBox(width: 12),
+                    FutureBuilder<DocumentSnapshot>(
+                      future: FirebaseFirestore.instance.collection('users').doc(otherId).get(),
+                      builder: (ctx, userSnap) {
+                        bool isCert = false;
+                        if (userSnap.hasData && userSnap.data!.exists) {
+                          final ud = userSnap.data!.data() as Map<String, dynamic>? ?? {};
+                          isCert = ud['isCertified'] == true;
+                        }
+                        return nameAndBadge(isCert);
+                      },
+                    ),
+                  ],
+                );
+              }
+
               return Row(
                 children: [
                   Container(
@@ -335,22 +384,12 @@ class _ChatState extends State<ChatDetailPage> {
                     child: CircleAvatar(radius: 18, backgroundColor: Colors.transparent, child: Text(avatarLetter, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
                   ),
                   const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(name.isNotEmpty ? name : 'Utilisateur', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
-                        const SizedBox(height: 2),
-                        if (status.isNotEmpty) Text(status, style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.1)),
-                      ],
-                    ),
-                  ),
+                  nameAndBadge(false),
                 ],
               );
             }
 
-            // If we have an other participant id and the displayName is missing/Generic, fetch it from users collection
+            // If we have an other participant id, try to resolve displayName from users collection
             final needsLookup = otherId.isNotEmpty && (displayName.isEmpty || displayName.contains('@') || displayName.toLowerCase().contains('utilisateur'));
             if (needsLookup) {
               return FutureBuilder<DocumentSnapshot>(
@@ -363,14 +402,14 @@ class _ChatState extends State<ChatDetailPage> {
                     else if (ud['name'] is String && (ud['name'] as String).trim().isNotEmpty) resolved = (ud['name'] as String).trim();
                   }
                   if (resolved.isEmpty) resolved = currentUser?.displayName ?? 'Utilisateur';
-                  return buildRow(resolved);
+                  return buildRow(resolved, otherId: otherId);
                 },
               );
             }
 
             // default
             if (displayName.isEmpty) displayName = currentUser?.displayName ?? 'Utilisateur';
-            return buildRow(displayName);
+            return buildRow(displayName, otherId: otherId);
           },
         ),
         actions: [
@@ -382,7 +421,7 @@ class _ChatState extends State<ChatDetailPage> {
                 final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
                 final chatSnap = await chatRef.get();
                 if (!chatSnap.exists) return;
-                final data = chatSnap.data() as Map<String, dynamic>? ?? {};
+                final data = chatSnap.data() ?? {};
                 List participants = (data['participants'] is List) ? List.from(data['participants']) : [];
                 String otherId = participants.firstWhere((id) => id != FirebaseAuth.instance.currentUser?.uid, orElse: () => "");
                 if (otherId == "") return;

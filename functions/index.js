@@ -1,9 +1,11 @@
 const express = require('express');
 const cors = require('cors');
 const admin = require('firebase-admin');
+const functions = require('firebase-functions');
 
 admin.initializeApp();
 const db = admin.firestore();
+const USER_COLLECTIONS = ['classic_users', 'pro_users', 'enterprise_users'];
 
 const app = express();
 app.use(cors({ origin: true }));
@@ -53,14 +55,8 @@ app.get('/listRequests', async (req, res) => {
   }
 });
 
-// Export for Firebase Functions or standalone Express hosting
-module.exports = app;
-const functions = require('firebase-functions');
-const admin = require('firebase-admin');
-
-admin.initializeApp();
-const db = admin.firestore();
-const USER_COLLECTIONS = ['classic_users', 'pro_users', 'enterprise_users'];
+// Export as a Cloud Function for emulator / deployment
+exports.api = functions.https.onRequest(app);
 
 // Send FCM when a message is created in 'messages' subcollection or top-level messages
 exports.onMessageCreate = functions.firestore

@@ -151,7 +151,7 @@ class _CallWebRTCPageState extends State<CallWebRTCPage> {
     // listen for answer
     callDoc.snapshots().listen((snap) async {
       if (!snap.exists) return;
-      final data = snap.data() as Map<String, dynamic>?;
+      final data = snap.data();
       if (data != null && data['answer'] != null) {
         final ans = data['answer'] as Map<String, dynamic>;
         final rtc = RTCSessionDescription(ans['sdp'], ans['type']);

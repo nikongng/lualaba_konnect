@@ -57,7 +57,7 @@ dependencies:
   # 🔥 FIREBASE
   firebase_core: ^3.15.2
   firebase_messaging: ^15.2.10
-  flutter_ringtone_player: ^3.1.0
+  flutter_ringtone_player: ^4.0.0
   firebase_auth: ^5.0.0
   cloud_firestore: ^5.6.0
   firebase_storage: ^12.0.0

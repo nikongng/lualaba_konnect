@@ -48,6 +48,7 @@ class _HeaderWidgetState extends State<HeaderWidget>
   bool _isUploading = false;
   bool _isSyncing = false;
   bool _isCertified = false;
+  bool _hasAdminClaim = false;
 
   // ------------------ UI DATA ------------------
   late String _dateString;
@@ -103,6 +104,24 @@ class _HeaderWidgetState extends State<HeaderWidget>
     });
   }
 
+  Future<void> _fetchClaims() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final id = await user.getIdTokenResult(true);
+      final Map<String, dynamic>? claims = id.claims?.map((k, v) => MapEntry(k.toString(), v));
+      final isAdmin = claims != null && claims['admin'] == true;
+      if (mounted) {
+        setState(() {
+          _hasAdminClaim = isAdmin;
+          if (isAdmin) _isCertified = true;
+        });
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
+
   void _initAnimations() {
     _pulseController = AnimationController(
       duration: const Duration(seconds: 2),
@@ -131,7 +150,7 @@ class _HeaderWidgetState extends State<HeaderWidget>
 
     if (user != null) {
       // utilisation d'une collection par défaut si la préférence n'existe pas
-      final col = prefs.getString('user_collection') ?? 'users';
+      final col = prefs.getString('user_collection') ?? 'classic_users';
       setState(() {
         _collection = col;
         _userStream = FirebaseFirestore.instance
@@ -139,6 +158,30 @@ class _HeaderWidgetState extends State<HeaderWidget>
             .doc(user.uid)
             .snapshots();
       });
+      // fetch once to populate immediate UI (badge + display name) before stream fires
+      try {
+        final snap = await FirebaseFirestore.instance.collection(_collection!).doc(user.uid).get();
+        if (snap.exists) {
+          final data = snap.data();
+          if (mounted && data != null) {
+            setState(() {
+              _isCertified = data['isCertified'] == true;
+              _userName = _displayName(data as Map<String, dynamic>?);
+            });
+          }
+        }
+      } catch (_) {
+        // ignore fetch errors; stream will handle updates
+      }
+
+      // also check custom claims (e.g. admin) to display badge when claim present
+      await _fetchClaims();
+      // ensure doc-based value doesn't overwrite claim-based certification
+      if (mounted && _hasAdminClaim && !_isCertified) {
+        setState(() {
+          _isCertified = true;
+        });
+      }
     }
   }
 
@@ -388,22 +431,32 @@ class _HeaderWidgetState extends State<HeaderWidget>
         Row(
           children: [
             Text(
-              "$_greeting, $_userName",
+              "$_greeting, ",
               style: TextStyle(
                 color: widget.textColor,
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
               ),
-              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+              overflow: TextOverflow.visible,
+            ),
+            const SizedBox(width: 2),
+            Expanded(
+              child: Text(
+                _userName,
+                style: TextStyle(
+                  color: widget.textColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
             if (_isCertified)
               const Padding(
-                padding: EdgeInsets.only(left: 8),
-                child: Icon(
-                  Icons.verified,
-                  color: Colors.blue,
-                  size: 16,
-                ),
+                padding: EdgeInsets.only(left: 5),
+                child: Icon(Icons.verified, color: Colors.blue, size: 16),
               ),
           ],
         ),
