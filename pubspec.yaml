@@ -35,7 +35,10 @@ dependencies:
   camera: ^0.11.0
   emoji_picker_flutter: ^3.0.0
   permission_handler: ^11.3.0
-  flutter_webrtc: ^0.9.28
+  flutter_webrtc:
+    git:
+      url: https://github.com/cloudwebrtc/flutter-webrtc.git
+      ref: main
 
   # PDF & OCR
   syncfusion_flutter_pdf: ^28.1.33
