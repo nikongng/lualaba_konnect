@@ -10,13 +10,13 @@ plugins {
 
 android {
     namespace = "com.example.lualaba_konnect"
-    
-    // SDK de compilation principal
-    compileSdk = 36
+
+    // SDK STABLE recommandé (OBLIGATOIRE pour ML Kit)
+    compileSdk = 34
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        isCoreLibraryDesugaringEnabled = true 
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -27,22 +27,26 @@ android {
 
     defaultConfig {
         applicationId = "com.example.lualaba_konnect"
-        
-        // Requis pour la stabilité de la caméra et WebRTC
+
+        // Compatible caméra, WebRTC, ML Kit
         minSdk = 23
-        targetSdk = 36
-        
+        targetSdk = 34
+
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        
+
         multiDexEnabled = true
     }
 
     buildTypes {
         getByName("debug") {
+            // config debug par défaut
         }
+
         getByName("release") {
+            // ⚠️ Pour test — à changer par une vraie signature plus tard
             signingConfig = signingConfigs.getByName("debug")
+
             isMinifyEnabled = false
             isShrinkResources = false
         }
@@ -54,25 +58,30 @@ flutter {
 }
 
 dependencies {
+    // Requis pour Java 17
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
 }
 
 /**
- * SOLUTION ULTIME POUR L'ERREUR lStar
- * Ce bloc force CHAQUE sous-module (plugin) à utiliser le SDK 34 minimum
- * et impose la version 1.9.0 de core-ktx.
+ * 🔥 BLOC CRITIQUE — CORRECTION DÉFINITIVE DE lStar
+ * Force TOUS les plugins (ML Kit inclus) à utiliser SDK 34
+ * Empêche les crashes AAPT
  */
 subprojects {
     afterEvaluate {
         if (project.hasProperty("android")) {
-            val android = project.extensions.getByName("android") as com.android.build.gradle.BaseExtension
-            // On force le SDK de compilation des plugins pour qu'ils trouvent 'lStar'
-            android.compileSdkVersion(34)
+            val androidExt =
+                project.extensions.getByName("android") as com.android.build.gradle.BaseExtension
+            androidExt.compileSdkVersion(34)
         }
     }
-    project.configurations.all {
+
+    configurations.all {
         resolutionStrategy.eachDependency {
-            if (requested.group == "androidx.core" && requested.name == "core-ktx") {
+            if (
+                requested.group == "androidx.core" &&
+                requested.name == "core-ktx"
+            ) {
                 useVersion("1.9.0")
             }
         }
