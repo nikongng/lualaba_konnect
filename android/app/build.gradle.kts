@@ -10,11 +10,13 @@ plugins {
 
 android {
     namespace = "com.example.lualaba_konnect"
-    compileSdk = 34
+    
+    // Correction Erreur 19 & 20 : On monte au SDK 36 pour satisfaire les libs récentes
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        // AJOUTE CETTE LIGNE - Crucial pour régler l'erreur flutter_local_notifications
+        // Nécessaire pour flutter_local_notifications et les dates (Java 8+)
         isCoreLibraryDesugaringEnabled = true 
 
         sourceCompatibility = JavaVersion.VERSION_17
@@ -28,22 +30,25 @@ android {
     defaultConfig {
         applicationId = "com.example.lualaba_konnect"
         
-        // CONSEIL : Si l'erreur persiste, change flutter.minSdkVersion par 21 ici
-        minSdk = flutter.minSdkVersion 
+        // Correction pour flutter_webrtc et camera : minSdk 23 minimum
+        minSdk = 23
         
-        targetSdk = flutter.targetSdkVersion
+        // Aligné sur compileSdk pour éviter les conflits de ressources
+        targetSdk = 36
+        
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         
-        // Utile pour éviter les erreurs de limite de méthodes
+        // Évite l'erreur "Too many method references"
         multiDexEnabled = true
     }
 
     buildTypes {
         getByName("debug") {
-            // Pas de keystore nécessaire pour debug
+            // Pas de configuration de signature spécifique requise pour le debug
         }
         getByName("release") {
+            // Utilise la signature de debug pour Codemagic si tu n'as pas encore de keystore
             signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             isShrinkResources = false
@@ -56,11 +61,14 @@ flutter {
 }
 
 dependencies {
-    // Cette ligne est correcte, elle fonctionne avec isCoreLibraryDesugaringEnabled ci-dessus
+    // Support pour les fonctionnalités Java modernes sur vieux Android
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
 }
+
+// FORCE les versions pour régler l'erreur "resource android:attr/lStar not found"
 configurations.all {
     resolutionStrategy {
         force("androidx.core:core-ktx:1.9.0")
+        force("androidx.activity:activity:1.11.0")
     }
 }
