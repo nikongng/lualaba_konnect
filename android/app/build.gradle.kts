@@ -10,13 +10,13 @@ plugins {
 
 android {
     namespace = "com.example.lualaba_konnect"
-
-    // SDK STABLE recommandé (OBLIGATOIRE pour ML Kit)
-    compileSdk = 34
+    
+    // On utilise le SDK 36 pour satisfaire tous les plugins
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        isCoreLibraryDesugaringEnabled = true
+        isCoreLibraryDesugaringEnabled = true 
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -27,26 +27,16 @@ android {
 
     defaultConfig {
         applicationId = "com.example.lualaba_konnect"
-
-        // Compatible caméra, WebRTC, ML Kit
         minSdk = 23
-        targetSdk = 34
-
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-
         multiDexEnabled = true
     }
 
     buildTypes {
-        getByName("debug") {
-            // config debug par défaut
-        }
-
         getByName("release") {
-            // ⚠️ Pour test — à changer par une vraie signature plus tard
             signingConfig = signingConfigs.getByName("debug")
-
             isMinifyEnabled = false
             isShrinkResources = false
         }
@@ -58,32 +48,15 @@ flutter {
 }
 
 dependencies {
-    // Requis pour Java 17
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
 }
 
-/**
- * 🔥 BLOC CRITIQUE — CORRECTION DÉFINITIVE DE lStar
- * Force TOUS les plugins (ML Kit inclus) à utiliser SDK 34
- * Empêche les crashes AAPT
- */
-subprojects {
-    afterEvaluate {
-        if (project.hasProperty("android")) {
-            val androidExt =
-                project.extensions.getByName("android") as com.android.build.gradle.BaseExtension
-            androidExt.compileSdkVersion(34)
-        }
-    }
-
-    configurations.all {
-        resolutionStrategy.eachDependency {
-            if (
-                requested.group == "androidx.core" &&
-                requested.name == "core-ktx"
-            ) {
-                useVersion("1.9.0")
-            }
-        }
+// FORCE les versions de manière globale mais sécurisée
+configurations.all {
+    resolutionStrategy {
+        force("androidx.core:core-ktx:1.9.0")
+        force("androidx.activity:activity:1.11.0")
+        // On force les versions de ML Kit qui ont réglé le bug lStar
+        force("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
     }
 }
