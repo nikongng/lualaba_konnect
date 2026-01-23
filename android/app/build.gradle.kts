@@ -11,14 +11,12 @@ plugins {
 android {
     namespace = "com.example.lualaba_konnect"
     
-    // Support des dernières bibliothèques AndroidX
+    // SDK de compilation principal
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        // Nécessaire pour les notifications et la gestion des dates
         isCoreLibraryDesugaringEnabled = true 
-
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -30,7 +28,7 @@ android {
     defaultConfig {
         applicationId = "com.example.lualaba_konnect"
         
-        // Requis pour WebRTC, Caméra et les dernières API
+        // Requis pour la stabilité de la caméra et WebRTC
         minSdk = 23
         targetSdk = 36
         
@@ -42,10 +40,8 @@ android {
 
     buildTypes {
         getByName("debug") {
-            // Configuration standard
         }
         getByName("release") {
-            // Utilise la signature debug par défaut sur Codemagic
             signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
             isShrinkResources = false
@@ -62,19 +58,22 @@ dependencies {
 }
 
 /**
- * SOLUTION CRUCIALE POUR L'ERREUR lStar
- * Ce bloc force tous les modules (y compris Google ML Kit) à utiliser 
- * une version de core-ktx compatible qui contient la ressource lStar.
+ * SOLUTION ULTIME POUR L'ERREUR lStar
+ * Ce bloc force CHAQUE sous-module (plugin) à utiliser le SDK 34 minimum
+ * et impose la version 1.9.0 de core-ktx.
  */
 subprojects {
+    afterEvaluate {
+        if (project.hasProperty("android")) {
+            val android = project.extensions.getByName("android") as com.android.build.gradle.BaseExtension
+            // On force le SDK de compilation des plugins pour qu'ils trouvent 'lStar'
+            android.compileSdkVersion(34)
+        }
+    }
     project.configurations.all {
         resolutionStrategy.eachDependency {
             if (requested.group == "androidx.core" && requested.name == "core-ktx") {
                 useVersion("1.9.0")
-            }
-            // Sécurité supplémentaire pour l'autre erreur d'activité
-            if (requested.group == "androidx.activity" && requested.name == "activity") {
-                useVersion("1.11.0")
             }
         }
     }
