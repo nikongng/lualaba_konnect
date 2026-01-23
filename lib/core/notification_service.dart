@@ -38,24 +38,32 @@ class NotificationService {
   }
 
   static void playRingtone() {
-    // try custom asset first
+    if (kIsWeb) return;
     try {
-      if (!kIsWeb) {
-        final player = FlutterRingtonePlayer();
-        player.play(fromAsset: 'assets/sounds/ringtone.mp3', looping: true, asAlarm: false, volume: 1.0);
-      }
-    } catch (_) {
+      final player = FlutterRingtonePlayer();
+      // try custom asset first
       try {
-        if (!kIsWeb) {
-          final player = FlutterRingtonePlayer();
-          player.playRingtone(looping: true);
-        }
+        player.play(fromAsset: 'assets/sounds/ringtone.mp3', looping: true, asAlarm: false, volume: 1.0);
+        return;
       } catch (e) {
-        if (!kIsWeb) {
-          final player = FlutterRingtonePlayer();
-          player.play(looping: true);
-        }
+        debugPrint('playRingtone: asset play failed: $e');
       }
+      // fallback: default ringtone method
+      try {
+        player.playRingtone(looping: true);
+        return;
+      } catch (e) {
+        debugPrint('playRingtone: playRingtone failed: $e');
+      }
+      // last resort
+      try {
+        player.play(looping: true);
+      } catch (e) {
+        debugPrint('playRingtone: final play failed: $e');
+      }
+    } catch (e, st) {
+      debugPrint('playRingtone: unexpected error: $e');
+      debugPrint('$st');
     }
   }
 

@@ -49,11 +49,13 @@ class _HeaderWidgetState extends State<HeaderWidget>
   bool _isSyncing = false;
   bool _isCertified = false;
   bool _hasAdminClaim = false;
+  bool _isLoadingUser = true;
 
   // ------------------ UI DATA ------------------
   late String _dateString;
   late String _greeting;
   String _userName = 'Utilisateur';
+  String _userInitials = 'U';
 
   late AnimationController _pulseController;
 
@@ -146,76 +148,93 @@ class _HeaderWidgetState extends State<HeaderWidget>
   // ================== DATA ==================
   Future<void> _loadCollectionAndSetupStream() async {
     final prefs = await SharedPreferences.getInstance();
+    if (mounted) setState(() => _isLoadingUser = true);
     final user = FirebaseAuth.instance.currentUser;
 
     if (user != null) {
-      // utilisation d'une collection par défaut si la préférence n'existe pas
-      final col = prefs.getString('user_collection') ?? 'classic_users';
-      setState(() {
-        _collection = col;
-        _userStream = FirebaseFirestore.instance
-            .collection(_collection!)
-            .doc(user.uid)
-            .snapshots();
-      });
-      // fetch once to populate immediate UI (badge + display name) before stream fires
+      String? foundCollection = prefs.getString('user_collection');
+      
+      if (foundCollection == null) {
+        final collections = ['classic_users', 'pro_users', 'enterprise_users'];
+        for (String col in collections) {
+          final doc = await FirebaseFirestore.instance.collection(col).doc(user.uid).get();
+          if (doc.exists) {
+            foundCollection = col;
+            await prefs.setString('user_collection', col);
+            break;
+          }
+        }
+      }
+
+      foundCollection ??= 'classic_users';
+
+      if (mounted) {
+        setState(() {
+          _collection = foundCollection;
+          _userStream = FirebaseFirestore.instance
+              .collection(_collection!)
+              .doc(user.uid)
+              .snapshots();
+        });
+      }
+
       try {
         final snap = await FirebaseFirestore.instance.collection(_collection!).doc(user.uid).get();
         if (snap.exists) {
           final data = snap.data();
           if (mounted && data != null) {
+            final display = _displayName(data);
+            final initials = _initialsFromData(data);
+            final photo = data['photoUrl']?.toString();
+
             setState(() {
               _isCertified = data['isCertified'] == true;
-              _userName = _displayName(data as Map<String, dynamic>?);
+              _userName = display;
+              _userInitials = initials;
             });
+
+            // Mettre à jour les SharedPreferences pour éviter d'anciennes données
+            try {
+              await prefs.setString('user_display_name', display);
+              await prefs.setString('user_initials', initials);
+              if (photo != null && photo.isNotEmpty) await prefs.setString('user_photoUrl', photo);
+              // Debug: vérification immédiate après écriture
+              try {
+                final rb = prefs.getString('user_display_name') ?? '<vide>';
+                // ignore: avoid_print
+                print('[DEBUG] header_widget prefs user_display_name = $rb');
+              } catch (_) {}
+            } catch (_) {}
           }
         }
-      } catch (_) {
-        // ignore fetch errors; stream will handle updates
+      } catch (_) {}
+
+      await _fetchClaims();
+      if (mounted && _hasAdminClaim && !_isCertified) {
+        setState(() => _isCertified = true);
       }
 
-      // also check custom claims (e.g. admin) to display badge when claim present
-      await _fetchClaims();
-      // ensure doc-based value doesn't overwrite claim-based certification
-      if (mounted && _hasAdminClaim && !_isCertified) {
-        setState(() {
-          _isCertified = true;
-        });
-      }
+      if (mounted) setState(() => _isLoadingUser = false);
     }
   }
 
   void _updateDateTime() {
     final now = DateTime.now();
-    final formatted =
-        DateFormat('EEEE dd MMMM', 'fr_FR').format(now);
-    _dateString =
-        formatted[0].toUpperCase() + formatted.substring(1);
-
-    final hour = now.hour;
-    _greeting = hour < 12
-        ? "Bonjour"
-        : hour < 18
-            ? "Bon après-midi"
-            : "Bonsoir";
+    final formatted = DateFormat('EEEE dd MMMM', 'fr_FR').format(now);
+    _dateString = formatted[0].toUpperCase() + formatted.substring(1);
   }
 
   // ================== IMAGE ==================
   Future<void> _pickImage() async {
     if (!_isConnected) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Connexion requise")),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Connexion requise")));
       return;
     }
 
     showModalBottomSheet(
       context: context,
-      backgroundColor:
-          widget.isDark ? const Color(0xFF1A1A1A) : Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(25)),
-      ),
+      backgroundColor: widget.isDark ? const Color(0xFF1A1A1A) : Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
       builder: (_) => SafeArea(
         child: Wrap(
           children: [
@@ -245,7 +264,6 @@ class _HeaderWidgetState extends State<HeaderWidget>
       _localImageFile = file;
       _isUploading = true;
     });
-
     await _uploadImage(file);
   }
 
@@ -253,17 +271,10 @@ class _HeaderWidgetState extends State<HeaderWidget>
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null || _collection == null) return;
-
-      final ref = FirebaseStorage.instance
-          .ref('users/${user.uid}/profile.jpg');
-
+      final ref = FirebaseStorage.instance.ref('users/${user.uid}/profile.jpg');
       await ref.putFile(file);
       final url = await ref.getDownloadURL();
-
-      await FirebaseFirestore.instance
-          .collection(_collection!)
-          .doc(user.uid)
-          .update({'photoUrl': url});
+      await FirebaseFirestore.instance.collection(_collection!).doc(user.uid).update({'photoUrl': url});
     } finally {
       if (mounted) setState(() => _isUploading = false);
     }
@@ -271,104 +282,82 @@ class _HeaderWidgetState extends State<HeaderWidget>
 
   // ================== HELPERS ==================
   String _displayName(Map<String, dynamic>? data) {
-    // Si pas de data, fallback sur displayName du user Firebase
     if (data == null) {
       final user = FirebaseAuth.instance.currentUser;
-      final dn = user?.displayName;
-      if (dn != null && dn.trim().isNotEmpty) return dn.split(' ').first;
-      final mail = user?.email;
-      if (mail != null && mail.trim().isNotEmpty) return _nameFromEmail(mail);
-      return 'Utilisateur';
+      return user?.displayName?.split(' ').first ?? 'Utilisateur';
     }
 
-    // Clés possibles pour prénom / nom
     final keysFirst = ['firstName', 'firstname', 'prenom', 'givenName', 'given_name'];
-    final keysLast = ['lastName', 'lastname', 'nom', 'familyName', 'family_name'];
-
-    String? first;
-    String? last;
-
     for (var k in keysFirst) {
       if (data[k]?.toString().trim().isNotEmpty == true) {
-        first = data[k].toString().trim();
-        break;
-      }
-    }
-    for (var k in keysLast) {
-      if (data[k]?.toString().trim().isNotEmpty == true) {
-        last = data[k].toString().trim();
-        break;
+        return data[k].toString().trim();
       }
     }
 
-    if (first != null && last != null) return '$first $last';
-    if (first != null) return first;
-    if (last != null) return last;
+    final name = data['name'] ?? data['displayName'] ?? data['fullName'];
+    if (name != null) return name.toString().split(' ').first;
 
-    // Champs alternatifs
-    for (var k in ['name', 'displayName', 'fullName', 'fullname']) {
-      if (data[k]?.toString().trim().isNotEmpty == true) {
-        return data[k].toString().split(' ').first;
-      }
-    }
-
-    // Enfin fallback sur displayName Firebase
-    final dn = FirebaseAuth.instance.currentUser?.displayName;
-    if (dn != null && dn.trim().isNotEmpty) return dn.split(' ').first;
-
-    // try to extract a readable name from email as last resort
-    final mail = FirebaseAuth.instance.currentUser?.email;
-    if (mail != null && mail.trim().isNotEmpty) return _nameFromEmail(mail);
-
-    return 'Utilisateur';
+    return FirebaseAuth.instance.currentUser?.displayName?.split(' ').first ?? 'Utilisateur';
   }
 
-  String _nameFromEmail(String email) {
+  String _initialsFromData(Map<String, dynamic>? data) {
     try {
-      final local = email.split('@').first;
-      final cleaned = local.replaceAll(RegExp(r'[._\-]'), ' ').trim();
-      if (cleaned.isEmpty) return 'Utilisateur';
-      final parts = cleaned.split(RegExp(r'\s+'));
-      final first = parts.first;
-      return first[0].toUpperCase() + (first.length > 1 ? first.substring(1) : '');
-    } catch (e) {
-      return 'Utilisateur';
+      final first = _displayName(data);
+      if (first.isNotEmpty) return first[0].toUpperCase();
+      return 'U';
+    } catch (_) {
+      return 'U';
     }
   }
 
   Color _borderColor() {
     if (!_isConnected) return Colors.red;
-    if (_isInForeground) return Colors.green;
-    return Colors.orange;
+    return _isInForeground ? Colors.green : Colors.orange;
   }
 
   // ================== BUILD ==================
   @override
   Widget build(BuildContext context) {
-    if (_userStream == null) {
-      // si pas de stream, tenter d'afficher le displayName Firebase si disponible
-      final authName = FirebaseAuth.instance.currentUser?.displayName;
-      if (authName != null && authName.trim().isNotEmpty) {
-        _userName = authName.split(' ').first;
-      }
-      return _buildHeader(null);
-    }
+    if (_isLoadingUser) return _buildLoadingHeader();
+    if (_userStream == null) return _buildHeader(null);
 
     return StreamBuilder<DocumentSnapshot>(
       stream: _userStream,
       builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.hasError) {
-          return _buildHeader(null);
+        final data = snapshot.data?.data() as Map<String, dynamic>?;
+        if (data != null) {
+          _isCertified = data['isCertified'] == true;
+          _userName = _displayName(data);
+          _userInitials = _initialsFromData(data);
         }
-
-        final data = snapshot.data!.data() as Map<String, dynamic>?;
-        debugPrint("USER DATA = $data");
-        _isCertified = data?['isCertified'] == true;
-        _userName = _displayName(data);
-
         return _buildHeader(data);
       },
     );
+  }
+
+  Widget _buildLoadingHeader() {
+    // Retour simple: afficher l'entête par défaut pendant le chargement
+    return _buildHeader(null);
+  }
+
+  /// Attendre que l'utilisateur et son prénom soient chargés.
+  /// Retourne `true` si un prénom non‑par défaut a été obtenu dans le délai.
+  Future<bool> ensureFirstNameVerified({Duration timeout = const Duration(seconds: 5)}) async {
+    if (!mounted) return false;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return false;
+
+    // Si déjà chargé et différent de la valeur par défaut, OK
+    if (!_isLoadingUser && _userName != 'Utilisateur') return true;
+
+    final stopwatch = Stopwatch()..start();
+    while (stopwatch.elapsed < timeout) {
+      if (!mounted) return false;
+      if (!_isLoadingUser && _userName != 'Utilisateur') return true;
+      await Future.delayed(const Duration(milliseconds: 200));
+    }
+
+    return _userName != 'Utilisateur';
   }
 
   Widget _buildHeader(Map<String, dynamic>? data) {
@@ -391,9 +380,9 @@ class _HeaderWidgetState extends State<HeaderWidget>
   Widget _buildAvatar(Map<String, dynamic>? data) {
     final image = _localImageFile != null
         ? FileImage(_localImageFile!)
-        : data?['photoUrl'] != null
-            ? NetworkImage(data!['photoUrl'])
-            : const NetworkImage('https://i.pravatar.cc/150?img=3');
+        : (data?['photoUrl'] != null 
+            ? NetworkImage(data!['photoUrl']) 
+            : const NetworkImage('https://i.pravatar.cc/150?img=3'));
 
     return GestureDetector(
       onTap: _pickImage,
@@ -408,9 +397,7 @@ class _HeaderWidgetState extends State<HeaderWidget>
             child: CircleAvatar(
               radius: 26,
               backgroundImage: image as ImageProvider,
-              child: _isUploading
-                  ? const CircularProgressIndicator(strokeWidth: 2)
-                  : null,
+              child: _isUploading ? const CircularProgressIndicator(strokeWidth: 2) : null,
             ),
           ),
           const CircleAvatar(
@@ -428,44 +415,38 @@ class _HeaderWidgetState extends State<HeaderWidget>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildTitle(),
-        Row(
-          children: [
-            Text(
-              "$_greeting, ",
+  Row(
+  children: [
+    Flexible(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            constraints: const BoxConstraints(maxWidth: 140),
+            child: Text(
+              _userName,
               style: TextStyle(
                 color: widget.textColor,
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
               ),
+              overflow: TextOverflow.ellipsis,
               maxLines: 1,
-              overflow: TextOverflow.visible,
             ),
-            const SizedBox(width: 2),
-            Expanded(
-              child: Text(
-                _userName,
-                style: TextStyle(
-                  color: widget.textColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            if (_isCertified)
-              const Padding(
-                padding: EdgeInsets.only(left: 5),
-                child: Icon(Icons.verified, color: Colors.blue, size: 16),
-              ),
+          ),
+          if (_isCertified) ...[
+            const SizedBox(width: 4),
+            const Icon(Icons.verified, color: Colors.blue, size: 16),
           ],
-        ),
+        ],
+      ),
+    ),
+  ],
+),
+
         Text(
           _dateString,
-          style: TextStyle(
-            fontSize: 12,
-            color: widget.isDark ? Colors.white60 : Colors.black45,
-          ),
+          style: TextStyle(fontSize: 12, color: widget.isDark ? Colors.white60 : Colors.black45),
         ),
       ],
     );
@@ -477,8 +458,7 @@ class _HeaderWidgetState extends State<HeaderWidget>
       child: Row(
         children: [
           Container(
-            width: 6,
-            height: 6,
+            width: 6, height: 6,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: _isSyncing ? Colors.orange : const Color(0xFF00CBA9),
@@ -486,10 +466,10 @@ class _HeaderWidgetState extends State<HeaderWidget>
           ),
           const SizedBox(width: 6),
           Text(
-            _isSyncing ? "SYNCHRONISATION..." : "LUALABACONNECT",
+            _isSyncing ? "SYNCHRONISATION..." : "LBKONNECT",
             style: TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.w900,
+              fontSize: 9, 
+              fontWeight: FontWeight.w900, 
               letterSpacing: 1.2,
               color: _isSyncing ? Colors.orange : const Color(0xFF00CBA9),
             ),
@@ -507,8 +487,7 @@ class _HeaderWidgetState extends State<HeaderWidget>
         child: const CircleAvatar(
           radius: 24,
           backgroundColor: Color(0xFFD32F2F),
-          child: Text("SOS",
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+          child: Text("SOS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         ),
       ),
     );

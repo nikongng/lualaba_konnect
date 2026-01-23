@@ -68,6 +68,12 @@ class _RegistrationFormPageState extends State<RegistrationFormPage>
     'pass': FocusNode(),
     'confirm': FocusNode(),
     'bio': FocusNode(),
+    'rccm': FocusNode(),
+    'idnat': FocusNode(),
+    'nationality': FocusNode(),
+    'profession': FocusNode(),
+    'experience': FocusNode(),
+    'company': FocusNode(),
   };
 
   bool _obscurePass = true;
@@ -93,6 +99,20 @@ class _RegistrationFormPageState extends State<RegistrationFormPage>
     _focusNodes.forEach((key, node) => node.addListener(() => setState(() {})));
   }
 
+  Future<T> _withRetries<T>(Future<T> Function() op, {int retries = 3, Duration timeout = const Duration(seconds: 20)}) async {
+    int attempt = 0;
+    while (true) {
+      attempt++;
+      try {
+        return await op().timeout(timeout);
+      } catch (e) {
+        debugPrint('_withRetries attempt $attempt failed: $e');
+        if (attempt >= retries) rethrow;
+        await Future.delayed(Duration(milliseconds: 500 * (1 << attempt)));
+      }
+    }
+  }
+
   @override
   void dispose() {
     _waveController.dispose();
@@ -110,6 +130,8 @@ class _RegistrationFormPageState extends State<RegistrationFormPage>
     _experienceController.dispose();
     _currentCompanyController.dispose();
     _bioController.dispose();
+    // dispose focus nodes
+    _focusNodes.forEach((k, node) { try { node.dispose(); } catch (_) {} });
     super.dispose();
   }
 
@@ -323,7 +345,7 @@ Future<void> _completeRegistration(bool isAutomaticSuccess) async {
     };
 
     try {
-      await FirebaseFirestore.instance.collection(collectionName).doc(uid).set(userData).timeout(const Duration(seconds: 10));
+      await _withRetries(() => FirebaseFirestore.instance.collection(collectionName).doc(uid).set(userData));
       debugPrint("Firestore initial écrit");
     } catch (e) {
       debugPrint("Erreur écriture Firestore: $e");
@@ -343,16 +365,16 @@ Future<void> _completeRegistration(bool isAutomaticSuccess) async {
         webBytes: _pdfBytesWeb,
       );
       debugPrint("PDF uploadé");
-      await FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
+      await _withRetries(() => FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
         'documents.identityPdf': identityPdfUrl,
-      }).timeout(const Duration(seconds: 10));
+      }));
     } catch (e) {
       anyUploadFailed = true;
       debugPrint("uploadIdentityPdf error: $e");
-      await FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
+      await _withRetries(() => FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
         'uploadStatus': 'identity_failed',
         'uploadError': 'Erreur upload PDF: ${e.toString()}'
-      }).timeout(const Duration(seconds: 10));
+      }));
     }
 
     try {
@@ -363,28 +385,28 @@ Future<void> _completeRegistration(bool isAutomaticSuccess) async {
         webBytes: _faceImageBytesWeb,
       );
       debugPrint("Selfie uploadé");
-      await FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
+      await _withRetries(() => FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
         'documents.selfie': selfieUrl,
-      }).timeout(const Duration(seconds: 10));
+      }));
     } catch (e) {
       anyUploadFailed = true;
       debugPrint("uploadSelfie error: $e");
-      await FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
+      await _withRetries(() => FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
         'uploadStatus': FieldValue.arrayUnion(['selfie_failed']),
         'uploadError': 'Erreur upload selfie: ${e.toString()}'
-      }).timeout(const Duration(seconds: 10));
+      }));
     }
 
     // Mise à jour finale du status d'upload
     if (anyUploadFailed) {
-      await FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
+      await _withRetries(() => FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
         'uploadStatus': 'partial_failed',
-      }).timeout(const Duration(seconds: 10));
+      }));
     } else {
-      await FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
+      await _withRetries(() => FirebaseFirestore.instance.collection(collectionName).doc(uid).update({
         'uploadStatus': 'complete',
         'finalizedAt': FieldValue.serverTimestamp(),
-      }).timeout(const Duration(seconds: 10));
+      }));
     }
 
     debugPrint("Firestore OK");
@@ -456,8 +478,10 @@ Future<void> _completeRegistration(bool isAutomaticSuccess) async {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFE65100),
-      body: Center(
-        child: Container(
+      body: GestureDetector(
+        onTap: () => FocusScope.of(context).unfocus(),
+        child: Center(
+          child: Container(
           constraints: const BoxConstraints(maxWidth: 500),
           child: Stack(
             children: [
@@ -491,6 +515,7 @@ Future<void> _completeRegistration(bool isAutomaticSuccess) async {
               if (_isLoading) _buildModernLoadingOverlay(),
             ],
           ),
+          ),
         ),
       ),
     );
@@ -518,9 +543,9 @@ Future<void> _completeRegistration(bool isAutomaticSuccess) async {
           if (widget.profileType == 2) ...[
             Row(
               children: [
-                Expanded(child: _buildField("N° RCCM", Icons.assignment, _rccmController, FocusNode())),
+                Expanded(child: _buildField("N° RCCM", Icons.assignment, _rccmController, _focusNodes['rccm']!)),
                 const SizedBox(width: 15),
-                Expanded(child: _buildField("ID. NAT", Icons.badge, _idNatController, FocusNode())),
+                Expanded(child: _buildField("ID. NAT", Icons.badge, _idNatController, _focusNodes['idnat']!)),
               ],
             ),
             const SizedBox(height: 15),
@@ -548,17 +573,17 @@ Future<void> _completeRegistration(bool isAutomaticSuccess) async {
           if (widget.profileType == 1) ...[
             Row(
               children: [
-                Expanded(child: _buildField("Nationalité", Icons.flag, _nationalityController, FocusNode())),
+                Expanded(child: _buildField("Nationalité", Icons.flag, _nationalityController, _focusNodes['nationality']!)),
                 const SizedBox(width: 15),
-                Expanded(child: _buildField("Profession", Icons.work, _professionController, FocusNode())),
+                Expanded(child: _buildField("Profession", Icons.work, _professionController, _focusNodes['profession']!)),
               ],
             ),
             const SizedBox(height: 15),
             Row(
               children: [
-                Expanded(child: _buildField("Années Exp.", Icons.timeline, _experienceController, FocusNode(), type: TextInputType.number)),
+                Expanded(child: _buildField("Années Exp.", Icons.timeline, _experienceController, _focusNodes['experience']!, type: TextInputType.number)),
                 const SizedBox(width: 15),
-                Expanded(child: _buildField("Employeur", Icons.business_center, _currentCompanyController, FocusNode())),
+                Expanded(child: _buildField("Employeur", Icons.business_center, _currentCompanyController, _focusNodes['company']!)),
               ],
             ),
             const SizedBox(height: 15),

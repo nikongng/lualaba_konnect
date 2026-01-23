@@ -68,7 +68,18 @@ class FcmHandlers {
                   ElevatedButton.icon(onPressed: () async {
                     NotificationService.stopRingtone();
                     Navigator.pop(c);
-                    appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => CallWebRTCPage(callId: callId, otherId: data['caller'] ?? '', isCaller: false, name: callerName)));
+                    appNavigatorKey.currentState?.push(
+                      MaterialPageRoute(
+                        builder: (_) => CallWebRTCPage(
+                          callId: callId,
+                          otherId: data['caller'] ?? '',
+                          isCaller: false,
+                          name: callerName,
+                          avatarLetter: callerName.isNotEmpty ? callerName[0].toUpperCase() : '?',
+                        ),
+                      ),
+                    );
+
                   }, icon: const Icon(Icons.call), label: const Text('Accepter'), style: ElevatedButton.styleFrom(backgroundColor: Colors.green)),
                 ])
               ]),
@@ -84,7 +95,18 @@ class FcmHandlers {
         final callId = data['callId'] ?? data['chatId'] ?? '';
         final caller = data['caller'] ?? '';
         final callerName = data['callerName'] ?? 'Appel entrant';
-        appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => CallWebRTCPage(callId: callId, otherId: caller, isCaller: false, name: callerName)));
+       appNavigatorKey.currentState?.push(
+  MaterialPageRoute(
+    builder: (_) => CallWebRTCPage(
+      callId: callId,
+      otherId: caller,
+      isCaller: false,
+      name: callerName,
+      avatarLetter: callerName.isNotEmpty ? callerName[0].toUpperCase() : '?',
+    ),
+  ),
+);
+
       } else if (data['type'] == 'message') {
         // navigate to chat list or chat detail if desired
       }
@@ -100,7 +122,18 @@ class FcmHandlers {
           final callerName = data['callerName'] ?? 'Appel entrant';
           // need to wait for navigator to be ready
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            appNavigatorKey.currentState?.push(MaterialPageRoute(builder: (_) => CallWebRTCPage(callId: callId, otherId: caller, isCaller: false, name: callerName)));
+            appNavigatorKey.currentState?.push(
+  MaterialPageRoute(
+    builder: (_) => CallWebRTCPage(
+      callId: callId,
+      otherId: caller,
+      isCaller: false,
+      name: callerName,
+      avatarLetter: callerName.isNotEmpty ? callerName[0].toUpperCase() : '?',
+    ),
+  ),
+);
+
           });
         }
       }

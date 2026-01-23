@@ -1,289 +1,254 @@
 import 'dart:async';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'call_webrtc_logic.dart';
+import 'package:lualaba_konnect/core/notification_service.dart';
 
 class CallWebRTCPage extends StatefulWidget {
-  final String callId;
-  final String otherId; // other participant uid
-  final bool isCaller;
   final String name;
+  final String avatarLetter;
+  final bool isVideo;
+  final String otherId;
+  final String callId;
+  final bool isCaller;
 
-  const CallWebRTCPage({super.key, required this.callId, required this.otherId, required this.isCaller, required this.name});
+  const CallWebRTCPage({
+    super.key,
+    required this.name,
+    required this.avatarLetter,
+    required this.otherId,
+    required this.callId,
+    this.isVideo = false,
+    this.isCaller = false,
+  });
 
   @override
   State<CallWebRTCPage> createState() => _CallWebRTCPageState();
 }
 
-class _CallWebRTCPageState extends State<CallWebRTCPage> {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _db = FirebaseFirestore.instance;
-
-  RTCPeerConnection? _pc;
-  MediaStream? _localStream;
-  final _remoteRenderer = RTCVideoRenderer();
-  final _localRenderer = RTCVideoRenderer();
+class _CallWebRTCPageState extends State<CallWebRTCPage> with SingleTickerProviderStateMixin {
+  late CallWebRTCLogic _logic;
+  final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
+  final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
 
   bool _muted = false;
-  bool _videoEnabled = false;
-  bool _speakerOn = false;
+  bool _speaker = true;
+  bool _camera = true;
+  bool _isConnected = false;
+  bool _isRinging = false;
+
+  late Stopwatch _stopwatch;
+  late Timer _timer;
+
+  // Animation for button taps
+  late AnimationController _animController;
 
   @override
   void initState() {
     super.initState();
+    _stopwatch = Stopwatch();
+    _animController = AnimationController(vsync: this, duration: const Duration(milliseconds: 150), lowerBound: 0.0, upperBound: 0.1);
     _initRenderers();
-    _start();
+    _initLogic();
   }
 
   Future<void> _initRenderers() async {
-    await _remoteRenderer.initialize();
     await _localRenderer.initialize();
+    await _remoteRenderer.initialize();
   }
 
-  Future<void> _start() async {
-    await _openUserMedia(video: _videoEnabled);
+  void _initLogic() {
+    _logic = CallWebRTCLogic(
+      callId: widget.callId,
+      otherId: widget.otherId,
+      isCaller: widget.isCaller,
+      onLocalStream: (s) => _localRenderer.srcObject = s,
+      onRemoteStream: (s) => _remoteRenderer.srcObject = s,
+      onStateChanged: (st) {
+        setState(() {
+          _isConnected = st == 'connected';
+          _isRinging = st == 'ringing';
+        });
+        if (_isConnected && !_stopwatch.isRunning) _stopwatch.start();
+        if (!_isConnected && _stopwatch.isRunning) _stopwatch.stop();
+        _updateRingtone();
+      },
+      onLog: (m) => debugPrint('[call] $m'),
+    );
+
+    _startCallFlow();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) => setState(() {}));
+  }
+
+  Future<void> _startCallFlow() async {
+    await _logic.openUserMedia(video: widget.isVideo);
     if (widget.isCaller) {
-      await _createPeerConnectionAsCaller();
+      await _logic.startAsCaller();
     } else {
-      await _createPeerConnectionAsCallee();
+      await _logic.startAsCallee();
     }
   }
 
-  Future<void> _openUserMedia({bool video = false}) async {
-    final Map<String, dynamic> mediaConstraints = {'audio': true, 'video': video};
-    try {
-      _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-      _localRenderer.srcObject = _localStream;
-    } catch (e) {
-      debugPrint('openUserMedia error: $e');
+  void _updateRingtone() {
+    if (_isRinging) {
+      NotificationService.playRingtone();
+    } else {
+      NotificationService.stopRingtone();
     }
-  }
-
-  Future<void> _toggleMute() async {
-    setState(() => _muted = !_muted);
-    try {
-      if (_localStream != null) {
-        for (var t in _localStream!.getAudioTracks()) {
-          t.enabled = !_muted;
-        }
-      }
-    } catch (e) {
-      debugPrint('toggleMute error: $e');
-    }
-  }
-
-  Future<void> _toggleVideo() async {
-    try {
-      if (!_videoEnabled) {
-        final media = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': true});
-        final videoTracks = media.getVideoTracks();
-        if (videoTracks.isNotEmpty) {
-          if (_localStream != null) {
-            try {
-              _localStream!.addTrack(videoTracks[0]);
-            } catch (_) {}
-          } else {
-            _localStream = media;
-          }
-          _localRenderer.srcObject = _localStream;
-          if (_pc != null) {
-            try {
-              await _pc!.addTrack(videoTracks[0], _localStream!);
-            } catch (_) {}
-          }
-        }
-        setState(() => _videoEnabled = true);
-      } else {
-        if (_localStream != null) {
-          for (var t in List<MediaStreamTrack>.from(_localStream!.getVideoTracks())) {
-            try {
-              t.stop();
-              _localStream!.removeTrack(t);
-            } catch (_) {}
-          }
-          _localRenderer.srcObject = _localStream;
-        }
-        setState(() => _videoEnabled = false);
-      }
-    } catch (e) {
-      debugPrint('toggleVideo error: $e');
-    }
-  }
-
-  void _toggleSpeaker() {
-    setState(() => _speakerOn = !_speakerOn);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_speakerOn ? 'Haut‑parleur activé (placeholder)' : 'Haut‑parleur désactivé (placeholder)')));
-  }
-
-  Future<RTCPeerConnection> _createPeerConnection() async {
-    final configuration = <String, dynamic>{
-      'iceServers': [
-        {'urls': 'stun:stun.l.google.com:19302'},
-      ]
-    };
-    final pc = await createPeerConnection(configuration);
-    if (_localStream != null) {
-      _localStream!.getTracks().forEach((t) => pc.addTrack(t, _localStream!));
-    }
-    pc.onIceCandidate = (RTCIceCandidate c) async {
-      if (c.candidate == null) return;
-      final coll = widget.isCaller ? 'callerCandidates' : 'calleeCandidates';
-      await _db.collection('calls').doc(widget.callId).collection(coll).add({
-        'candidate': c.candidate,
-        'sdpMid': c.sdpMid,
-        'sdpMLineIndex': c.sdpMLineIndex,
-      });
-    };
-    pc.onTrack = (event) {
-      if (event.streams.isNotEmpty) _remoteRenderer.srcObject = event.streams[0];
-    };
-    return pc;
-  }
-
-  Future<void> _createPeerConnectionAsCaller() async {
-    _pc = await _createPeerConnection();
-    final callDoc = _db.collection('calls').doc(widget.callId);
-    final offer = await _pc!.createOffer();
-    await _pc!.setLocalDescription(offer);
-    await callDoc.set({'caller': _auth.currentUser?.uid, 'callee': widget.otherId, 'offer': {'sdp': offer.sdp, 'type': offer.type}, 'createdAt': FieldValue.serverTimestamp()});
-
-    // listen for answer
-    callDoc.snapshots().listen((snap) async {
-      if (!snap.exists) return;
-      final data = snap.data();
-      if (data != null && data['answer'] != null) {
-        final ans = data['answer'] as Map<String, dynamic>;
-        final rtc = RTCSessionDescription(ans['sdp'], ans['type']);
-        await _pc!.setRemoteDescription(rtc);
-      }
-    });
-
-    // listen for callee ICE
-    _db.collection('calls').doc(widget.callId).collection('calleeCandidates').snapshots().listen((snap) {
-      for (var doc in snap.docChanges) {
-        if (doc.type == DocumentChangeType.added) {
-          final data = doc.doc.data()!;
-          _pc!.addCandidate(RTCIceCandidate(data['candidate'], data['sdpMid'], data['sdpMLineIndex']));
-        }
-      }
-    });
-  }
-
-  Future<void> _createPeerConnectionAsCallee() async {
-    _pc = await _createPeerConnection();
-    final callDoc = _db.collection('calls').doc(widget.callId);
-    final snap = await callDoc.get();
-    if (!snap.exists) return;
-    final data = snap.data()!;
-    final offer = data['offer'] as Map<String, dynamic>;
-    final rtcOffer = RTCSessionDescription(offer['sdp'], offer['type']);
-    await _pc!.setRemoteDescription(rtcOffer);
-    final answer = await _pc!.createAnswer();
-    await _pc!.setLocalDescription(answer);
-    await callDoc.update({'answer': {'sdp': answer.sdp, 'type': answer.type}});
-
-    // listen for caller ICE
-    _db.collection('calls').doc(widget.callId).collection('callerCandidates').snapshots().listen((snap) {
-      for (var doc in snap.docChanges) {
-        if (doc.type == DocumentChangeType.added) {
-          final data = doc.doc.data()!;
-          _pc!.addCandidate(RTCIceCandidate(data['candidate'], data['sdpMid'], data['sdpMLineIndex']));
-        }
-      }
-    });
-  }
-
-  Future<void> _hangUp() async {
-    await _pc?.close();
-    _localStream?.getTracks().forEach((t) => t.stop());
-    // delete call doc and subcollections
-    final callRef = _db.collection('calls').doc(widget.callId);
-    final callerCol = await callRef.collection('callerCandidates').get();
-    for (var d in callerCol.docs) await d.reference.delete();
-    final calleeCol = await callRef.collection('calleeCandidates').get();
-    for (var d in calleeCol.docs) await d.reference.delete();
-    await callRef.delete();
-    if (mounted) Navigator.pop(context);
   }
 
   @override
   void dispose() {
-    _remoteRenderer.dispose();
+    _timer.cancel();
+    _stopwatch.stop();
+    _logic.dispose();
     _localRenderer.dispose();
-    _pc?.dispose();
+    _remoteRenderer.dispose();
+    _animController.dispose();
     super.dispose();
+  }
+
+  String _formatElapsed() {
+    final elapsed = _stopwatch.elapsed;
+    final m = elapsed.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final s = elapsed.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  Widget _animatedButton({required IconData icon, required VoidCallback onTap, required Color color, double size = 64}) {
+    return GestureDetector(
+      onTapDown: (_) => _animController.forward(),
+      onTapUp: (_) => _animController.reverse(),
+      onTapCancel: () => _animController.reverse(),
+      onTap: onTap,
+      child: AnimatedBuilder(
+        animation: _animController,
+        builder: (context, child) {
+          double scale = 1 - _animController.value;
+          return Transform.scale(
+            scale: scale,
+            child: child,
+          );
+        },
+        child: Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            boxShadow: [BoxShadow(color: Colors.black38, blurRadius: 8, offset: Offset(0,4))],
+          ),
+          child: Icon(icon, color: Colors.white, size: 32),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0B1418),
+      backgroundColor: Colors.black,
       body: SafeArea(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+        child: Stack(
           children: [
-            CircleAvatar(radius: 56, backgroundColor: Colors.white10, child: Text(widget.name.isNotEmpty ? widget.name[0].toUpperCase() : '?', style: const TextStyle(color: Colors.white, fontSize: 36))),
-            const SizedBox(height: 16),
-            Text(widget.name, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            SizedBox(height: 160, width: 160, child: RTCVideoView(_localRenderer, mirror: true)),
-            const SizedBox(height: 20),
-            Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-              // Haut-parleur (placeholder)
-              Column(
+            // Remote Video
+            Positioned.fill(
+              child: _remoteRenderer.srcObject != null
+                  ? RTCVideoView(_remoteRenderer, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover)
+                  : Container(
+                      color: Colors.black87,
+                      alignment: Alignment.center,
+                      child: Text(
+                        'En attente de connexion...',
+                        style: TextStyle(color: Colors.white54, fontSize: 18),
+                      ),
+                    ),
+            ),
+            // Top Info
+            Positioned(
+              top: 50,
+              left: 0,
+              right: 0,
+              child: Column(
                 children: [
                   CircleAvatar(
-                    backgroundColor: Colors.purple.shade300,
-                    child: IconButton(
-                      icon: Icon(_speakerOn ? Icons.volume_up : Icons.volume_off, color: Colors.white),
-                      onPressed: _toggleSpeaker,
-                    ),
+                    radius: 40,
+                    backgroundColor: Colors.blueAccent,
+                    child: Text(widget.avatarLetter, style: TextStyle(fontSize: 28, color: Colors.white)),
                   ),
-                  const SizedBox(height: 6),
-                  const Text('Haut‑parleur', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                ],
-              ),
-
-              // Activer vidéo
-              Column(
-                children: [
-                  CircleAvatar(
-                    backgroundColor: Colors.white10,
-                    child: IconButton(
-                      icon: Icon(_videoEnabled ? Icons.videocam : Icons.videocam_off, color: Colors.white),
-                      onPressed: _toggleVideo,
-                    ),
+                  SizedBox(height: 12),
+                  Text(widget.name, style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold)),
+                  SizedBox(height: 6),
+                  Text(
+                    _isConnected ? _formatElapsed() : (_isRinging ? 'Ça sonne...' : 'En attente'),
+                    style: TextStyle(color: Colors.white70, fontSize: 16),
                   ),
-                  const SizedBox(height: 6),
-                  const Text('Activer vidéo', style: TextStyle(color: Colors.white70, fontSize: 12)),
                 ],
               ),
-
-              // Raccrocher
-              Column(
-                children: [
-                  FloatingActionButton(backgroundColor: Colors.red, child: const Icon(Icons.call_end), onPressed: _hangUp),
-                  const SizedBox(height: 6),
-                  const Text('Raccrocher', style: TextStyle(color: Colors.white70, fontSize: 12)),
-                ],
+            ),
+            // Local Video Preview
+            Positioned(
+              right: 20,
+              top: 180,
+              width: 140,
+              height: 180,
+              child: AnimatedSwitcher(
+                duration: Duration(milliseconds: 300),
+                child: _localRenderer.srcObject != null
+                    ? Container(
+                        key: ValueKey('localVideo'),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.white54, width: 2),
+                        ),
+                        child: RTCVideoView(_localRenderer, mirror: true),
+                      )
+                    : Container(
+                        key: ValueKey('noLocalVideo'),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.white54, width: 2),
+                          color: Colors.black45,
+                        ),
+                        child: Icon(Icons.videocam_off, color: Colors.white54, size: 40),
+                      ),
               ),
-
-              // Muet
-              Column(
+            ),
+            // Bottom Controls
+            Positioned(
+              bottom: 60,
+              left: 0,
+              right: 0,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  CircleAvatar(
-                    backgroundColor: Colors.white10,
-                    child: IconButton(
-                      icon: Icon(_muted ? Icons.mic_off : Icons.mic, color: Colors.white),
-                      onPressed: _toggleMute,
-                    ),
+                  _animatedButton(
+                    icon: _muted ? Icons.mic_off : Icons.mic,
+                    color: _muted ? Colors.redAccent : Colors.blueAccent,
+                    onTap: () => setState(() => _muted = !_muted),
                   ),
-                  const SizedBox(height: 6),
-                  const Text('Muet', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  _animatedButton(
+                    icon: _camera ? Icons.videocam : Icons.videocam_off,
+                    color: _camera ? Colors.blueAccent : Colors.grey,
+                    onTap: () => setState(() => _camera = !_camera),
+                  ),
+                  _animatedButton(
+                    icon: Icons.call_end,
+                    color: Colors.red,
+                    size: 72,
+                    onTap: () async {
+                      await _logic.hangup();
+                      if (mounted) Navigator.pop(context);
+                    },
+                  ),
+                  _animatedButton(
+                    icon: _speaker ? Icons.volume_up : Icons.headset_off,
+                    color: _speaker ? Colors.blueAccent : Colors.grey,
+                    onTap: () => setState(() => _speaker = !_speaker),
+                  ),
                 ],
               ),
-            ])
+            ),
           ],
         ),
       ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // Ajouté
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'account_choice_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'ModernDashboard.dart';
@@ -82,12 +83,76 @@ class _AuthMainPageState extends State<AuthMainPage> {
       );
 
       await _handleRememberMe();
+      await _fetchAndCacheUserData();
+
+      // Bloquer la navigation jusqu'à ce que le prénom soit disponible.
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        while (true) {
+          if (!mounted) return;
+          // Si l'utilisateur s'est déconnecté, arrêter
+          if (FirebaseAuth.instance.currentUser == null) return;
+
+          final display = prefs.getString('user_display_name') ?? '';
+          if (display.isNotEmpty && display != 'Utilisateur') break;
+          await Future.delayed(const Duration(milliseconds: 200));
+        }
+      } catch (_) {}
+
       _navigateToDashboard();
     } on FirebaseAuthException catch (e) {
       _showError(e.message ?? "Erreur de connexion");
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<void> _fetchAndCacheUserData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      String? foundCollection = prefs.getString('user_collection');
+      if (foundCollection == null) {
+        final collections = ['classic_users', 'pro_users', 'enterprise_users'];
+        for (final col in collections) {
+          try {
+            final doc = await FirebaseFirestore.instance.collection(col).doc(user.uid).get();
+            if (doc.exists) {
+              foundCollection = col;
+              await prefs.setString('user_collection', col);
+              break;
+            }
+          } catch (_) {}
+        }
+      }
+
+      foundCollection ??= 'classic_users';
+
+      try {
+        final snap = await FirebaseFirestore.instance.collection(foundCollection).doc(user.uid).get();
+        if (snap.exists) {
+          final data = snap.data();
+          if (data != null) {
+            final display = (data['firstName'] ?? data['firstname'] ?? data['prenom'] ?? data['name'] ?? data['displayName'] ?? user.displayName ?? 'Utilisateur').toString();
+            final initials = display.isNotEmpty ? display.split(' ').first[0].toUpperCase() : 'U';
+            final photo = data['photoUrl']?.toString();
+
+            await prefs.setString('user_display_name', display);
+            await prefs.setString('user_initials', initials);
+            if (photo != null && photo.isNotEmpty) await prefs.setString('user_photoUrl', photo);
+            // Debug log: confirmer l'écriture des SharedPreferences
+            // Sur web, regarde la console du navigateur (DevTools) ou la sortie du terminal
+            try {
+              final readBack = prefs.getString('user_display_name') ?? '<vide>';
+              // ignore: avoid_print
+              print('[DEBUG] SharedPreferences user_display_name = $readBack');
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    } catch (_) {}
   }
 
   void _showError(String msg) {

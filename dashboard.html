@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -366,6 +367,83 @@
             background: rgba(0,0,0,0.5);
             animation: fadeIn 0.3s ease;
         }
+        .modal.open {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .modal .modal-content {
+            transform: scale(0.96);
+            opacity: 1;
+            transition: transform 220ms cubic-bezier(.2,.8,.2,1), opacity 220ms ease;
+        }
+        .modal.open .modal-content {
+            transform: scale(1);
+            opacity: 1;
+        }
+        /* Image zoom modal */
+        .image-zoom-modal {
+            display: none;
+            position: fixed;
+            z-index: 1100;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.85);
+            align-items: center;
+            justify-content: center;
+        }
+        .image-zoom-content {
+            max-width: 95%;
+            max-height: 95%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .image-zoom-content img {
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 8px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+            transition: transform 0.25s ease, opacity 0.25s ease;
+            transform: scale(0.9);
+        }
+        .image-zoom-content img.open {
+            transform: scale(1);
+            opacity: 1;
+        }
+        .image-zoom-close {
+            position: fixed;
+            top: 18px;
+            right: 22px;
+            font-size: 28px;
+            color: white;
+            cursor: pointer;
+            z-index: 1110;
+        }
+        /* Iframe loader */
+        .iframe-loader {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255,255,255,0.7);
+            z-index: 1200;
+        }
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 5px solid rgba(0,0,0,0.1);
+            border-top-color: #007bff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
         .modal-content {
             background: white;
             margin: 5% auto;
@@ -619,6 +697,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
         import { getFirestore, collection, onSnapshot, updateDoc, doc, deleteDoc, addDoc, serverTimestamp, query, where, orderBy } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, getIdTokenResult, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
         const firebaseConfig = {
             apiKey: "AIzaSyDX-hHwrPsIfY4WGrZ2wgXeAZf5KWe18Ls",
@@ -634,6 +713,11 @@
         const db = getFirestore(app);
         const auth = getAuth();
         const provider = new GoogleAuthProvider();
+        
+        // Supabase client (optional) — replace with your values or set globally before loading this page
+        const SUPABASE_URL = window.SUPABASE_URL || '';
+        const SUPABASE_ANON_KEY = window.SUPABASE_ANON_KEY || '';
+        const supabase = (SUPABASE_URL && SUPABASE_ANON_KEY) ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
         // Base URL for backend functions: use local emulator when running on localhost
         const FUNCTIONS_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
@@ -719,6 +803,7 @@
                 <button id="emailLoginBtn" class="theme-toggle">Connexion (email)</button>
                 <button id="requestAdminBtn" class="theme-toggle" style="display:none">Demander admin</button>
                 <button id="manageRequestsBtn" class="theme-toggle" style="display:none">Gérer demandes</button>
+                <button id="debugClaimsBtn" class="theme-toggle" title="Afficher les claims du token">Debug claims</button>
                 <span id="userLabel" style="font-weight:500;color:#495057"></span>
             `;
             container.appendChild(authDiv);
@@ -727,6 +812,14 @@
             document.getElementById('requestAdminBtn').addEventListener('click', requestAdmin);
             document.getElementById('emailLoginBtn').addEventListener('click', openLoginModal);
             document.getElementById('manageRequestsBtn').addEventListener('click', openAdminRequestsModal);
+            document.getElementById('debugClaimsBtn').addEventListener('click', async () => {
+                const u = auth.currentUser;
+                if (!u) { showToast('Non connecté', true); return; }
+                try {
+                    const idRes = await getIdTokenResult(u);
+                    alert('Token claims:\n' + JSON.stringify(idRes.claims, null, 2));
+                } catch (e) { showToast('Erreur fetching claims: ' + e.message, true); }
+            });
         }
 
         onAuthStateChanged(auth, async (user) => {
@@ -810,7 +903,9 @@
                     return;
                 }
                 try {
-                    await signInWithEmailAndPassword(auth, email, password);
+                    const cred = await signInWithEmailAndPassword(auth, email, password);
+                    // force token refresh to ensure custom claims are available
+                    try { await auth.currentUser.getIdToken(true); } catch (_) {}
                     showToast('Connecté');
                     closeLoginModal();
                 } catch (e) {
@@ -1018,12 +1113,60 @@
         }
 
         function renderUserCard(container, user, collectionName, userId) {
+            console.debug('renderUserCard', collectionName, userId, user);
             const userCard = document.createElement('div');
             userCard.className = 'user-card';
             userCard.setAttribute('data-name', `${user.firstName || ''} ${user.lastName || ''}`.toLowerCase());
             userCard.setAttribute('data-date', user.lastUpdated ? new Date(user.lastUpdated.seconds * 1000).getTime() : 0);
             userCard.setAttribute('data-status', user.isCertified ? 'certified' : 'pending');
             userCard.onclick = () => openModal(user);
+            // Attempt to show selfie/identity links if present in user document
+            // Support nested `documents` structure written by the registration flow and tolerate variant key names
+            const docs = (user.documents && typeof user.documents === 'object') ? user.documents : {};
+            const maybe = (obj, ...keys) => {
+                for (const k of keys) {
+                    if (!obj) continue;
+                    if (Object.prototype.hasOwnProperty.call(obj, k) && obj[k]) return obj[k];
+                    const lk = k.toLowerCase();
+                    const foundKey = Object.keys(obj).find(x => x.toLowerCase() === lk);
+                    if (foundKey && obj[foundKey]) return obj[foundKey];
+                }
+                return null;
+            };
+
+            const rawSelfie = maybe(user, 'selfieUrl', 'selfie', 'photoUrl', 'photo');
+            const rawIdentity = maybe(user, 'identityUrl', 'identityPdf', 'identity', 'document', 'identity_url');
+            const sanitize = (u) => {
+                if (!u) return '';
+                try { return String(u).trim().replace(/\s+/g, ''); } catch (_) { return '';} 
+            };
+            const selfieUrl = sanitize(rawSelfie || maybe(docs, 'selfie', 'selfieUrl'));
+            const identityUrl = sanitize(rawIdentity || maybe(docs, 'identityPdf', 'identity'));
+            const encSelfieEarly = selfieUrl ? encodeURIComponent(selfieUrl) : '';
+            const fullnameEarly = encodeURIComponent(`${user.firstName || ''} ${user.lastName || ''}`.trim());
+
+            // Build files section using data-attributes (no inline onclick)
+            let filesHtml = '';
+            if (selfieUrl) filesHtml += `<p><strong>Selfie:</strong> <img class="user-selfie-thumb" data-enc-selfie="${encSelfieEarly}" src="${selfieUrl}" alt="Selfie" style="width:80px;height:80px;border-radius:8px;object-fit:cover;margin-top:6px;cursor:pointer;"/></p>`;
+            else filesHtml += `<p><strong>Selfie:</strong> <small>Aucun</small></p>`;
+            if (identityUrl) filesHtml += `<p><strong>Document:</strong> <a class="user-identity-link" data-identity="${encodeURIComponent(identityUrl)}" href="${identityUrl}" target="_blank" rel="noopener">Voir fichier</a></p>`;
+            else filesHtml += `<p><strong>Document:</strong> <small>Aucun</small></p>`;
+
+            const statusOk = user.uploadStatus && typeof user.uploadStatus === 'string' && user.uploadStatus.toLowerCase().startsWith('comp');
+            let viewBtnHtml = '';
+            if (statusOk && (selfieUrl || identityUrl)) {
+                const encSelfie = selfieUrl ? encodeURIComponent(selfieUrl) : '';
+                const encIdentity = identityUrl ? encodeURIComponent(identityUrl) : '';
+                const fullname = encodeURIComponent(`${user.firstName || ''} ${user.lastName || ''}`.trim());
+                viewBtnHtml = `<div style="margin-top:8px;"><button class="view-docs-btn" data-enc-selfie="${encSelfie}" data-enc-identity="${encIdentity}" data-fullname="${fullname}">Visualiser documents</button></div>`;
+            }
+
+            const certifyBtnHtml = user.isCertified === true
+                ? `<button class="uncertify-btn" data-collection="${collectionName}" data-userid="${userId}" data-original="Décertifier">Décertifier</button>`
+                : `<button class="certify-btn" data-collection="${collectionName}" data-userid="${userId}" data-original="Certifier">Certifier</button>`;
+
+            const deleteBtnHtml = `<button class="delete-btn" data-collection="${collectionName}" data-userid="${userId}">Supprimer</button>`;
+
             userCard.innerHTML = `
                 <div style="display: flex; align-items: center;">
                     <img src="${user.photoUrl || 'https://via.placeholder.com/50'}" alt="Avatar" class="avatar">
@@ -1037,17 +1180,205 @@
                         <p><strong>Adresse:</strong> ${user.address || ''}</p>
                         <p><strong>Genre:</strong> ${user.genre || 'N/A'}</p>
                         <p><strong>Date de naissance:</strong> ${user.birthDate ? new Date(user.birthDate).toLocaleDateString() : 'N/A'}</p>
-                        <p><strong>Statut upload:</strong> <span class="${user.uploadStatus === 'complete' ? 'status-complete' : 'status-error'}">${user.uploadStatus || 'N/A'}</span></p>
-                        ${user.isCertified === true
-                            ? `<button data-userid="${collectionName}_${userId}" data-original="Décertifier" onclick="event.stopPropagation(); uncertifyUser('${collectionName}', '${userId}')">Décertifier</button>`
-                            : `<button data-userid="${collectionName}_${userId}" data-original="Certifier" onclick="event.stopPropagation(); certifyUser('${collectionName}', '${userId}')">Certifier</button>`
-                        }
-                        <button onclick="event.stopPropagation(); deleteUser('${collectionName}', '${userId}')">Supprimer</button>
+                        <p><strong>Statut upload:</strong> <span class="${statusOk ? 'status-complete' : 'status-error'}">${user.uploadStatus || 'N/A'}</span></p>
+                        ${certifyBtnHtml}
+                        ${deleteBtnHtml}
+                        <div style="margin-top:10px;">${filesHtml}${viewBtnHtml}</div>
                     </div>
                 </div>
             `;
+
+            // Attach event listeners for buttons and thumbnails
+            // View documents
+            const viewBtn = userCard.querySelector('.view-docs-btn');
+            if (viewBtn) {
+                viewBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    try { viewDocuments(viewBtn.dataset.encSelfie, viewBtn.dataset.encIdentity, viewBtn.dataset.fullname); } catch (err) { console.error('viewDocuments error', err); }
+                });
+            }
+            // Selfie thumbnail click
+            const selfieThumb = userCard.querySelector('.user-selfie-thumb');
+            if (selfieThumb) {
+                selfieThumb.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    try { viewDocuments(selfieThumb.dataset.encSelfie, '', fullnameEarly); } catch (err) { console.error('viewDocuments error', err); }
+                });
+            }
+            // Certify / uncertify
+            const certifyBtn = userCard.querySelector('.certify-btn');
+            if (certifyBtn) {
+                certifyBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    certifyUser(certifyBtn.dataset.collection, certifyBtn.dataset.userid);
+                });
+            }
+            const uncertifyBtn = userCard.querySelector('.uncertify-btn');
+            if (uncertifyBtn) {
+                uncertifyBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    uncertifyUser(uncertifyBtn.dataset.collection, uncertifyBtn.dataset.userid);
+                });
+            }
+            const deleteBtn = userCard.querySelector('.delete-btn');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteUser(deleteBtn.dataset.collection, deleteBtn.dataset.userid);
+                });
+            }
+
             container.appendChild(userCard);
         }
+
+        function viewDocuments(encSelfie, encIdentity, encName) {
+            const selfie = encSelfie ? decodeURIComponent(encSelfie) : '';
+            const identity = encIdentity ? decodeURIComponent(encIdentity) : '';
+            const name = encName ? decodeURIComponent(encName) : '';
+            let html = `<h3>Documents de ${name || 'utilisateur'}</h3>`;
+            if (selfie) {
+                // clickable preview that opens a fullscreen zoom
+                html += `<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;"><img class="modal-image-preview" src="${selfie}" data-full="${selfie}" style="max-width:320px;border-radius:8px;object-fit:cover;cursor:zoom-in;" alt="selfie"/></div>`;
+            }
+            if (identity) {
+                const lower = identity.toLowerCase();
+                if (lower.endsWith('.pdf')) {
+                    // show iframe plus action to open in new tab
+                        html += `<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;"><button id=\"openPdfNewTab\" style=\"padding:8px 12px;border-radius:6px;background:#007bff;color:#fff;border:none;cursor:pointer;\">Ouvrir le PDF dans un nouvel onglet</button></div>`;
+                        html += `<div style=\"position:relative;height:500px;\">` +
+                                `<div class=\"iframe-loader\" id=\"iframeLoader_${encodeURIComponent(identity)}\"><div class=\"spinner\"></div></div>` +
+                                `<iframe id=\"identityIframe\" class=\"identity-iframe\" src=\"${identity}\" style=\"width:100%;height:100%;border:0;border-radius:8px;opacity:0;\"></iframe></div>`;
+                } else {
+                    html += `<p><a href="${identity}" target="_blank" rel="noopener">Ouvrir le document</a></p>`;
+                }
+            }
+            if (!selfie && !identity) html += `<p><em>Aucun document disponible</em></p>`;
+            document.getElementById('modal-name').textContent = name || 'Documents utilisateur';
+            document.getElementById('modal-details').innerHTML = html;
+            const modalEl = document.getElementById('userModal');
+            modalEl.style.display = 'block';
+            // trigger open animation
+            setTimeout(() => modalEl.classList.add('open'), 20);
+
+            // Attach behavior: open PDF button + image zoom
+            setTimeout(() => {
+                const img = document.querySelector('#userModal .modal-image-preview');
+                if (img) {
+                    img.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        openImageZoom(img.dataset.full);
+                    });
+                }
+                const pdfBtn = document.getElementById('openPdfNewTab');
+                if (pdfBtn) {
+                    pdfBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        try { window.open(decodeURIComponent(encIdentity), '_blank', 'noopener'); } catch (_) { window.open(decodeURIComponent(encIdentity)); }
+                    });
+                }
+                const iframe = document.getElementById('identityIframe');
+                if (iframe) {
+                    const loader = document.getElementById(`iframeLoader_${encodeURIComponent(identity)}`);
+                    const cleanup = () => { if (loader && loader.parentNode) loader.parentNode.removeChild(loader); };
+                    iframe.addEventListener('load', () => { try { cleanup(); iframe.classList.add('loaded'); } catch(_){} });
+                    iframe.addEventListener('error', () => {
+                        try {
+                            cleanup();
+                            const alt = document.createElement('p');
+                            alt.innerHTML = `<a href="${identity}" target="_blank" rel="noopener">Ouvrir le document dans un nouvel onglet</a>`;
+                            iframe.parentNode.appendChild(alt);
+                        } catch(_){}
+                    });
+                    // Fallback timeout: if still showing after 8s, offer direct link
+                    setTimeout(() => {
+                        if (document.getElementById(`iframeLoader_${encodeURIComponent(identity)}`)) {
+                            try {
+                                const alt = document.createElement('p');
+                                alt.innerHTML = `<a href="${identity}" target="_blank" rel="noopener">Ouvrir le document dans un nouvel onglet</a>`;
+                                iframe.parentNode.appendChild(alt);
+                            } catch(_){}
+                        }
+                    }, 8000);
+                }
+            }, 50);
+        }
+
+        // Expose functions to global scope so inline onclick handlers work
+        // (script uses type="module" so functions are module-scoped by default)
+        window.viewDocuments = viewDocuments;
+
+        // Image zoom modal functions
+        function openImageZoom(url) {
+            let mz = document.getElementById('imageZoomModal');
+            if (!mz) {
+                mz = document.createElement('div');
+                mz.id = 'imageZoomModal';
+                mz.className = 'image-zoom-modal';
+                mz.innerHTML = `<div class='image-zoom-content'><img id='imageZoomImg' src='' alt='preview'/></div><div class='image-zoom-close' id='imageZoomClose'>&times;</div>`;
+                document.body.appendChild(mz);
+                mz.addEventListener('click', (e) => { if (e.target === mz) closeImageZoom(); });
+                document.getElementById('imageZoomClose').addEventListener('click', closeImageZoom);
+                document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') closeImageZoom(); });
+            }
+            const img = document.getElementById('imageZoomImg');
+            img.src = url;
+            mz.style.display = 'flex';
+            // Small entrance animation
+            setTimeout(() => { img.classList.add('open'); }, 20);
+        }
+
+        function closeImageZoom() {
+            const mz = document.getElementById('imageZoomModal');
+            if (!mz) return;
+            mz.style.display = 'none';
+            const img = document.getElementById('imageZoomImg');
+            if (img) img.src = '';
+        }
+        window.openImageZoom = openImageZoom;
+        window.closeImageZoom = closeImageZoom;
+
+        // Define exportData referenced by some event listeners; delegate to exportPDF
+        function exportData() {
+            try { exportPDF(); } catch (e) { console.error('exportData error', e); }
+        }
+        window.exportData = exportData;
+
+        // Utility: debounce for search
+        function debounce(fn, wait) {
+            let t;
+            return function(...args) {
+                clearTimeout(t);
+                t = setTimeout(() => fn.apply(this, args), wait);
+            };
+        }
+
+        // Export visible users to CSV
+        function exportCSV() {
+            try {
+                let rows = [['Prénom','Nom','Email','Téléphone','État upload','Certifié']];
+                Object.values(allUsers).flat().forEach(({ data: u }) => {
+                    rows.push([
+                        u.firstName || '',
+                        u.lastName || '',
+                        u.email || '',
+                        u.phone || '',
+                        u.uploadStatus || '',
+                        u.isCertified ? 'Oui' : 'Non'
+                    ]);
+                });
+                const csv = rows.map(r => r.map(cell => '"' + String(cell).replace(/"/g,'""') + '"').join(',')).join('\n');
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'users_export.csv';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (e) { console.error('exportCSV error', e); showToast('Erreur export CSV', true); }
+        }
+        window.exportCSV = exportCSV;
 
         function renderPagination(paginationId, totalPages) {
             const pagination = document.getElementById(paginationId);
@@ -1209,21 +1540,45 @@
             window.print();
         }
 
-        // Add export PDF button
-        document.querySelector('.export-btn').insertAdjacentHTML('afterend', '<button onclick="exportPDF()">Exporter PDF</button>');
+        // Add export buttons (PDF + CSV) and wire with addEventListener
+        (function(){
+            const exportBtn = document.querySelector('.export-btn');
+            if (!exportBtn) return;
+            const pdfBtn = document.createElement('button');
+            pdfBtn.textContent = 'Exporter PDF';
+            pdfBtn.className = 'export-pdf-btn';
+            pdfBtn.addEventListener('click', exportPDF);
+            const csvBtn = document.createElement('button');
+            csvBtn.textContent = 'Exporter CSV';
+            csvBtn.className = 'export-csv-btn';
+            csvBtn.style.marginLeft = '8px';
+            csvBtn.addEventListener('click', exportCSV);
+            exportBtn.insertAdjacentElement('afterend', csvBtn);
+            exportBtn.insertAdjacentElement('afterend', pdfBtn);
+        })();
 
         function openModal(user) {
+            console.debug('openModal user:', user);
             document.getElementById('modal-name').textContent = `${user.firstName || ''} ${user.lastName || ''}`;
             let details = '';
             for (const [key, value] of Object.entries(user)) {
-                if (value) details += `<p><strong>${key}:</strong> ${value}</p>`;
+                let display = '';
+                if (value === null || value === undefined) display = '<em>vide</em>';
+                else if (typeof value === 'object') display = `<pre style="white-space:pre-wrap;max-height:200px;overflow:auto;">${JSON.stringify(value, null, 2)}</pre>`;
+                else display = String(value);
+                details += `<p><strong>${key}:</strong> ${display}</p>`;
             }
             document.getElementById('modal-details').innerHTML = details;
-            document.getElementById('userModal').style.display = 'block';
+            const modal = document.getElementById('userModal');
+            modal.style.display = 'block';
+            setTimeout(() => modal.classList.add('open'), 20);
         }
 
         function closeModal() {
-            document.getElementById('userModal').style.display = 'none';
+            const modal = document.getElementById('userModal');
+            if (!modal) return;
+            modal.classList.remove('open');
+            setTimeout(() => { modal.style.display = 'none'; }, 240);
         }
 
         function openTab(evt, tabName) {
@@ -1273,7 +1628,7 @@
         document.querySelector('.export-btn').addEventListener('click', exportData);
         document.querySelector('button[data-action="refresh"]').addEventListener('click', refreshData);
         document.querySelector('button[data-action="settings"]').addEventListener('click', openSettings);
-        document.getElementById('searchInput').addEventListener('input', filterUsers);
+        document.getElementById('searchInput').addEventListener('input', debounce(filterUsers, 300));
         document.getElementById('statusFilter').addEventListener('change', filterUsers);
         document.getElementById('startDate').addEventListener('change', filterUsers);
         document.getElementById('endDate').addEventListener('change', filterUsers);

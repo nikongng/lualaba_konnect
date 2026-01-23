@@ -4,36 +4,25 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
+import 'package:video_player/video_player.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:flutter_sound/flutter_sound.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'package:timeago/timeago.dart' as timeago;
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 import 'call_webrtc_page.dart';
 import 'package:lualaba_konnect/core/notification_service.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import '../../../auth/presentation/pages/ModernDashboard.dart';
 import 'package:flutter/services.dart';
-
 import '../../../auth/presentation/widgets/story_widgets.dart';
 import '../../../auth/presentation/widgets/animated_fab.dart';
 import 'package:lualaba_konnect/features/chat/presentation/pages/chat_detail_page.dart';
-
-class UserUtils {
-  static String formatName(Map<String, dynamic>? data) {
-    if (data == null) return "Utilisateur";
-    final keysFirst = ['firstName', 'firstname', 'prenom', 'givenName'];
-    final keysLast = ['lastName', 'lastname', 'nom', 'familyName'];
-    String? first, last;
-    for (var k in keysFirst) { if (data[k]?.toString().trim().isNotEmpty == true) { first = data[k].toString().trim(); break; } }
-    for (var k in keysLast) { if (data[k]?.toString().trim().isNotEmpty == true) { last = data[k].toString().trim(); break; } }
-    if (first != null && last != null) return '$first $last';
-    if (first != null) return first;
-    for (var k in ['displayName', 'name', 'fullName']) {
-      if (data[k]?.toString().trim().isNotEmpty == true) return data[k].toString().split(' ').first;
-    }
-    return 'Utilisateur';
-  }
-
-  
-}
+import 'user_utils.dart';
 
 class ChatListPage extends StatefulWidget {
   const ChatListPage({super.key});
@@ -61,6 +50,7 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
     timeago.setLocaleMessages('fr', timeago.FrMessages());
     _listenIncomingCalls();
     _listenUnreadTotals();
+    _initAudio();
   }
 
   StreamSubscription<QuerySnapshot>? _incomingCallSub;
@@ -75,6 +65,17 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
   late FocusNode _searchFocus;
   bool _isSearchActive = false;
   late GlobalKey<ScaffoldState> _scaffoldKey;
+
+  // Audio recording/player
+  final FlutterSoundRecorder _soundRecorder = FlutterSoundRecorder();
+  final FlutterSoundPlayer _soundPlayer = FlutterSoundPlayer();
+  bool _recorderInitialized = false;
+  bool _playerInitialized = false;
+  bool _isRecordingAudio = false;
+  // Upload / preview state
+  bool _isUploading = false;
+  double? _uploadProgress;
+  VideoPlayerController? _videoController;
 
   void _listenIncomingCalls() {
     final uid = currentUser?.uid;
@@ -130,7 +131,19 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                           // accept: open call page as callee
                           NotificationService.stopRingtone();
                           Navigator.pop(ctx);
-                          Navigator.push(context, MaterialPageRoute(builder: (_) => CallWebRTCPage(callId: doc.id, otherId: callerId, isCaller: false, name: callerName)));
+                          Navigator.push(
+  context,
+  MaterialPageRoute(
+    builder: (_) => CallWebRTCPage(
+      callId: doc.id,
+      otherId: callerId,
+      isCaller: false,
+      name: callerName,
+      avatarLetter: callerName.isNotEmpty ? callerName[0].toUpperCase() : '?', // <-- ici !
+    ),
+  ),
+);
+
                           _showingIncoming = false;
                         },
                         icon: const Icon(Icons.call),
@@ -156,7 +169,27 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
     _menuController.dispose();
     _searchController.dispose();
     _searchFocus.dispose();
+    if (_recorderInitialized) _soundRecorder.closeRecorder();
+    if (_playerInitialized) _soundPlayer.closePlayer();
     super.dispose();
+  }
+
+  Future<void> _initAudio() async {
+    try {
+      await Permission.microphone.request();
+    } catch (e) {}
+    try {
+      await _soundRecorder.openRecorder();
+      _recorderInitialized = true;
+    } catch (e) {
+      debugPrint('Recorder init failed: $e');
+    }
+    try {
+      await _soundPlayer.openPlayer();
+      _playerInitialized = true;
+    } catch (e) {
+      debugPrint('Player init failed: $e');
+    }
   }
 
   Widget _buildSearchField() {
@@ -329,7 +362,19 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                                                       'createdAt': FieldValue.serverTimestamp(),
                                                     });
                                                     Navigator.pop(context);
-                                                    Navigator.push(context, MaterialPageRoute(builder: (_) => CallWebRTCPage(callId: callDoc.id, otherId: calleeId, isCaller: true, name: calleeName)));
+                                                   Navigator.push(
+                                                        context,
+                                                        MaterialPageRoute(
+                                                          builder: (_) => CallWebRTCPage(
+                                                            callId: callDoc.id,
+                                                            otherId: calleeId,
+                                                            isCaller: true,
+                                                            name: calleeName,
+                                                            avatarLetter: calleeName.isNotEmpty ? calleeName[0].toUpperCase() : '?',
+                                                          ),
+                                                        ),
+                                                      );
+
                                                   } catch (e) { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur lors de l\'appel'))); }
                                                 },
                                               ),
@@ -387,22 +432,51 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
     _setOnlineStatus(state == AppLifecycleState.resumed);
   }
 
-  Future<void> _setOnlineStatus(bool isOnline) async {
-    if (currentUser != null) {
-      await FirebaseFirestore.instance.collection('classic_users').doc(currentUser!.uid).update({
-        'isOnline': isOnline,
-        'lastSeen': FieldValue.serverTimestamp(),
-      });
-    }
-  }
+Future<void> _setOnlineStatus(bool isOnline) async {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return;
+
+  final prefs = await SharedPreferences.getInstance();
+  final collection = prefs.getString('user_collection');
+
+  if (collection == null) return;
+
+  await FirebaseFirestore.instance
+      .collection(collection)
+      .doc(user.uid)
+      .set(
+    {
+      'isOnline': isOnline,
+      'lastSeen': FieldValue.serverTimestamp(),
+    },
+    SetOptions(merge: true), // 🔥 évite tout crash
+  );
+}
+
 
   Future<void> _cleanupOldStories() async {
     final now = DateTime.now();
     final expired = await FirebaseFirestore.instance.collection('stories').where('expiresAt', isLessThan: now).get();
     for (var doc in expired.docs) {
-      try {
-        String? url = doc.data()['imageUrl'];
-        if (url != null) await FirebaseStorage.instance.refFromURL(url).delete();
+              try {
+                String? url = doc.data()['imageUrl'] ?? doc.data()['videoUrl'] ?? doc.data()['audioUrl'];
+                if (url != null) {
+                  // Try to delete from Supabase bucket 'stories' when URL matches storage public path
+                  try {
+                    final envBase = const String.fromEnvironment('SUPABASE_URL', defaultValue: '');
+                    if (envBase.isNotEmpty) {
+                      final base = envBase.replaceAll(RegExp(r'\/\$'), '');
+                      final bucket = 'stories';
+                      final path = url.replaceFirst('$base/storage/v1/object/public/', '');
+                      await supabase.Supabase.instance.client.storage.from(bucket).remove([path]);
+                    } else {
+                      // fallback: attempt Firebase delete if url is a Firebase Storage URL
+                      try { await FirebaseStorage.instance.refFromURL(url).delete(); } catch (_) {}
+                    }
+                  } catch (e) {
+                    debugPrint('Error deleting storage file: $e');
+                  }
+        }
       } catch (e) { debugPrint("Erreur Story: $e"); }
       await doc.reference.delete();
     }
@@ -411,20 +485,484 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
   Future<void> _handleCameraAction() async {
     final ImagePicker picker = ImagePicker();
     final XFile? image = await picker.pickImage(source: ImageSource.camera, imageQuality: 70);
-    if (image != null && currentUser != null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Publication de la story...")));
-      String fileName = 'story_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      Reference ref = FirebaseStorage.instance.ref().child('stories').child(fileName);
-      await ref.putFile(File(image.path));
-      String url = await ref.getDownloadURL();
-      await FirebaseFirestore.instance.collection('stories').add({
-        'userId': currentUser!.uid,
-        'userName': currentUser!.displayName ?? "Moi",
-        'imageUrl': url,
-        'createdAt': FieldValue.serverTimestamp(),
-        'expiresAt': DateTime.now().add(const Duration(hours: 24)),
-      });
+    if (image != null) {
+      await _showImagePreview(File(image.path));
     }
+  }
+
+  // Nouveau: menu moderne de création de story (texte, audio, enregistrement, vidéo, lien)
+  void _showStoryCreationMenu() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
+          decoration: BoxDecoration(color: primaryDark, borderRadius: const BorderRadius.vertical(top: Radius.circular(20))),
+          child: Wrap(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 6),
+                child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  const Text('Créer une story', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  IconButton(icon: const Icon(Icons.close, color: Colors.white54), onPressed: () => Navigator.pop(ctx)),
+                ]),
+              ),
+              const SizedBox(height: 8),
+              GridView.count(
+                crossAxisCount: 3,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                childAspectRatio: 0.95,
+                padding: const EdgeInsets.all(8),
+                children: [
+                  _storyOption(icon: Icons.text_fields, label: 'Texte', onTap: () { Navigator.pop(ctx); _createTextStory(); }),
+                  _storyOption(icon: Icons.mic, label: 'Audio (fichier)', onTap: () { Navigator.pop(ctx); _pickAudioFile(); }),
+                  _storyOption(icon: Icons.mic_none, label: 'Enregistrer', onTap: () { Navigator.pop(ctx); _recordAudioStory(); }),
+                  _storyOption(icon: Icons.videocam, label: 'Vidéo', onTap: () { Navigator.pop(ctx); _createVideoStory(); }),
+                  _storyOption(icon: Icons.link, label: 'Lien', onTap: () { Navigator.pop(ctx); _createLinkStory(); }),
+                  _storyOption(icon: Icons.camera_alt, label: 'Photo', onTap: () { Navigator.pop(ctx); _handleCameraAction(); }),
+                  _storyOption(icon: Icons.photo_library, label: 'Galerie', onTap: () { Navigator.pop(ctx); _pickGalleryImages(); }),
+                ],
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _storyOption({required IconData icon, required String label, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: BoxDecoration(color: Colors.white10, shape: BoxShape.circle),
+            child: Icon(icon, color: Colors.white, size: 34),
+          ),
+          const SizedBox(height: 8),
+          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 13)),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _createTextStory() async {
+    String text = '';
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: primaryDark, borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('Nouvelle story texte', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              TextField(
+                maxLines: 6,
+                style: const TextStyle(color: Colors.white),
+                decoration: InputDecoration(hintText: 'Votre texte...', hintStyle: const TextStyle(color: Colors.white38), filled: true, fillColor: Colors.white10, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)),
+                onChanged: (v) => text = v,
+              ),
+              const SizedBox(height: 12),
+              Row(children: [Expanded(child: OutlinedButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler'))), const SizedBox(width: 12), ElevatedButton(onPressed: () async {
+                if (text.trim().isEmpty) return;
+                if (currentUser == null) return;
+                Navigator.pop(ctx);
+                await FirebaseFirestore.instance.collection('stories').add({
+                  'userId': currentUser!.uid,
+                  'userName': currentUser!.displayName ?? 'Moi',
+                  'text': text.trim(),
+                  'createdAt': FieldValue.serverTimestamp(),
+                  'expiresAt': DateTime.now().add(const Duration(hours: 24)),
+                });
+              }, child: const Text('Publier'))])
+            ]),
+          ),
+        );
+      }
+    );
+  }
+
+  Future<void> _pickAudioFile() async {
+    // Use FilePicker to pick an audio file and preview before upload
+    try {
+      final res = await FilePicker.platform.pickFiles(type: FileType.audio);
+      if (res == null || res.files.isEmpty) return;
+      final path = res.files.first.path;
+      if (path == null) return;
+      final file = File(path);
+      await _showAudioPreview(file);
+    } catch (e) {
+      debugPrint('Pick audio error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur lors de la sélection audio')));
+    }
+  }
+
+  Future<void> _recordAudioStory() async {
+    if (!_recorderInitialized) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enregistreur non initialisé')));
+      return;
+    }
+
+    if (_isRecordingAudio) {
+      // stop
+      try {
+        final path = await _soundRecorder.stopRecorder();
+        _isRecordingAudio = false;
+        if (path != null) {
+          final file = File(path);
+          await _showAudioPreview(file, isRecorded: true);
+        }
+      } catch (e) {
+        debugPrint('Stop record error: $e');
+      }
+      setState(() {});
+      return;
+    }
+
+    // start recording
+    try {
+      final tmpDir = await getTemporaryDirectory();
+      final filePath = '${tmpDir.path}/story_record_${DateTime.now().millisecondsSinceEpoch}.aac';
+      await _soundRecorder.startRecorder(toFile: filePath, codec: Codec.aacADTS);
+      _isRecordingAudio = true;
+      setState(() {});
+
+      // show a small UI to stop recording
+      showModalBottomSheet(
+        context: context,
+        isDismissible: false,
+        backgroundColor: Colors.transparent,
+        builder: (ctx) {
+          return Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: primaryDark, borderRadius: const BorderRadius.vertical(top: Radius.circular(12))),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('Enregistrement en cours', style: TextStyle(color: Colors.white)),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  if (!_isRecordingAudio) return;
+                  try {
+                    final path = await _soundRecorder.stopRecorder();
+                    _isRecordingAudio = false;
+                    Navigator.pop(ctx);
+                    if (path != null) await _showAudioPreview(File(path), isRecorded: true);
+                  } catch (e) { debugPrint('Stop record error: $e'); }
+                  setState(() {});
+                },
+                icon: const Icon(Icons.stop),
+                label: const Text('Arrêter'),
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+              ),
+            ]),
+          );
+        }
+      );
+    } catch (e) {
+      debugPrint('Start record error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Impossible de démarrer l\'enregistrement')));
+    }
+  }
+
+  Future<void> _showAudioPreview(File file, {bool isRecorded = false}) async {
+    bool isPlaying = false;
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setState) {
+          return Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: primaryDark, borderRadius: const BorderRadius.vertical(top: Radius.circular(12))),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Text('Prévisualisation audio', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 12),
+              Row(children: [
+                IconButton(
+                  icon: Icon(isPlaying ? Icons.pause : Icons.play_arrow, color: Colors.white),
+                  onPressed: () async {
+                    if (!_playerInitialized) return;
+                    if (!isPlaying) {
+                      await _soundPlayer.startPlayer(fromURI: file.path, codec: Codec.aacADTS, whenFinished: () { setState(() => isPlaying = false); });
+                      setState(() => isPlaying = true);
+                    } else {
+                      await _soundPlayer.pausePlayer();
+                      setState(() => isPlaying = false);
+                    }
+                  },
+                ),
+                Expanded(child: Text(file.path.split('/').last, style: const TextStyle(color: Colors.white70))),
+                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')),
+                const SizedBox(width: 8),
+                    ElevatedButton(
+                      onPressed: () async {
+                        Navigator.pop(ctx);
+                        if (currentUser == null) return;
+                        final ext = file.path.split('.').last;
+                        final fileName = 'story_audio_${DateTime.now().millisecondsSinceEpoch}.$ext';
+                        final url = await _uploadFileWithProgress(file, fileName);
+                        if (url != null) {
+                          await _saveStoryDoc({'audioUrl': url});
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Audio publié')));
+                        }
+                      },
+                      child: const Text('Publier'),
+                    ),
+              ]),
+              const SizedBox(height: 12),
+            ]),
+          );
+        });
+      }
+    );
+    if (_playerInitialized && _soundPlayer.isPlaying) await _soundPlayer.stopPlayer();
+  }
+
+  Future<void> _createVideoStory() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? video = await picker.pickVideo(source: ImageSource.camera);
+    if (video != null) {
+      await _showVideoPreview(File(video.path));
+    }
+  }
+
+  Future<void> _createLinkStory() async {
+    String link = '';
+    await showDialog(context: context, builder: (ctx) {
+      return AlertDialog(
+        backgroundColor: primaryDark,
+        title: const Text('Ajouter un lien', style: TextStyle(color: Colors.white)),
+        content: TextField(style: const TextStyle(color: Colors.white), decoration: const InputDecoration(hintText: 'https://...'), onChanged: (v) => link = v.trim()),
+        actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler')), TextButton(onPressed: () async { if (link.isEmpty || currentUser == null) return; Navigator.pop(ctx); await FirebaseFirestore.instance.collection('stories').add({'userId': currentUser!.uid, 'userName': currentUser!.displayName ?? 'Moi', 'link': link, 'createdAt': FieldValue.serverTimestamp(), 'expiresAt': DateTime.now().add(const Duration(hours: 24))}); }, child: const Text('Publier'))],
+      );
+    });
+  }
+
+  Future<void> _pickGalleryImages() async {
+    try {
+      final res = await FilePicker.platform.pickFiles(type: FileType.image, allowMultiple: true);
+      if (res == null || res.files.isEmpty) return;
+      for (var f in res.files) {
+        if (f.path != null) {
+          await _showImagePreview(File(f.path!));
+        }
+      }
+    } catch (e) {
+      debugPrint('Pick gallery images error: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur lors de la sélection d\'images')));
+    }
+  }
+
+Future<String?> _uploadFileWithProgress(File file, String destName) async {
+  try {
+    setState(() {
+      _isUploading = true;
+      _uploadProgress = null;
+    });
+
+    final String bucket = 'stories';
+    final String path = destName;
+    final client = supabase.Supabase.instance.client;
+
+    // Upload vers Supabase avec upsert = true pour écraser si nécessaire
+    try {
+      await client.storage.from(bucket).upload(path, file);
+    } catch (uploadErr) {
+      debugPrint('Supabase upload failed: $uploadErr');
+      throw uploadErr;
+    }
+
+    // Récupération de l'URL publique (supporte différents retours)
+    final dynamic publicRes = client.storage.from(bucket).getPublicUrl(path);
+    String url;
+    if (publicRes is String) {
+      url = publicRes;
+    } else if (publicRes is Map) {
+      url = (publicRes['publicUrl'] ?? publicRes['publicURL'] ?? publicRes['url'] ?? publicRes.toString()).toString();
+    } else {
+      url = publicRes.toString();
+    }
+
+    setState(() {
+      _isUploading = false;
+      _uploadProgress = 0.0;
+    });
+
+    return url;
+  } catch (e, st) {
+    debugPrint('Upload error (Supabase): $e\n$st');
+
+    setState(() {
+      _isUploading = false;
+      _uploadProgress = 0.0;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text("Erreur lors de l'upload")),
+    );
+
+    return null;
+  }
+}
+
+
+Future<void> _saveStoryDoc(Map<String, dynamic> data) async {
+  if (currentUser == null) return;
+
+  final Map<String, dynamic> doc = {
+    'userId': currentUser!.uid,
+    'userName': currentUser!.displayName ?? 'Moi',
+    'createdAt': FieldValue.serverTimestamp(),
+    'expiresAt': DateTime.now().add(const Duration(hours: 24)),
+  };
+
+  doc.addAll(data);
+
+  await FirebaseFirestore.instance
+      .collection('stories')
+      .add(doc);
+  // Mise en cache locale minimale pour affichage immédiat
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final List<String> cached = prefs.getStringList('cached_stories') ?? [];
+    final expires = DateTime.now().add(const Duration(hours: 24));
+    final cacheItem = jsonEncode({
+      'userId': currentUser!.uid,
+      'userName': (doc['userName'] ?? currentUser!.displayName ?? 'Utilisateur'),
+      'imageUrl': doc['imageUrl'] ?? doc['videoUrl'] ?? doc['audioUrl'],
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+      'expiresAt': expires.millisecondsSinceEpoch,
+    });
+    cached.insert(0, cacheItem);
+    // keep only recent 50 items
+    if (cached.length > 50) cached.removeRange(50, cached.length);
+    await prefs.setStringList('cached_stories', cached);
+  } catch (e) {
+    debugPrint('Cache story write error: $e');
+  }
+}
+
+
+  Future<void> _showImagePreview(File file) async {
+    String caption = '';
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setState) {
+          return Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: primaryDark, borderRadius: const BorderRadius.vertical(top: Radius.circular(12))),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              ClipRRect(borderRadius: BorderRadius.circular(12), child: Image.file(file, fit: BoxFit.cover)),
+              const SizedBox(height: 12),
+              TextField(
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(hintText: 'Ajouter une légende...', hintStyle: TextStyle(color: Colors.white38), filled: true, fillColor: Colors.white10, border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12)), borderSide: BorderSide.none)),
+                onChanged: (v) => caption = v,
+              ),
+              const SizedBox(height: 12),
+              if (_isUploading) ...[
+                LinearProgressIndicator(value: _uploadProgress, backgroundColor: Colors.white12, valueColor: const AlwaysStoppedAnimation(Colors.orange)),
+                const SizedBox(height: 8),
+              ],
+              Row(children: [
+                Expanded(child: OutlinedButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler'))),
+                const SizedBox(width: 12),
+                ElevatedButton(
+                  onPressed: _isUploading ? null : () async {
+                    Navigator.pop(ctx);
+                    if (currentUser == null) return;
+                    final ext = file.path.split('.').last;
+                    final fileName = 'story_image_${DateTime.now().millisecondsSinceEpoch}.$ext';
+                    final url = await _uploadFileWithProgress(file, fileName);
+                    if (url != null) {
+                      await _saveStoryDoc({'imageUrl': url, 'caption': caption});
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Image publiée')));
+                    }
+                  },
+                  child: const Text('Publier'),
+                ),
+              ]),
+              const SizedBox(height: 12),
+            ]),
+          );
+        });
+      }
+    );
+  }
+
+  Future<void> _showVideoPreview(File file) async {
+    String caption = '';
+    _videoController?.dispose();
+    _videoController = VideoPlayerController.file(file);
+    await _videoController!.initialize();
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setState) {
+          return Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: primaryDark, borderRadius: const BorderRadius.vertical(top: Radius.circular(12))),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              AspectRatio(aspectRatio: _videoController!.value.aspectRatio, child: VideoPlayer(_videoController!)),
+              const SizedBox(height: 8),
+              Row(children: [
+                IconButton(icon: Icon(_videoController!.value.isPlaying ? Icons.pause : Icons.play_arrow, color: Colors.white), onPressed: () async { if (_videoController!.value.isPlaying) await _videoController!.pause(); else await _videoController!.play(); setState(() {}); }),
+                Expanded(child: Text(file.path.split('/').last, style: const TextStyle(color: Colors.white70))),
+              ]),
+              TextField(
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(hintText: 'Ajouter une légende...', hintStyle: TextStyle(color: Colors.white38), filled: true, fillColor: Colors.white10, border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12)), borderSide: BorderSide.none)),
+                onChanged: (v) => caption = v,
+              ),
+              const SizedBox(height: 12),
+              if (_isUploading) ...[
+                LinearProgressIndicator(value: _uploadProgress, backgroundColor: Colors.white12, valueColor: const AlwaysStoppedAnimation(Colors.orange)),
+                const SizedBox(height: 8),
+              ],
+              Row(children: [
+                Expanded(child: OutlinedButton(onPressed: () { _videoController?.pause(); Navigator.pop(ctx); }, child: const Text('Annuler'))),
+                const SizedBox(width: 12),
+                ElevatedButton(
+                  onPressed: _isUploading ? null : () async {
+                    Navigator.pop(ctx);
+                    final ext = file.path.split('.').last;
+                    final fileName = 'story_video_${DateTime.now().millisecondsSinceEpoch}.$ext';
+                    final url = await _uploadFileWithProgress(file, fileName);
+                    if (url != null) {
+                      await _saveStoryDoc({'videoUrl': url, 'caption': caption});
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Vidéo publiée')));
+                    }
+                  },
+                  child: const Text('Publier'),
+                ),
+              ]),
+              const SizedBox(height: 12),
+            ]),
+          );
+        });
+      }
+    );
+    _videoController?.pause();
+    _videoController?.dispose();
+    _videoController = null;
   }
 
   // --- LOGIQUE DE RECHERCHE CORRIGÉE ---
@@ -496,37 +1034,66 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                     final docs = snapshot.data!.docs;
                     if (docs.isEmpty) return const Center(child: Text("Lancez votre première discussion", style: TextStyle(color: Colors.white24)));
                     
-                    return ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                      itemCount: docs.length,
-                      itemBuilder: (context, index) {
-                        final chat = docs[index].data() as Map<String, dynamic>?;
-                        if (chat == null) return const SizedBox();
-                        String otherId = (chat['participants'] as List).firstWhere((id) => id != currentUser?.uid, orElse: () => "");
-                        if (otherId.isEmpty) return const SizedBox();
-                        Map types = (chat['userTypes'] is Map) ? chat['userTypes'] : {};
-                        String col = types[otherId] ?? 'classic_users';
-                        
-                        return FutureBuilder<DocumentSnapshot>(
-                          future: FirebaseFirestore.instance.collection(col).doc(otherId).get(),
-                          builder: (context, userSnap) {
-                            if (!userSnap.hasData || !userSnap.data!.exists) return const SizedBox();
-                            var uData = userSnap.data!.data() as Map<String, dynamic>?;
-                            String name = UserUtils.formatName(uData);
-                            return ListTile(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
-                              leading: CircleAvatar(radius: 24, backgroundColor: Colors.white.withOpacity(0.05), child: Text(name.isNotEmpty ? name[0].toUpperCase() : "?", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                              title: Text(name, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500)),
-                              subtitle: Text(uData?['email'] ?? "", style: const TextStyle(color: Colors.white38, fontSize: 12)),
-                              onTap: () {
-                                Navigator.pop(context);
-                                _startChatWithUser(otherId, name, col);
-                              },
-                            );
-                          },
-                        );
-                      },
-                    );
+return ListView.builder(
+  padding: const EdgeInsets.symmetric(horizontal: 10),
+  itemCount: docs.length,
+  itemBuilder: (context, index) {
+    final chat = docs[index].data() as Map<String, dynamic>?;
+    if (chat == null) return const SizedBox();
+
+    // trouver l'autre participant
+    String otherId = (chat['participants'] as List)
+        .firstWhere((id) => id != currentUser?.uid, orElse: () => "");
+    if (otherId.isEmpty) return const SizedBox();
+
+    // fonction pour chercher l'utilisateur dans les collections
+    Future<DocumentSnapshot?> fetchUser() async {
+      final collections = ['classic_users', 'enterprise_users', 'pro_users'];
+      for (var col in collections) {
+        final doc = await FirebaseFirestore.instance.collection(col).doc(otherId).get();
+        if (doc.exists) return doc;
+      }
+      return null;
+    }
+
+    return FutureBuilder<DocumentSnapshot?>(
+      future: fetchUser(),
+      builder: (context, userSnap) {
+        if (!userSnap.hasData || userSnap.data == null || !userSnap.data!.exists) {
+          return const SizedBox();
+        }
+
+        var uData = userSnap.data!.data() as Map<String, dynamic>?;
+        String name = UserUtils.formatName(uData);
+
+        return ListTile(
+          contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
+          leading: CircleAvatar(
+            radius: 24,
+            backgroundColor: Colors.white.withOpacity(0.05),
+            child: Text(
+              name.isNotEmpty ? name[0].toUpperCase() : "?",
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ),
+          title: Text(
+            name,
+            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w500),
+          ),
+          subtitle: Text(
+            uData?['email'] ?? "",
+            style: const TextStyle(color: Colors.white38, fontSize: 12),
+          ),
+          onTap: () {
+            Navigator.pop(context);
+            _startChatWithUser(otherId, name, 'auto'); // on peut mettre 'auto' car la collection n'a plus d'importance ici
+          },
+        );
+      },
+    );
+  },
+);
+
                   },
                 ),
               ),
@@ -561,28 +1128,66 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
     if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Email non trouvé")));
   }
 
-  void _startChatWithUser(String targetUid, String targetName, String targetCol) async {
-    if (currentUser == null) return;
-    var existing = await FirebaseFirestore.instance.collection('chats').where('participants', arrayContains: currentUser!.uid).get();
-    String? cid;
-    for (var d in existing.docs) { 
-      List p = d['participants'] ?? [];
-      if (p.contains(targetUid)) { cid = d.id; break; } 
-    }
+void _startChatWithUser(String targetUid, String targetName, [String? targetCol]) async {
+  if (currentUser == null) return;
 
-    if (cid == null) {
-      var newChat = await FirebaseFirestore.instance.collection('chats').add({
-        'participants': [currentUser!.uid, targetUid],
-        'lastMessage': '',
-        'lastMessageTime': FieldValue.serverTimestamp(),
-        'unreadCounts': {currentUser!.uid: 0, targetUid: 0},
-        'userTypes': {currentUser!.uid: 'classic_users', targetUid: targetCol},
-        'typing': {currentUser!.uid: false, targetUid: false},
-      });
-      cid = newChat.id;
+  // Si targetCol n'est pas fourni, chercher l'utilisateur dans les 3 collections
+  if (targetCol == null || targetCol.isEmpty) {
+    final collections = ['classic_users', 'enterprise_users', 'pro_users'];
+    for (var col in collections) {
+      final doc = await FirebaseFirestore.instance.collection(col).doc(targetUid).get();
+      if (doc.exists) {
+        targetCol = col;
+        break;
+      }
     }
-    if (mounted) Navigator.push(context, MaterialPageRoute(builder: (context) => ChatDetailPage(chatId: cid!, chatName: targetName)));
+    if (targetCol == null || targetCol.isEmpty) {
+      // Utilisateur introuvable
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Utilisateur introuvable"))
+      );
+      return;
+    }
   }
+
+  // Chercher un chat existant
+  var existing = await FirebaseFirestore.instance
+      .collection('chats')
+      .where('participants', arrayContains: currentUser!.uid)
+      .get();
+  String? cid;
+  for (var d in existing.docs) { 
+    List p = d['participants'] ?? [];
+    if (p.contains(targetUid)) { 
+      cid = d.id; 
+      break; 
+    } 
+  }
+
+  // Créer un nouveau chat si aucun chat existant
+  if (cid == null) {
+    var newChat = await FirebaseFirestore.instance.collection('chats').add({
+      'participants': [currentUser!.uid, targetUid],
+      'lastMessage': '',
+      'lastMessageTime': FieldValue.serverTimestamp(),
+      'unreadCounts': {currentUser!.uid: 0, targetUid: 0},
+      'userTypes': {currentUser!.uid: 'classic_users', targetUid: targetCol},
+      'typing': {currentUser!.uid: false, targetUid: false},
+    });
+    cid = newChat.id;
+  }
+
+  // Naviguer vers la page de chat
+  if (mounted) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ChatDetailPage(chatId: cid!, chatName: targetName),
+      ),
+    );
+  }
+}
+
 
   @override
   Widget build(BuildContext context) {
@@ -590,7 +1195,11 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
       key: _scaffoldKey,
       backgroundColor: primaryDark,
       onDrawerChanged: (isOpen) {
-        if (isOpen) _menuController.forward(); else _menuController.reverse();
+        if (isOpen) {
+          _menuController.forward();
+        } else {
+          _menuController.reverse();
+        }
       },
       appBar: AppBar(
         backgroundColor: primaryDark,
@@ -635,7 +1244,7 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
         ],
       ),
       floatingActionButton: AnimatedFabColumn(
-        onCameraTap: _handleCameraAction,
+        onCameraTap: _showStoryCreationMenu,
         onEditTap: _showNewChatDialog,
       ),
     );
@@ -694,7 +1303,58 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
           }).toList();
         }
 
+        // Dédupliquer les discussions 1:1 au cas où il existerait plusieurs documents
         if (docs.isEmpty) return const Center(child: Text("Aucune discussion", style: TextStyle(color: Colors.white38)));
+
+        // Build a map to keep only one chat per peer (for non-group chats).
+        try {
+          final Map<String, QueryDocumentSnapshot> unique = {};
+          for (var d in docs) {
+            final data = d.data() as Map<String, dynamic>? ?? {};
+            final bool isGroup = data['isGroup'] == true;
+            if (isGroup) {
+              // keep groups by their doc id
+              unique['group_${d.id}'] = d as QueryDocumentSnapshot<Object?>;
+              continue;
+            }
+
+            // participants list without current user
+            final parts = List<String>.from((data['participants'] as List? ?? []).map((e) => e.toString()));
+            parts.remove(currentUser?.uid);
+            parts.sort();
+            final key = 'peer_${parts.join('-')}';
+
+            if (!unique.containsKey(key)) {
+              unique[key] = d as QueryDocumentSnapshot<Object?>;
+            } else {
+              // keep the most recent chat by lastMessageTime
+              try {
+                final existing = unique[key]!;
+                final existingTime = (existing.data() as Map<String, dynamic>?)?['lastMessageTime'] as Timestamp?;
+                final newTime = data['lastMessageTime'] as Timestamp?;
+                if (newTime != null && (existingTime == null || newTime.seconds > existingTime.seconds)) {
+                  unique[key] = d as QueryDocumentSnapshot<Object?>;
+                }
+              } catch (_) {
+                unique[key] = d as QueryDocumentSnapshot<Object?>;
+              }
+            }
+          }
+
+          // Replace docs with deduped list ordered by lastMessageTime desc
+          var deduped = unique.values.toList();
+          deduped.sort((a, b) {
+            final aTime = ((a.data() as Map<String, dynamic>?)?['lastMessageTime']) as Timestamp?;
+            final bTime = ((b.data() as Map<String, dynamic>?)?['lastMessageTime']) as Timestamp?;
+            final aMillis = aTime?.millisecondsSinceEpoch ?? 0;
+            final bMillis = bTime?.millisecondsSinceEpoch ?? 0;
+            return bMillis.compareTo(aMillis);
+          });
+          docs = deduped;
+        } catch (e) {
+          // en cas d'erreur, revenir à la liste originale
+          debugPrint('Dedup chat list error: $e');
+        }
 
         return ListView.builder(
           itemCount: docs.length,
@@ -717,18 +1377,44 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                 builder: (context, userSnap) {
                   String name = "Utilisateur";
                   bool isOnline = false, isCert = false;
-                  if (userSnap.hasData && userSnap.data!.exists) {
-                    var ud = userSnap.data!.data() as Map<String, dynamic>;
-                    name = UserUtils.formatName(ud);
-                    isOnline = ud['isOnline'] ?? false;
-                    isCert = ud['isCertified'] ?? false;
+                  // prefer local override stored in chats/{chatId}.localNames.{myUid}
+                  try {
+                    final myUid = currentUser?.uid ?? '';
+                    Map localNames = (chat['localNames'] is Map) ? chat['localNames'] : {};
+                    final override = (localNames[myUid] ?? '').toString();
+                    if (override.trim().isNotEmpty) {
+                      name = override;
+                    }
+                  } catch (e) {
+                    // ignore and fallback to user doc
+                  }
+
+                  if (name == "Utilisateur") {
+                    if (userSnap.hasData && userSnap.data!.exists) {
+                      var ud = userSnap.data!.data() as Map<String, dynamic>?;
+                      if (ud != null) {
+                        name = UserUtils.formatName(ud);
+                        isOnline = ud['isOnline'] ?? false;
+                        isCert = ud['isCertified'] ?? false;
+                      }
+                    }
+                  } else {
+                    // still attempt to read presence/cert from user doc
+                    if (userSnap.hasData && userSnap.data!.exists) {
+                      var ud = userSnap.data!.data() as Map<String, dynamic>?;
+                      if (ud != null) {
+                        isOnline = ud['isOnline'] ?? false;
+                        isCert = ud['isCertified'] ?? false;
+                      }
+                    }
                   }
                   Map typing = (chat['typing'] is Map) ? chat['typing'] : {};
                   Map actions = (chat['userActions'] is Map) ? chat['userActions'] : {};
                   bool isTyping = typing[otherUserId] ?? false;
                   String subtitleText = (chat['lastMessage'] ?? 'Nouvelle discussion');
-                  if (actions[otherUserId] == 'recording') subtitleText = 'enregistrement audio...';
-                  else if (isTyping) subtitleText = 'en train d\'écrire...';
+                  if (actions[otherUserId] == 'recording') {
+                    subtitleText = 'enregistrement audio...';
+                  } else if (isTyping) subtitleText = 'en train d\'écrire...';
 
                   return ListTile(
                     onTap: () async {
@@ -861,7 +1547,11 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                       final hasEmail = ct.emails.isNotEmpty;
                       return CheckboxListTile(
                         value: selected.contains(i),
-                        onChanged: (v) => setState(() { if (v == true) selected.add(i); else selected.remove(i); }),
+                        onChanged: (v) => setState(() { if (v == true) {
+                          selected.add(i);
+                        } else {
+                          selected.remove(i);
+                        } }),
                         title: Text(ct.displayName, style: const TextStyle(color: Colors.white)),
                         subtitle: hasEmail ? Text(ct.emails.first.address, style: const TextStyle(color: Colors.white60)) : null,
                         controlAffinity: ListTileControlAffinity.leading,
@@ -881,8 +1571,8 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                         for (var idx in selected) {
                           final ct = contacts[idx];
                           if (ct.emails.isEmpty) continue;
-                          final String? email = ct.emails.first.address;
-                          if (email == null || email.isEmpty) continue;
+                          final String email = ct.emails.first.address;
+                          if (email.isEmpty) continue;
                           for (var col in ['classic_users', 'pro_users', 'enterprise_users']) {
                             final res = await FirebaseFirestore.instance.collection(col).where('email', isEqualTo: email).limit(1).get();
                             if (res.docs.isNotEmpty) { participantIds.add(res.docs.first.id); break; }

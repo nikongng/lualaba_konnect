@@ -26,6 +26,7 @@ dependencies:
   # Storage & Media
   image_picker: ^1.2.1
   file_picker: ^8.1.7
+  cached_network_image: ^3.4.1
   photo_manager: ^3.3.0
   video_player: ^2.8.1
   shared_preferences: ^2.5.4
@@ -44,6 +45,7 @@ dependencies:
   syncfusion_flutter_pdf: ^28.1.33
   pdfx: ^2.4.0
   google_mlkit_text_recognition: ^0.11.0
+  google_mlkit_commons: ^0.6.1
 
   # Location & Sensors
   geolocator: ^13.0.0
@@ -64,6 +66,12 @@ dependencies:
   firebase_auth: ^5.0.0
   cloud_firestore: ^5.6.0
   firebase_storage: ^12.0.0
+  supabase_flutter: ^2.12.0
+  sign_in_with_apple: ^7.0.1
+  connectivity_plus: ^4.0.1
+  flutter_image_compress: ^2.4.0
+  lottie: ^2.4.0
+  flutter_dotenv: ^6.0.0
 
 dev_dependencies:
   flutter_test:
@@ -74,16 +82,19 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+    - .env
     - assets/logo.png
     - assets/images/
+    - assets/lottie/
     - assets/sounds/pop.mp3
     - assets/sounds/ringtone.mp3
     - assets/images/chat_pattern.jpg
+    
 
 flutter_launcher_icons:
   android: "launcher_icon"
   ios: true
   image_path: "assets/logo.png"
   min_sdk_android: 21
-  adaptive_icon_background: "#f26522"
+  adaptive_icon_background: "#000000"
   adaptive_icon_foreground: "assets/logo_foreground.png"

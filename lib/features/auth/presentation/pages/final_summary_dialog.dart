@@ -71,14 +71,24 @@ class _FinalSummaryDialogState extends State<FinalSummaryDialog> {
               style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Color(0xFFE65100)),
             ),
             const SizedBox(height: 15),
-            if (!widget.isError) Text(
-              widget.autoValidated
-                ? "Check terminé ! Tes documents sont validés. Nous finalisons ta certification maintenant."
-                : "Tes documents ont été envoyés avec succès. Nous vérifions tout ça tout de suite.",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 15, color: Colors.grey.shade600, height: 1.4, fontWeight: FontWeight.w500),
-            ) else const SizedBox.shrink(),
+            // If there was a partial upload failure to Supabase, show a specific message
+            if (widget.showRetryUploads && !widget.isError)
+              Text(
+                "L'envoi de vos fichiers a échoué, veuillez réessayer.",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 15, color: Colors.red.shade700, height: 1.4, fontWeight: FontWeight.w700),
+              )
+            else if (!widget.isError)
+              Text(
+                widget.autoValidated
+                  ? "Check terminé ! Tes documents sont validés. Nous finalisons ta certification maintenant."
+                  : "Tes documents ont été envoyés avec succès. Nous vérifions tout ça tout de suite.",
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 15, color: Colors.grey.shade600, height: 1.4, fontWeight: FontWeight.w500),
+              )
+            else const SizedBox.shrink(),
             const SizedBox(height: 20),
+            // Show retry button ONLY when Supabase upload failed (indicated by showRetryUploads)
             if (widget.showRetryUploads && !widget.isError) ...[
               SizedBox(
                 height: 50,
