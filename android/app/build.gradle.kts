@@ -10,7 +10,7 @@ plugins {
 
 android {
     namespace = "com.example.lualaba_konnect"
-    compileSdk = flutter.compileSdkVersion
+    compileSdk = 34
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -58,4 +58,9 @@ flutter {
 dependencies {
     // Cette ligne est correcte, elle fonctionne avec isCoreLibraryDesugaringEnabled ci-dessus
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
+}
+configurations.all {
+    resolutionStrategy {
+        force("androidx.core:core-ktx:1.9.0")
+    }
 }
