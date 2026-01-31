@@ -26,8 +26,14 @@ class _CameraScreenState extends State<CameraScreen> {
   Future<void> _initCamera() async {
     _cameras = await availableCameras();
     if (_cameras != null && _cameras!.isNotEmpty) {
+      // Choose camera by lens direction if possible, fallback to first camera
+      final desired = _isFrontCamera ? CameraLensDirection.front : CameraLensDirection.back;
+      CameraDescription chosen = _cameras!.first;
+      for (final c in _cameras!) {
+        if (c.lensDirection == desired) { chosen = c; break; }
+      }
       _controller = CameraController(
-        _cameras![_isFrontCamera ? 1 : 0],
+        chosen,
         ResolutionPreset.high,
         enableAudio: true,
       );
@@ -45,7 +51,7 @@ class _CameraScreenState extends State<CameraScreen> {
   @override
   Widget build(BuildContext context) {
     if (!_isInitialized || _controller == null) {
-      return const Scaffold(backgroundColor: Colors.black, body: Center(child: CircularProgressIndicator()));
+      return Scaffold(backgroundColor: Colors.black, body: Center(child: CircularProgressIndicator(color: Colors.orange)));
     }
 
     return Scaffold(
@@ -99,11 +105,11 @@ class _CameraScreenState extends State<CameraScreen> {
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      if (_isRecording)
-                        const SizedBox(
-                          width: 90, height: 90,
-                          child: CircularProgressIndicator(color: Colors.red, strokeWidth: 4),
-                        ),
+                            if (_isRecording)
+                              SizedBox(
+                                width: 90, height: 90,
+                                child: CircularProgressIndicator(color: Colors.orange, strokeWidth: 4),
+                              ),
                       Container(
                         width: 75, height: 75,
                         decoration: BoxDecoration(
@@ -126,7 +132,7 @@ class _CameraScreenState extends State<CameraScreen> {
           ),
           
           if (_isRecording)
-            const Positioned(
+            Positioned(
               top: 50,
               left: 0,
               right: 0,

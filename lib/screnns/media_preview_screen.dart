@@ -67,7 +67,7 @@ class _MediaPreviewScreenState extends State<MediaPreviewScreen> {
                           aspectRatio: _videoController!.value.aspectRatio,
                           child: VideoPlayer(_videoController!),
                         )
-                      : const CircularProgressIndicator(color: Colors.white)),
+                      : CircularProgressIndicator(color: Colors.black54)),
             ),
           ),
           

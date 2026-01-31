@@ -1,15 +1,26 @@
 import 'dart:async';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:intl/intl.dart';
-import 'package:intl/date_symbol_data_local.dart';
-
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
+import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter_cache_manager/flutter_cache_manager.dart';
+import 'package:intl/intl.dart';
+import 'package:intl/date_symbol_data_local.dart';
+
+/// --- CONFIGURATION DU CACHE DES IMAGES (30 JOURS) ---
+class ProfileCacheManager {
+  static const key = 'userProfileCache';
+  static CacheManager instance = CacheManager(
+    Config(
+      key,
+      stalePeriod: const Duration(days: 30), // Durée de rétention
+      maxNrOfCacheObjects: 50,
+    ),
+  );
+}
 
 class HeaderWidget extends StatefulWidget {
   final bool isDark;
@@ -28,347 +39,269 @@ class HeaderWidget extends StatefulWidget {
 }
 
 class _HeaderWidgetState extends State<HeaderWidget>
-    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
-  // ------------------ IMAGE ------------------
-  final ImagePicker _picker = ImagePicker();
-  File? _localImageFile;
-
-  // ------------------ FIREBASE ------------------
-  String? _collection;
-  Stream<DocumentSnapshot>? _userStream;
-  StreamSubscription<User?>? _authSub;
-
-  // ------------------ TIMERS ------------------
-  Timer? _syncTimer;
-  Timer? _clockTimer;
-
-  // ------------------ STATES ------------------
-  bool _isConnected = false;
-  bool _isInForeground = true;
-  bool _isUploading = false;
-  bool _isSyncing = false;
+    with TickerProviderStateMixin, WidgetsBindingObserver {
+  // États de données (Initialisés avec le cache plus tard)
+  String _userName = '...';
+  String? _cachedPhotoUrl;
   bool _isCertified = false;
-  bool _hasAdminClaim = false;
-  bool _isLoadingUser = true;
+  String? _collection;
 
-  // ------------------ UI DATA ------------------
+  // États UI
+  bool _isConnected = false;
+  bool _isUploading = false;
+  final bool _isSyncing = false;
   late String _dateString;
-  late String _greeting;
-  String _userName = 'Utilisateur';
-  String _userInitials = 'U';
 
+  // Firebase & Timers
+  Stream<DocumentSnapshot>? _userStream;
+  Timer? _clockTimer;
   late AnimationController _pulseController;
+  final ImagePicker _picker = ImagePicker();
 
-  // ================== INIT ==================
+  // Nouveaux : timer de revalidation et flag pour éviter multiples updates
+  Timer? _userRefreshTimer;
+  bool _hasUpdatedFromFirestore = false;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     initializeDateFormatting('fr_FR');
-
-    _initAuthListener();
-    _initAnimations();
-    _initTimers();
     _updateDateTime();
-    _loadCollectionAndSetupStream();
+    _initAnimations();
+
+    // 1) Charger le cache local immédiatement (affichage instantané)
+    // 2) Puis initialiser l'écoute de l'auth (qui lancera la souscription Firestore)
+    _loadLocalCache().then((_) => _initAuthListener());
+
+    // Timer pour mettre à jour l'horloge toutes les minutes
+    _clockTimer = Timer.periodic(const Duration(minutes: 1), (_) => _updateDateTime());
   }
 
-  // ================== DISPOSE ==================
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    _authSub?.cancel();
-    _syncTimer?.cancel();
     _clockTimer?.cancel();
     _pulseController.dispose();
+    _userRefreshTimer?.cancel();
     super.dispose();
   }
 
-  // ================== LIFECYCLE ==================
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    setState(() {
-      _isInForeground = state == AppLifecycleState.resumed;
-      if (_isInForeground) _updateDateTime();
-    });
-  }
+  // ================== GESTION DU CACHE LOCAL ==================
 
-  // ================== INIT HELPERS ==================
-  void _initAuthListener() {
-    _isConnected = FirebaseAuth.instance.currentUser != null;
-
-    _authSub = FirebaseAuth.instance.authStateChanges().listen((user) {
-      if (!mounted) return;
+  Future<void> _loadLocalCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (mounted) {
       setState(() {
-        _isConnected = user != null;
-        if (_isConnected) _loadCollectionAndSetupStream();
+        // Utilise 'Utilisateur' si rien en cache (afin d'avoir toujours quelque chose)
+        _userName = prefs.getString('user_display_name') ?? 'Utilisateur';
+        _cachedPhotoUrl = prefs.getString('user_photoUrl');
+        _collection = prefs.getString('user_collection');
+        _isCertified = prefs.getBool('user_is_certified') ?? false;
       });
-    });
-  }
-
-  Future<void> _fetchClaims() async {
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-      final id = await user.getIdTokenResult(true);
-      final Map<String, dynamic>? claims = id.claims?.map((k, v) => MapEntry(k.toString(), v));
-      final isAdmin = claims != null && claims['admin'] == true;
-      if (mounted) {
-        setState(() {
-          _hasAdminClaim = isAdmin;
-          if (isAdmin) _isCertified = true;
-        });
-      }
-    } catch (_) {
-      // ignore
     }
   }
 
-  void _initAnimations() {
-    _pulseController = AnimationController(
-      duration: const Duration(seconds: 2),
-      vsync: this,
-    )..repeat(reverse: true);
+  Future<void> _updateLocalCache(String name, String? photoUrl, bool certified) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_display_name', name);
+      await prefs.setBool('user_is_certified', certified);
+      if (photoUrl != null && photoUrl.isNotEmpty) await prefs.setString('user_photoUrl', photoUrl);
+    } catch (e) {
+      // ignore les erreurs de sauvegarde silencieusement, mais log pour debug
+      debugPrint('[DEBUG] _updateLocalCache error: $e');
+    }
   }
 
-  void _initTimers() {
-    _syncTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+  // ================== LOGIQUE FIREBASE ==================
+
+  void _initAuthListener() {
+    FirebaseAuth.instance.authStateChanges().listen((user) async {
       if (!mounted) return;
-      setState(() => _isSyncing = true);
-      Future.delayed(const Duration(seconds: 3), () {
-        if (mounted) setState(() => _isSyncing = false);
-      });
-    });
+      setState(() => _isConnected = user != null);
 
-    _clockTimer = Timer.periodic(const Duration(minutes: 1), (_) {
-      if (mounted) _updateDateTime();
+      if (user != null) {
+        // 1) Affichage immédiat depuis FirebaseAuth.displayName si disponible
+        try {
+          final displayFromAuth = user.displayName;
+          if (displayFromAuth != null && displayFromAuth.trim().isNotEmpty) {
+            final first = displayFromAuth.trim().split(RegExp(r'\s+')).first;
+            // Mettre à jour seulement si on a une valeur par défaut ou différente
+            if (_userName == 'Utilisateur' || _userName != first) {
+              setState(() {
+                _userName = first;
+              });
+              // mettre à jour cache local pour la prochaine fois
+              await _updateLocalCache(first, null, _isCertified);
+            }
+          }
+        } catch (e) {
+          debugPrint('[DEBUG] displayName fallback error: $e');
+        }
+
+        // 2) Prépare la souscription Firestore (cherche la collection si nécessaire)
+        await _setupUserStream(user.uid);
+
+        // 3) Met en place une revalidation légère toutes les 10s si Firestore tarde
+        _userRefreshTimer?.cancel();
+        _userRefreshTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
+          // Si nous n'avons pas encore mis à jour depuis Firestore, réessaye de charger cache/stream
+          if (!_hasUpdatedFromFirestore && mounted) {
+            // Tenter de recharger le cache local (au cas où _fetchAndCache a écrit)
+            try {
+              final prefs = await SharedPreferences.getInstance();
+              final cachedName = prefs.getString('user_display_name');
+              if (cachedName != null && cachedName.isNotEmpty && cachedName != _userName) {
+                setState(() => _userName = cachedName);
+              }
+            } catch (e) {
+              debugPrint('[DEBUG] userRefreshTimer error: $e');
+            }
+          }
+        });
+      } else {
+        // utilisateur déconnecté : annuler timer
+        _userRefreshTimer?.cancel();
+      }
     });
   }
 
-  // ================== DATA ==================
-  Future<void> _loadCollectionAndSetupStream() async {
+  Future<void> _setupUserStream(String uid) async {
     final prefs = await SharedPreferences.getInstance();
-    if (mounted) setState(() => _isLoadingUser = true);
-    final user = FirebaseAuth.instance.currentUser;
 
-    if (user != null) {
-      String? foundCollection = prefs.getString('user_collection');
-      
-      if (foundCollection == null) {
-        final collections = ['classic_users', 'pro_users', 'enterprise_users'];
-        for (String col in collections) {
-          final doc = await FirebaseFirestore.instance.collection(col).doc(user.uid).get();
+    // Si on n'a pas la collection en cache, on la cherche
+    if (_collection == null || _collection!.isEmpty) {
+      final collections = ['classic_users', 'pro_users', 'enterprise_users'];
+      for (String col in collections) {
+        try {
+          final doc = await FirebaseFirestore.instance.collection(col).doc(uid).get();
           if (doc.exists) {
-            foundCollection = col;
+            _collection = col;
             await prefs.setString('user_collection', col);
             break;
           }
+        } catch (e) {
+          debugPrint('[DEBUG] chercher collection $col erreur: $e');
         }
       }
+    }
 
-      foundCollection ??= 'classic_users';
-
-      if (mounted) {
-        setState(() {
-          _collection = foundCollection;
-          _userStream = FirebaseFirestore.instance
-              .collection(_collection!)
-              .doc(user.uid)
-              .snapshots();
-        });
-      }
-
-      try {
-        final snap = await FirebaseFirestore.instance.collection(_collection!).doc(user.uid).get();
-        if (snap.exists) {
-          final data = snap.data();
-          if (mounted && data != null) {
-            final display = _displayName(data);
-            final initials = _initialsFromData(data);
-            final photo = data['photoUrl']?.toString();
-
-            setState(() {
-              _isCertified = data['isCertified'] == true;
-              _userName = display;
-              _userInitials = initials;
-            });
-
-            // Mettre à jour les SharedPreferences pour éviter d'anciennes données
-            try {
-              await prefs.setString('user_display_name', display);
-              await prefs.setString('user_initials', initials);
-              if (photo != null && photo.isNotEmpty) await prefs.setString('user_photoUrl', photo);
-              // Debug: vérification immédiate après écriture
-              try {
-                final rb = prefs.getString('user_display_name') ?? '<vide>';
-                // ignore: avoid_print
-                print('[DEBUG] header_widget prefs user_display_name = $rb');
-              } catch (_) {}
-            } catch (_) {}
-          }
-        }
-      } catch (_) {}
-
-      await _fetchClaims();
-      if (mounted && _hasAdminClaim && !_isCertified) {
-        setState(() => _isCertified = true);
-      }
-
-      if (mounted) setState(() => _isLoadingUser = false);
+    // si on a trouvé une collection, on s'abonne au document (Stream)
+    if (_collection != null && mounted) {
+      setState(() {
+        _userStream = FirebaseFirestore.instance.collection(_collection!).doc(uid).snapshots();
+        // reset flag pour accepter la prochaine update Firestore
+        _hasUpdatedFromFirestore = false;
+      });
     }
   }
 
-  void _updateDateTime() {
-    final now = DateTime.now();
-    final formatted = DateFormat('EEEE dd MMMM', 'fr_FR').format(now);
-    _dateString = formatted[0].toUpperCase() + formatted.substring(1);
-  }
+  // ================== ACTIONS IMAGES ==================
 
-  // ================== IMAGE ==================
-  Future<void> _pickImage() async {
-    if (!_isConnected) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Connexion requise")));
-      return;
-    }
+  Future<void> _handleImageUpload(ImageSource source) async {
+    final XFile? image = await _picker.pickImage(source: source, imageQuality: 70);
+    if (image == null || _collection == null) return;
 
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: widget.isDark ? const Color(0xFF1A1A1A) : Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(25))),
-      builder: (_) => SafeArea(
-        child: Wrap(
-          children: [
-            ListTile(
-              leading: const Icon(Icons.photo_library, color: Color(0xFF00CBA9)),
-              title: Text('Galerie', style: TextStyle(color: widget.textColor)),
-              onTap: () => _handleImage(ImageSource.gallery),
-            ),
-            ListTile(
-              leading: const Icon(Icons.camera_alt, color: Color(0xFF00CBA9)),
-              title: Text('Appareil Photo', style: TextStyle(color: widget.textColor)),
-              onTap: () => _handleImage(ImageSource.camera),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _handleImage(ImageSource source) async {
-    Navigator.pop(context);
-    final image = await _picker.pickImage(source: source, imageQuality: 70);
-    if (image == null) return;
-
-    final file = File(image.path);
-    setState(() {
-      _localImageFile = file;
-      _isUploading = true;
-    });
-    await _uploadImage(file);
-  }
-
-  Future<void> _uploadImage(File file) async {
+    setState(() => _isUploading = true);
     try {
       final user = FirebaseAuth.instance.currentUser;
-      if (user == null || _collection == null) return;
-      final ref = FirebaseStorage.instance.ref('users/${user.uid}/profile.jpg');
-      await ref.putFile(file);
+      if (user == null) return;
+      final bytes = await image.readAsBytes();
+      final ref = FirebaseStorage.instance.ref('profiles/${user.uid}.jpg');
+
+      await ref.putData(bytes);
       final url = await ref.getDownloadURL();
+
       await FirebaseFirestore.instance.collection(_collection!).doc(user.uid).update({'photoUrl': url});
+      // on mettra à jour l'UI via le StreamBuilder quand Firestore notifie
+    } catch (e) {
+      debugPrint("Erreur upload: $e");
     } finally {
       if (mounted) setState(() => _isUploading = false);
     }
   }
 
-  // ================== HELPERS ==================
-  String _displayName(Map<String, dynamic>? data) {
-    if (data == null) {
-      final user = FirebaseAuth.instance.currentUser;
-      return user?.displayName?.split(' ').first ?? 'Utilisateur';
-    }
+  // ================== INTERFACE (BUILD) ==================
 
-    final keysFirst = ['firstName', 'firstname', 'prenom', 'givenName', 'given_name'];
-    for (var k in keysFirst) {
-      if (data[k]?.toString().trim().isNotEmpty == true) {
-        return data[k].toString().trim();
-      }
-    }
-
-    final name = data['name'] ?? data['displayName'] ?? data['fullName'];
-    if (name != null) return name.toString().split(' ').first;
-
-    return FirebaseAuth.instance.currentUser?.displayName?.split(' ').first ?? 'Utilisateur';
-  }
-
-  String _initialsFromData(Map<String, dynamic>? data) {
-    try {
-      final first = _displayName(data);
-      if (first.isNotEmpty) return first[0].toUpperCase();
-      return 'U';
-    } catch (_) {
-      return 'U';
-    }
-  }
-
-  Color _borderColor() {
-    if (!_isConnected) return Colors.red;
-    return _isInForeground ? Colors.green : Colors.orange;
-  }
-
-  // ================== BUILD ==================
   @override
   Widget build(BuildContext context) {
-    if (_isLoadingUser) return _buildLoadingHeader();
-    if (_userStream == null) return _buildHeader(null);
-
     return StreamBuilder<DocumentSnapshot>(
       stream: _userStream,
       builder: (context, snapshot) {
-        final data = snapshot.data?.data() as Map<String, dynamic>?;
-        if (data != null) {
-          _isCertified = data['isCertified'] == true;
-          _userName = _displayName(data);
-          _userInitials = _initialsFromData(data);
+        // Si Firestore a envoyé des données et qu'on ne les a pas encore appliquées
+        if (snapshot.hasData && snapshot.data!.exists && !_hasUpdatedFromFirestore) {
+          try {
+            final data = snapshot.data!.data() as Map<String, dynamic>;
+
+            // Extraction robuste du prénom (plusieurs clés possibles)
+            final String fetchedName = (data['firstName'] ??
+                    data['firstname'] ??
+                    data['prenom'] ??
+                    data['name'] ??
+                    _userName)
+                .toString()
+                .trim()
+                .split(RegExp(r'\s+'))
+                .first;
+
+            final String? fetchedPhoto = (data['photoUrl'] != null && data['photoUrl'].toString().isNotEmpty)
+                ? data['photoUrl'].toString()
+                : null;
+            final bool fetchedCert = data['isCertified'] == true;
+
+            // Marquer qu'on a bien appliqué la mise à jour Firestore (évite boucles)
+            _hasUpdatedFromFirestore = true;
+
+            // Appliquer la mise à jour hors-build pour éviter setState pendant le build
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              setState(() {
+                _userName = fetchedName.isNotEmpty ? fetchedName : _userName;
+                _cachedPhotoUrl = fetchedPhoto ?? _cachedPhotoUrl;
+                _isCertified = fetchedCert;
+              });
+            });
+
+            // Mettre à jour le cache local de façon asynchrone (sans bloquer)
+            _updateLocalCache(fetchedName.isNotEmpty ? fetchedName : _userName, fetchedPhoto, fetchedCert);
+          } catch (e) {
+            debugPrint('[DEBUG] erreur traitement snapshot: $e');
+          }
         }
-        return _buildHeader(data);
+
+        return _buildHeaderContent();
       },
     );
   }
 
-  Widget _buildLoadingHeader() {
-    // Retour simple: afficher l'entête par défaut pendant le chargement
-    return _buildHeader(null);
-  }
-
-  /// Attendre que l'utilisateur et son prénom soient chargés.
-  /// Retourne `true` si un prénom non‑par défaut a été obtenu dans le délai.
-  Future<bool> ensureFirstNameVerified({Duration timeout = const Duration(seconds: 5)}) async {
-    if (!mounted) return false;
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return false;
-
-    // Si déjà chargé et différent de la valeur par défaut, OK
-    if (!_isLoadingUser && _userName != 'Utilisateur') return true;
-
-    final stopwatch = Stopwatch()..start();
-    while (stopwatch.elapsed < timeout) {
-      if (!mounted) return false;
-      if (!_isLoadingUser && _userName != 'Utilisateur') return true;
-      await Future.delayed(const Duration(milliseconds: 200));
-    }
-
-    return _userName != 'Utilisateur';
-  }
-
-  Widget _buildHeader(Map<String, dynamic>? data) {
+  Widget _buildHeaderContent() {
     return Row(
       children: [
+        _buildAvatar(),
+        const SizedBox(width: 12),
         Expanded(
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
-              _buildAvatar(data),
-              const SizedBox(width: 12),
-              Expanded(child: _buildInfo()),
+              _buildBranding(),
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      _userName,
+                      style: TextStyle(color: widget.textColor, fontWeight: FontWeight.bold, fontSize: 17),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  if (_isCertified) ...[
+                    const SizedBox(width: 4),
+                    const Icon(Icons.verified, color: Colors.blue, size: 16),
+                  ],
+                ],
+              ),
+              Text(_dateString, style: TextStyle(fontSize: 12, color: widget.isDark ? Colors.white60 : Colors.black45)),
             ],
           ),
         ),
@@ -377,31 +310,38 @@ class _HeaderWidgetState extends State<HeaderWidget>
     );
   }
 
-  Widget _buildAvatar(Map<String, dynamic>? data) {
-    final image = _localImageFile != null
-        ? FileImage(_localImageFile!)
-        : (data?['photoUrl'] != null 
-            ? NetworkImage(data!['photoUrl']) 
-            : const NetworkImage('https://i.pravatar.cc/150?img=3'));
-
+  Widget _buildAvatar() {
     return GestureDetector(
-      onTap: _pickImage,
+      onTap: () => _showPickerMenu(),
       child: Stack(
         alignment: Alignment.bottomRight,
         children: [
           Container(
+            padding: const EdgeInsets.all(2),
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              border: Border.all(color: _borderColor(), width: 2),
+              border: Border.all(color: _isConnected ? Colors.green : Colors.red, width: 2),
             ),
             child: CircleAvatar(
               radius: 26,
-              backgroundImage: image as ImageProvider,
-              child: _isUploading ? const CircularProgressIndicator(strokeWidth: 2) : null,
+              backgroundColor: Colors.grey[200],
+              child: ClipOval(
+                child: _cachedPhotoUrl != null && _cachedPhotoUrl!.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: _cachedPhotoUrl!,
+                        cacheManager: ProfileCacheManager.instance,
+                        fit: BoxFit.cover,
+                        width: 52,
+                        height: 52,
+                        placeholder: (context, url) => _isUploading ? CircularProgressIndicator(strokeWidth: 2, color: Colors.orange) : const Icon(Icons.person),
+                        errorWidget: (context, url, error) => const Icon(Icons.person, size: 30, color: Colors.grey),
+                      )
+                    : const Icon(Icons.person, size: 30, color: Colors.grey),
+              ),
             ),
           ),
           const CircleAvatar(
-            radius: 10,
+            radius: 9,
             backgroundColor: Color(0xFF00CBA9),
             child: Icon(Icons.edit, size: 10, color: Colors.white),
           ),
@@ -410,84 +350,57 @@ class _HeaderWidgetState extends State<HeaderWidget>
     );
   }
 
-  Widget _buildInfo() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildTitle(),
-  Row(
-  children: [
-    Flexible(
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            constraints: const BoxConstraints(maxWidth: 140),
-            child: Text(
-              _userName,
-              style: TextStyle(
-                color: widget.textColor,
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
-              overflow: TextOverflow.ellipsis,
-              maxLines: 1,
-            ),
-          ),
-          if (_isCertified) ...[
-            const SizedBox(width: 4),
-            const Icon(Icons.verified, color: Colors.blue, size: 16),
-          ],
-        ],
-      ),
-    ),
-  ],
-),
-
-        Text(
-          _dateString,
-          style: TextStyle(fontSize: 12, color: widget.isDark ? Colors.white60 : Colors.black45),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTitle() {
+  Widget _buildBranding() {
     return FadeTransition(
-      opacity: Tween(begin: 0.5, end: 1.0).animate(_pulseController),
+      opacity: _pulseController,
       child: Row(
         children: [
-          Container(
-            width: 6, height: 6,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: _isSyncing ? Colors.orange : const Color(0xFF00CBA9),
-            ),
-          ),
+          Container(width: 6, height: 6, decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF00CBA9))),
           const SizedBox(width: 6),
-          Text(
-            _isSyncing ? "SYNCHRONISATION..." : "LBKONNECT",
-            style: TextStyle(
-              fontSize: 9, 
-              fontWeight: FontWeight.w900, 
-              letterSpacing: 1.2,
-              color: _isSyncing ? Colors.orange : const Color(0xFF00CBA9),
-            ),
-          ),
+          const Text("LBKONNECT", style: TextStyle(fontSize: 9, fontWeight: FontWeight.w900, letterSpacing: 1.2, color: Color(0xFF00CBA9))),
         ],
       ),
     );
   }
 
-  Widget _buildSOS() {
+Widget _buildSOS() {
     return GestureDetector(
       onTap: widget.onSOSPressed,
-      child: ScaleTransition(
-        scale: Tween(begin: 1.0, end: 1.1).animate(_pulseController),
-        child: const CircleAvatar(
-          radius: 24,
-          backgroundColor: Color(0xFFD32F2F),
-          child: Text("SOS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [BoxShadow(color: Colors.red.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4))],
+        ),
+        child: const Text("SOS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+      ),
+    );
+  }
+
+  // ================== HELPERS UI ==================
+
+  void _updateDateTime() {
+    final now = DateTime.now();
+    final formatted = DateFormat('EEEE dd MMMM', 'fr_FR').format(now);
+    if (mounted) {
+      setState(() => _dateString = formatted[0].toUpperCase() + formatted.substring(1));
+    }
+  }
+
+  void _initAnimations() {
+    _pulseController = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat(reverse: true);
+  }
+
+  void _showPickerMenu() {
+    showModalBottomSheet(
+      context: context,
+      builder: (_) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(leading: const Icon(Icons.photo_library), title: const Text('Galerie'), onTap: () => {Navigator.pop(context), _handleImageUpload(ImageSource.gallery)}),
+            ListTile(leading: const Icon(Icons.camera_alt), title: const Text('Appareil Photo'), onTap: () => {Navigator.pop(context), _handleImageUpload(ImageSource.camera)}),
+          ],
         ),
       ),
     );

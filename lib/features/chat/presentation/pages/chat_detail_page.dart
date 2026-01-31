@@ -6,6 +6,8 @@ import 'dart:typed_data';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:intl/intl.dart';
@@ -26,6 +28,8 @@ import 'package:lottie/lottie.dart';
 import 'user_utils.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 const Color tgBg = Color(0xFF0B1418);
 const Color tgAccent = Color(0xFF00CBA9);
@@ -127,6 +131,28 @@ class _ChatState extends State<ChatDetailPage> {
     setState(() => _isLoading = false);
   }
 
+  Future<void> _onMessageOpen(QueryDocumentSnapshot doc, Map m) async {
+    try {
+      // If this is an alert message, remove pending alert entry for this message
+      if (currentUser == null) return;
+      if ((m['type'] ?? '') == 'alert') {
+        try {
+          final pendingRef = FirebaseFirestore.instance
+              .collection('user_alerts')
+              .doc(currentUser!.uid)
+              .collection('pending')
+              .doc(doc.id);
+          final snap = await pendingRef.get();
+          if (snap.exists) await pendingRef.delete();
+        } catch (_) {}
+      }
+      // mark message read
+      try { await doc.reference.update({'isRead': true}); } catch (_) {}
+    } catch (e) {
+      debugPrint('onMessageOpen error: $e');
+    }
+  }
+
   Future<void> _onMenuSelected(String v) async {
     try {
       final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
@@ -191,8 +217,8 @@ class _ChatState extends State<ChatDetailPage> {
         return;
       }
 
-      final _raw = snap.data();
-      final data = _raw is Map ? Map<String, dynamic>.from((_raw as Map<String, dynamic>?) ?? {}) : <String, dynamic>{};
+      final raw = snap.data();
+      final data = raw is Map ? Map<String, dynamic>.from((raw as Map<String, dynamic>?) ?? {}) : <String, dynamic>{};
       final displayName = UserUtils.formatName(data);
       final photo = (data['photoUrl'] ?? data['avatar'] ?? data['photo'] ?? '') as String;
       final lastSeen = data['lastSeen'] is Timestamp ? (data['lastSeen'] as Timestamp).toDate() : (data['lastSeen'] is int ? DateTime.fromMillisecondsSinceEpoch(data['lastSeen']) : null);
@@ -226,7 +252,7 @@ class _ChatState extends State<ChatDetailPage> {
                       ),
                       child: CircleAvatar(
                         radius: 34,
-                        backgroundImage: photo.isNotEmpty ? NetworkImage(photo) as ImageProvider : null,
+                        backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null,
                         backgroundColor: Colors.transparent,
                         child: photo.isEmpty ? Text(displayName.isNotEmpty ? displayName[0] : '?', style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)) : null,
                       ),
@@ -433,6 +459,37 @@ Future<void> _deleteContact(String otherId) async {
         }
       }
       await chatRef.update(updateData);
+      // --- Envoi d'une demande de notification au service notifier (client-to-server)
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          final idToken = await user.getIdToken();
+          final chatSnap = await chatRef.get();
+          final chatData = chatSnap.data() ?? {};
+          final parts = (chatData['participants'] is List) ? List.from(chatData['participants']) : [];
+          final recipients = parts.where((p) => p != user.uid).toList();
+          if (recipients.isNotEmpty) {
+            final url = Uri.parse(const String.fromEnvironment('NOTIFIER_URL', defaultValue: 'https://example.com/sendNotification'));
+            final title = data['text'] ?? 'Nouveau message';
+            final body = data['text'] ?? '';
+            await http.post(
+              url,
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $idToken',
+              },
+              body: jsonEncode({
+                'recipients': recipients,
+                'title': title,
+                'body': body,
+                'data': { 'chatId': widget.chatId }
+              }),
+            );
+          }
+        }
+      } catch (e) {
+        debugPrint('Notifier call error: $e');
+      }
     } catch (e) {
       debugPrint('Erreur update chat meta: $e');
     }
@@ -612,7 +669,7 @@ Future<void> _editContactLocal(String otherId) async {
   String phone = '';
 
   // Fonction interne pour chercher le contact dans une collection spécifique
-  Future<Map<String, dynamic>?> _getContactFromCollection(String collection) async {
+  Future<Map<String, dynamic>?> getContactFromCollection(String collection) async {
     try {
       final doc = await FirebaseFirestore.instance
           .collection(collection)
@@ -629,7 +686,7 @@ Future<void> _editContactLocal(String otherId) async {
   final collections = ['classic_users', 'enterprise_users', 'pro_users'];
   Map<String, dynamic>? contact;
   for (final col in collections) {
-    contact = await _getContactFromCollection(col);
+    contact = await getContactFromCollection(col);
     if (contact != null) break;
   }
 
@@ -793,8 +850,8 @@ Future<void> _editContactLocal(String otherId) async {
             String displayName = widget.chatName.trim();
             if (displayName.isEmpty) displayName = currentUser?.displayName ?? "";
             if (snap.hasData && snap.data!.exists) {
-              final _rawChat = snap.data!.data();
-              var data = _rawChat is Map ? Map<String, dynamic>.from((_rawChat as Map<String, dynamic>?) ?? {}) : <String, dynamic>{};
+              final rawChat = snap.data!.data();
+              var data = rawChat is Map ? Map<String, dynamic>.from((rawChat as Map<String, dynamic>?) ?? {}) : <String, dynamic>{};
               // prefer explicit chat name from document
               // support local per-user override: data['localNames'] is a map of uid->name
               if (data['localNames'] is Map && currentUser != null) {
@@ -837,8 +894,8 @@ Future<void> _editContactLocal(String otherId) async {
             // try to detect other participant uid from chat doc so we can lookup their user profile
             String otherId = "";
             if (snap.hasData && snap.data!.exists) {
-              final _rawChat2 = snap.data!.data();
-              var data = _rawChat2 is Map ? Map<String, dynamic>.from((_rawChat2 as Map<String, dynamic>?) ?? {}) : <String, dynamic>{};
+              final rawChat2 = snap.data!.data();
+              var data = rawChat2 is Map ? Map<String, dynamic>.from((rawChat2 as Map<String, dynamic>?) ?? {}) : <String, dynamic>{};
               List parts = (data['participants'] is List) ? List.from(data['participants']) : [];
               parts.removeWhere((id) => id == currentUser?.uid);
               if (parts.isNotEmpty) otherId = parts.first as String;
@@ -885,8 +942,8 @@ Future<void> _editContactLocal(String otherId) async {
                       builder: (ctx, userSnap) {
                         bool isCert = false;
                         if (userSnap.hasData && userSnap.data != null && userSnap.data!.exists) {
-                          final _rawUd = userSnap.data!.data();
-                          final ud = _rawUd is Map ? Map<String, dynamic>.from(_rawUd as Map<String, dynamic>) : <String, dynamic>{};
+                          final rawUd = userSnap.data!.data();
+                          final ud = rawUd is Map ? Map<String, dynamic>.from(rawUd as Map<String, dynamic>) : <String, dynamic>{};
                           isCert = ud['isCertified'] == true;
                         }
                         return nameAndBadge(isCert);
@@ -922,8 +979,8 @@ Future<void> _editContactLocal(String otherId) async {
                 builder: (ctx, userSnap) {
                   String resolved = displayName;
                   if (userSnap.hasData && userSnap.data != null && userSnap.data!.exists) {
-                    final _rawUd = userSnap.data!.data();
-                    final ud = _rawUd is Map ? Map<String, dynamic>.from(_rawUd as Map<String, dynamic>) : <String, dynamic>{};
+                    final rawUd = userSnap.data!.data();
+                    final ud = rawUd is Map ? Map<String, dynamic>.from(rawUd as Map<String, dynamic>) : <String, dynamic>{};
                     if (ud['displayName'] is String && (ud['displayName'] as String).trim().isNotEmpty) {
                       resolved = (ud['displayName'] as String).trim();
                     } else if (ud['name'] is String && (ud['name'] as String).trim().isNotEmpty) {
@@ -1071,7 +1128,7 @@ Future<void> _editContactLocal(String otherId) async {
       else statusIcon = Icon(Icons.done, size: 14, color: Colors.white30);
     }
     
-    final bubbleDecoration = BoxDecoration(
+    BoxDecoration bubbleDecoration = BoxDecoration(
       gradient: isMe
           ? LinearGradient(colors: [tgMyBubble, Color.lerp(tgMyBubble, Colors.white, 0.06)!], begin: Alignment.topLeft, end: Alignment.bottomRight)
           : LinearGradient(colors: [tgOtherBubble, Color.lerp(tgOtherBubble, Colors.black, 0.12)!], begin: Alignment.topLeft, end: Alignment.bottomRight),
@@ -1085,6 +1142,18 @@ Future<void> _editContactLocal(String otherId) async {
         BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 10, offset: const Offset(0, 4)),
       ],
     );
+
+    // Special styling for alert messages to make them stand out
+    if (type == 'alert') {
+      bubbleDecoration = BoxDecoration(
+        gradient: LinearGradient(colors: [Color(0xFFFF7043), Color(0xFFFFB74D)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        borderRadius: BorderRadius.circular(14),
+        border: Border(left: BorderSide(color: Colors.redAccent, width: 6)),
+        boxShadow: [
+          BoxShadow(color: Colors.red.withOpacity(0.28), blurRadius: 18, offset: const Offset(0, 8)),
+        ],
+      );
+    }
 
     return TweenAnimationBuilder<double>(
       key: ValueKey(doc.id),
@@ -1109,11 +1178,12 @@ Future<void> _editContactLocal(String otherId) async {
             maxWidth: MediaQuery.of(context).size.width * 0.78,
           ),
           decoration: bubbleDecoration,
-          child: Material(
+              child: Material(
             color: Colors.transparent,
             child: InkWell(
               borderRadius: bubbleDecoration.borderRadius as BorderRadius,
               onLongPress: () => _showMessageOptions(doc, m),
+              onTap: () => _onMessageOpen(doc, m),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
@@ -1238,11 +1308,12 @@ Future<DocumentSnapshot?> _getUserDoc(String userId) async {
     switch (type) {
       case 'image':
         return m['url'] != null
-            ? Image.network(
-                m['url'],
+            ? CachedNetworkImage(
+                imageUrl: m['url'].toString(),
                 width: 220,
                 fit: BoxFit.contain,
-                errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, color: Colors.white24, size: 50),
+                placeholder: (c, s) => Center(child: CircularProgressIndicator(color: Theme.of(c).colorScheme.primary)),
+                errorWidget: (c, s, e) => const Icon(Icons.broken_image, color: Colors.white24, size: 50),
               )
             : const Icon(Icons.image, color: Colors.white24, size: 50);
 
@@ -1291,6 +1362,39 @@ Future<DocumentSnapshot?> _getUserDoc(String userId) async {
             Text("Position partagée", style: TextStyle(color: Colors.white)),
           ],
         );
+
+      case 'alert':
+        try {
+          final loc = m['location'];
+          final hasLoc = loc != null && loc['lat'] != null && loc['lng'] != null;
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                const Icon(Icons.warning_amber_rounded, color: Color(0xFFFFE082), size: 28),
+                const SizedBox(width: 10),
+                Expanded(child: Text(m['text'] ?? 'Je me sens en insécurité.', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800))),
+              ]),
+              if (hasLoc) ...[
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: () async {
+                    final uri = Uri.tryParse('https://www.google.com/maps?q=${loc['lat']},${loc['lng']}');
+                    if (uri == null) return;
+                    try {
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    } catch (e) {
+                      try { await launchUrl(uri); } catch (_) {}
+                    }
+                  },
+                  child: Text('Voir la position', style: TextStyle(color: Colors.white70, decoration: TextDecoration.underline)),
+                ),
+              ],
+            ],
+          );
+        } catch (_) {
+          return Text(m['text'] ?? 'Je me sens en insécurité.', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800));
+        }
 
       default:
         return Text(m['text'] ?? "", style: const TextStyle(color: Colors.white, fontSize: 16));
@@ -1450,7 +1554,11 @@ Future<DocumentSnapshot?> _getUserDoc(String userId) async {
                           _setTyping(false);
                           _setUserAction('sent');
                         } else {
-                          if (!_isRecording) await _startRecording(); else await _stopRecording();
+                          if (!_isRecording) {
+                            await _startRecording();
+                          } else {
+                            await _stopRecording();
+                          }
                         }
                       },
                       child: Center(
@@ -1608,6 +1716,8 @@ Future<DocumentSnapshot?> _getUserDoc(String userId) async {
     _msgController.addListener(_msgListener);
     // mark presence when opening the chat
     _setPresence(true);
+    // clear any pending alerts for this chat (stop header blinking)
+    _clearPendingAlertsForChat();
     // lazy init recorder to avoid constructor side-effects during widget construction
     _recorder ??= fs.FlutterSoundRecorder();
     // animated background cycling
@@ -1641,7 +1751,7 @@ Future<DocumentSnapshot?> _getUserDoc(String userId) async {
       // handle docChanges for precise transitions
       for (var change in snap.docChanges) {
       final id = change.doc.id;
-      final data = Map<String, dynamic>.from((change.doc.data() as Map<String, dynamic>?) ?? {});
+      final data = Map<String, dynamic>.from(change.doc.data() ?? {});
       final bool delivered = data['delivered'] == true;
 
         // incoming new message: play incoming ringtone if not from current user
@@ -1666,6 +1776,22 @@ Future<DocumentSnapshot?> _getUserDoc(String userId) async {
       // keep track of latest id for other logic
       if (snap.docs.isNotEmpty) _lastMessageId = snap.docs.first.id;
     });
+  }
+
+  Future<void> _clearPendingAlertsForChat() async {
+    if (currentUser == null) return;
+    try {
+      final col = FirebaseFirestore.instance
+          .collection('user_alerts')
+          .doc(currentUser!.uid)
+          .collection('pending');
+      final snap = await col.where('chatId', isEqualTo: widget.chatId).get();
+      for (var d in snap.docs) {
+        try { await d.reference.delete(); } catch (_) {}
+      }
+    } catch (e) {
+      debugPrint('clear pending alerts error: $e');
+    }
   }
 
   void _onUserTyped(String v) {

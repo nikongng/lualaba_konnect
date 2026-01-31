@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_generative_ai/google_generative_ai.dart';
-
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class MastaCard extends StatefulWidget {
   final Function(String) onChatSubmit;
@@ -26,18 +26,19 @@ class _MastaCardState extends State<MastaCard> with SingleTickerProviderStateMix
   @override
   void initState() {
     super.initState();
-const String apiKey = String.fromEnvironment('GEMINI_KEY');
-_model = GenerativeModel(
-  model: 'gemini-2.5-flash', // Modèle Gemini
-  apiKey: apiKey,
-
-  systemInstruction: Content.system(
-   "Tu es Masta, un ami gentil. "
-      "Tu t'adresses à l'utilisateur avec une affection fraternelle. "
-      "Ton ton est encourageant, tu donnes souvent des conseils de vie et tu insistes sur l'importance du travail. "
-      "Tu réponds de manière concise, comme sur WhatsApp, et tu utilises parfois des expressions chaleureuses du pays."
-  ),
-);
+    final String apiKey = dotenv.env['GEMINI_API_KEY'] ?? '';
+    
+    // Modèle corrigé en 1.5-flash pour éviter l'erreur 400
+    _model = GenerativeModel(
+      model: 'gemini-2.5-flash', 
+      apiKey: apiKey,
+      systemInstruction: Content.system(
+        "Tu es Masta, un ami gentil de la RDC. "
+        "Tu t'adresses à l'utilisateur avec une affection fraternelle. "
+        "Ton ton est encourageant, tu donnes des conseils de vie et tu insistes sur le travail. "
+        "Tu réponds de manière concise, comme sur WhatsApp, et tu utilises des expressions comme Masta, Vieux, Oza bien ?"
+      ),
+    );
 
     _pulseController = AnimationController(
       vsync: this,
@@ -71,7 +72,7 @@ _model = GenerativeModel(
 
   Future<void> _handleSend() async {
     final text = _textController.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _isTyping) return;
 
     _textController.clear();
     setState(() {
@@ -82,18 +83,23 @@ _model = GenerativeModel(
     _scrollToBottom();
 
     try {
-      // Prompt personnalisé pour donner l'identité "Masta"
-      final content = [Content.text("Tu es Masta, l'IA assistante de LualabaConnect. Sois bref, utile et expert du Lualaba. Question : $text")];
-      final response = await _model.generateContent(content);
+      // Préparation de l'historique pour Gemini
+      final history = _messages.map((m) => 
+        m['role'] == 'user' 
+        ? Content.text(m['text']!) 
+        : Content.model([TextPart(m['text']!)])
+      ).toList();
+
+      final response = await _model.generateContent(history);
       
       setState(() {
         _isTyping = false;
-        _messages.add({"role": "masta", "text": response.text ?? "Je n'ai pas pu formuler de réponse."});
+        _messages.add({"role": "masta", "text": response.text ?? "Désolé Vieux, j'ai pas capté."});
       });
     } catch (e) {
       setState(() {
         _isTyping = false;
-        _messages.add({"role": "masta", "text": "Désolé, j'ai un problème de connexion."});
+        _messages.add({"role": "masta", "text": "Erreur réelle : $e"});
       });
     }
     _scrollToBottom();
@@ -126,7 +132,7 @@ _model = GenerativeModel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
+          // HEADER (Design original restauré)
           Row(
             children: [
               ScaleTransition(
@@ -158,7 +164,7 @@ _model = GenerativeModel(
             const SizedBox(height: 15),
           ],
           
-          // Zone de Chat
+          // ZONE DE CHAT
           if (_isExpanded)
             Expanded(
               child: Container(
@@ -182,7 +188,7 @@ _model = GenerativeModel(
                     return Align(
                       alignment: isMasta ? Alignment.centerLeft : Alignment.centerRight,
                       child: Container(
-                        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.6),
+                        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.65),
                         margin: const EdgeInsets.symmetric(vertical: 4),
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
@@ -200,7 +206,7 @@ _model = GenerativeModel(
               ),
             ),
 
-          // Barre de saisie
+          // BARRE DE SAISIE (Design original restauré)
           Row(
             children: [
               Expanded(
@@ -228,8 +234,15 @@ _model = GenerativeModel(
                 onTap: _handleSend,
                 child: Container(
                   height: 42, width: 42,
-                  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
-                  child: Icon(_isTyping ? Icons.hourglass_top : Icons.send_rounded, size: 16, color: const Color(0xFF7F00FF)),
+                  decoration: BoxDecoration(
+                    color: Colors.white, 
+                    borderRadius: BorderRadius.circular(12)
+                  ),
+                  child: Icon(
+                    _isTyping ? Icons.hourglass_top : Icons.send_rounded, 
+                    size: 16, 
+                    color: const Color(0xFF7F00FF)
+                  ),
                 ),
               ),
             ],

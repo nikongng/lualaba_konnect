@@ -43,6 +43,11 @@
     cMapPacked: true,
   }
   </script>
+  <!-- Précharger les SDK Firebase (évite les erreurs de dynamic import sur certaines configurations réseau) -->
+  <script type="module" src="https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js"></script>
+  <script type="module" src="https://www.gstatic.com/firebasejs/11.9.1/firebase-auth.js"></script>
+  <script type="module" src="https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js"></script>
+  <script type="module" src="https://www.gstatic.com/firebasejs/11.9.1/firebase-messaging.js"></script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -164,9 +165,9 @@ class _LoginPageState extends State<LoginPage> {
     return Column(
       key: const ValueKey(0),
       children: [
-        const CircleAvatar(
+        CircleAvatar(
           radius: 40,
-          backgroundImage: NetworkImage('https://via.placeholder.com/150'), // Remplace par ton image
+          backgroundImage: CachedNetworkImageProvider('https://via.placeholder.com/150'), // Remplace par ton image
         ),
         const SizedBox(height: 15),
         const Text(

@@ -51,7 +51,7 @@ class _CallPageState extends State<CallPage> {
     if (widget.otherId != null) {
       _presenceSub = FirebaseFirestore.instance.collection('users').doc(widget.otherId).snapshots().listen((snap) {
         if (!mounted) return;
-        final data = (snap.data() is Map) ? Map<String, dynamic>.from((snap.data() as Map<String, dynamic>?) ?? {}) : <String, dynamic>{};
+        final data = (snap.data() is Map) ? Map<String, dynamic>.from(snap.data() ?? {}) : <String, dynamic>{};
         final online = data['isOnline'] == true;
         setState(() {
           _remoteOnline = online;
@@ -65,7 +65,7 @@ class _CallPageState extends State<CallPage> {
       _callSub = FirebaseFirestore.instance.collection('calls').doc(widget.callId).snapshots().listen((snap) {
         if (!mounted || !snap.exists) return;
         final raw = snap.data();
-        final data = raw is Map ? Map<String, dynamic>.from((raw as Map<String, dynamic>?) ?? {}) : <String, dynamic>{};
+        final data = raw is Map ? Map<String, dynamic>.from(raw ?? {}) : <String, dynamic>{};
         final status = (data['status'] ?? '').toString().toLowerCase();
         if (['accepted', 'answered', 'in_progress', 'connected', 'ongoing'].contains(status)) {
           if (!_isConnected) {
@@ -132,7 +132,7 @@ class _CallPageState extends State<CallPage> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    // theme variable is unused here
     return Scaffold(
       backgroundColor: Colors.transparent,
       body: SafeArea(

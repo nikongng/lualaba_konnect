@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'news_feed_page.dart';
 
 // Widgets pour la page d'accueil
@@ -6,7 +7,7 @@ class HomePageWidgets {
   static Widget buildHeader(bool isDark, Color textColor) {
     return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
       Row(children: [
-        const CircleAvatar(radius: 28, backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=3')),
+        CircleAvatar(radius: 28, backgroundImage: CachedNetworkImageProvider('https://i.pravatar.cc/150?img=3')),
         const SizedBox(width: 15),
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Text("LUALABACONNECT", style: TextStyle(color: Color(0xFF00CBA9), fontSize: 10, fontWeight: FontWeight.w900)),

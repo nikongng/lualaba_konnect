@@ -43,15 +43,20 @@ class ProfilePageWidgets {
   }
 
   // --- CARTE PREMIUM ---
-  static Widget buildPremiumCard() {
+  static Widget buildPremiumCard(bool isDark, Color textColor) {
+    final bg = isDark ? const Color(0xFF0F171A) : Colors.white;
+    final accent = Colors.orange;
+    final iconColor = isDark ? Colors.greenAccent : Colors.green;
+    final subtitleColor = isDark ? Colors.white70 : Colors.black54;
+
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        color: const Color(0xFF0F171A),
+        color: bg,
         borderRadius: BorderRadius.circular(28),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF00CBA9).withOpacity(0.15),
+            color: accent.withOpacity(0.08),
             blurRadius: 20,
             offset: const Offset(0, 10),
           )
@@ -65,36 +70,36 @@ class ProfilePageWidgets {
             children: [
               Row(
                 children: [
-                  const Icon(Icons.wifi_tethering, color: Colors.greenAccent, size: 22),
+                  Icon(Icons.wifi_tethering, color: iconColor, size: 22),
                   const SizedBox(width: 10),
-                  const Text("Lualaba Premium", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text("Lualaba Premium", style: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.bold)),
                 ]
               ),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), 
-                decoration: BoxDecoration(color: Colors.orange, borderRadius: BorderRadius.circular(10)), 
+                decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(10)), 
                 child: const Text("ACTIF", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900))
               ),
             ]
           ),
           const SizedBox(height: 20),
-          const Text("Data LAN Utilisée : 45GB / Illimité", style: TextStyle(color: Colors.white70, fontSize: 12)),
+          Text("Data LAN Utilisée : 45GB / Illimité", style: TextStyle(color: subtitleColor, fontSize: 12)),
           const SizedBox(height: 10),
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
-            child: const LinearProgressIndicator(
+            child: LinearProgressIndicator(
               value: 0.45, 
-              backgroundColor: Colors.white10, 
-              color: Colors.orange, 
+              backgroundColor: isDark ? Colors.white10 : Colors.grey[200], 
+              color: accent, 
               minHeight: 8
             ),
           ),
           const SizedBox(height: 18),
-          const Row(
+          Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween, 
             children: [
-              Text("Accès prioritaire au réseau activé", style: TextStyle(color: Colors.white38, fontSize: 11)),
-              Icon(Icons.verified_user_outlined, color: Colors.white38, size: 14),
+              Text("Accès prioritaire au réseau activé", style: TextStyle(color: subtitleColor.withOpacity(0.9), fontSize: 11)),
+              Icon(Icons.verified_user_outlined, color: subtitleColor.withOpacity(0.9), size: 14),
             ]
           ),
         ],

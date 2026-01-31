@@ -2,6 +2,8 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/cupertino.dart'; // Ajout pour des icônes style Apple
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../chat/presentation/pages/chat_list_page.dart'; 
 
 class FloatingNavBar extends StatefulWidget {
@@ -167,28 +169,78 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
             duration: const Duration(milliseconds: 400),
             curve: Curves.easeOutBack,
             scale: isSelected ? 1.25 : 1.0,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Icon(
-                  icons[index],
-                  size: 24, // Taille légèrement réduite pour plus d'élégance
-                  color: isSelected 
-                      ? const Color(0xFF00CBA9) 
-                      : (widget.isDark ? Colors.white38 : Colors.black38),
-                ),
-                if (index == 1 && (widget.chatKey.currentState?.unreadTotal ?? 0) > 0)
-                  Positioned(
-                    right: -6,
-                    top: -6,
-                    child: Container(
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(color: const Color(0xFF64B5F6), shape: BoxShape.circle, border: Border.all(color: widget.isDark ? Colors.black : Colors.white, width: 1.5)),
-                      child: Text('${widget.chatKey.currentState?.unreadTotal ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
-                    ),
-                ),
-              ],
-            ),
+            child: Builder(builder: (context) {
+              final uid = FirebaseAuth.instance.currentUser?.uid;
+              // For the market button (index 3), show unread market messages count
+              if (index == 3 && uid != null) {
+                return StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('market_messages')
+                      .where('to', isEqualTo: uid)
+                      .where('read', isEqualTo: false)
+                      .snapshots(),
+                  builder: (ctx, snap) {
+                    final count = snap.data?.docs.length ?? 0;
+                    return Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Icon(
+                          icons[index],
+                          size: 24,
+                          color: isSelected
+                              ? const Color(0xFF00CBA9)
+                              : (widget.isDark ? Colors.white38 : Colors.black38),
+                        ),
+                        if (index == 1 && (widget.chatKey.currentState?.unreadTotal ?? 0) > 0)
+                          Positioned(
+                            right: -6,
+                            top: -6,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: BoxDecoration(color: const Color(0xFF64B5F6), shape: BoxShape.circle, border: Border.all(color: widget.isDark ? Colors.black : Colors.white, width: 1.5)),
+                              child: Text('${widget.chatKey.currentState?.unreadTotal ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                            ),
+                        ),
+                        if (count > 0)
+                          Positioned(
+                            right: -8,
+                            top: -8,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                              decoration: BoxDecoration(color: Colors.red.shade700, borderRadius: BorderRadius.circular(12), border: Border.all(color: widget.isDark ? Colors.black : Colors.white, width: 1.5)),
+                              child: Text('$count', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                );
+              }
+
+              // Default icon stack (including chat badge)
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Icon(
+                    icons[index],
+                    size: 24, // Taille légèrement réduite pour plus d'élégance
+                    color: isSelected 
+                        ? const Color(0xFF00CBA9) 
+                        : (widget.isDark ? Colors.white38 : Colors.black38),
+                  ),
+                  if (index == 1 && (widget.chatKey.currentState?.unreadTotal ?? 0) > 0)
+                    Positioned(
+                      right: -6,
+                      top: -6,
+                      child: Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(color: const Color(0xFF64B5F6), shape: BoxShape.circle, border: Border.all(color: widget.isDark ? Colors.black : Colors.white, width: 1.5)),
+                        child: Text('${widget.chatKey.currentState?.unreadTotal ?? 0}', style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                      ),
+                  ),
+                ],
+              );
+            }),
           ),
         ),
       ),

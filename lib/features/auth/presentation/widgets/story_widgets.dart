@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
@@ -24,6 +25,8 @@ class _StoryBarState extends State<StoryBar> {
   final Map<String, bool> _visibilityCache = {};
   final Set<String> _pendingChecks = {};
   final Set<String> _peerIds = {};
+  final Map<String, String?> _emailToUidCache = {};
+  final Set<String> _resolvingEmails = {};
   StreamSubscription<QuerySnapshot>? _chatsSub;
   List<Map<String, dynamic>> _cachedStories = [];
   bool _cachedLoaded = false;
@@ -109,6 +112,8 @@ class _StoryBarState extends State<StoryBar> {
             if (p != uid) peers.add(p);
           }
         }
+        // Also include peers resolved from the user's contacts (by email)
+        _includeContactsAsPeers(uid).then((extra) => peers.addAll(extra));
         if (!mounted) return;
         setState(() {
           _peerIds
@@ -117,6 +122,47 @@ class _StoryBarState extends State<StoryBar> {
         });
       });
     } catch (_) {}
+  }
+
+  Future<Set<String>> _includeContactsAsPeers(String ownerUid) async {
+    final Set<String> result = {};
+    try {
+      final q = await FirebaseFirestore.instance.collection('contacts').where('owner', isEqualTo: ownerUid).get();
+      for (var d in q.docs) {
+        final data = d.data();
+        final email = (data['email'] ?? '').toString().trim();
+        final uidField = (data['uid'] ?? '').toString().trim();
+        if (uidField.isNotEmpty) {
+          result.add(uidField);
+          continue;
+        }
+        if (email.isEmpty) continue;
+        // try cache
+        if (_emailToUidCache.containsKey(email)) {
+          final cached = _emailToUidCache[email];
+          if (cached != null && cached.isNotEmpty) result.add(cached);
+          continue;
+        }
+        // avoid duplicate resolves
+        if (_resolvingEmails.contains(email)) continue;
+        _resolvingEmails.add(email);
+        try {
+          final cols = ['classic_users', 'pro_users', 'enterprise_users'];
+          String? found;
+          for (final col in cols) {
+            try {
+              final r = await FirebaseFirestore.instance.collection(col).where('email', isEqualTo: email).limit(1).get();
+              if (r.docs.isNotEmpty) { found = r.docs.first.id; break; }
+            } catch (_) {}
+          }
+          _emailToUidCache[email] = found;
+          if (found != null && found.isNotEmpty) result.add(found);
+        } finally {
+          _resolvingEmails.remove(email);
+        }
+      }
+    } catch (_) {}
+    return result;
   }
 
   Future<bool> _checkViewerAllowed(String ownerId, String? viewerEmail) async {
@@ -215,7 +261,7 @@ class _StoryBarState extends State<StoryBar> {
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) return const SizedBox.shrink();
-          if (snapshot.connectionState == ConnectionState.waiting) return const SizedBox(height: 110, child: Center(child: CircularProgressIndicator()));
+          if (snapshot.connectionState == ConnectionState.waiting) return SizedBox(height: 110, child: Center(child: CircularProgressIndicator(color: Colors.orange)));
 
           final stories = snapshot.data?.docs ?? [];
           final Map<String, List<DocumentSnapshot>> grouped = {};
@@ -336,8 +382,8 @@ class _StoryBarState extends State<StoryBar> {
                     radius: 28,
                     backgroundColor: Colors.grey[900],
                     backgroundImage: (user?.photoURL != null)
-                        ? NetworkImage(user!.photoURL!)
-                        : null,
+                      ? CachedNetworkImageProvider(user!.photoURL!)
+                      : null,
                     child: (user?.photoURL == null)
                         ? const Icon(Icons.person, color: Colors.white54)
                         : null,
@@ -412,7 +458,7 @@ class _StoryBarState extends State<StoryBar> {
                   child: CircleAvatar(
                     radius: 28,
                     backgroundColor: Colors.grey[800],
-                    backgroundImage: url != null ? NetworkImage(url) : null,
+                    backgroundImage: url != null ? CachedNetworkImageProvider(url) : null,
                     child: url == null
                         ? const Icon(Icons.person, color: Colors.white54)
                         : null,

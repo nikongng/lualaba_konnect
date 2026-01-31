@@ -10,13 +10,13 @@ plugins {
 
 android {
     namespace = "com.example.lualaba_konnect"
-    
-    // On utilise le SDK 36 pour satisfaire tous les plugins
-    compileSdk = 36
+    compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // AJOUTE CETTE LIGNE - Crucial pour régler l'erreur flutter_local_notifications
         isCoreLibraryDesugaringEnabled = true 
+
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -27,14 +27,22 @@ android {
 
     defaultConfig {
         applicationId = "com.example.lualaba_konnect"
-        minSdk = 23
-        targetSdk = 36
+        
+        // CONSEIL : Si l'erreur persiste, change flutter.minSdkVersion par 21 ici
+        minSdk = flutter.minSdkVersion 
+        
+        targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        
+        // Utile pour éviter les erreurs de limite de méthodes
         multiDexEnabled = true
     }
 
     buildTypes {
+        getByName("debug") {
+            // Pas de keystore nécessaire pour debug
+        }
         getByName("release") {
             signingConfig = signingConfigs.getByName("debug")
             isMinifyEnabled = false
@@ -48,15 +56,9 @@ flutter {
 }
 
 dependencies {
+    // Cette ligne est correcte, elle fonctionne avec isCoreLibraryDesugaringEnabled ci-dessus
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
-}
-
-// FORCE les versions de manière globale mais sécurisée
-configurations.all {
-    resolutionStrategy {
-        force("androidx.core:core-ktx:1.9.0")
-        force("androidx.activity:activity:1.11.0")
-        // On force les versions de ML Kit qui ont réglé le bug lStar
-        force("com.google.android.gms:play-services-mlkit-text-recognition:19.0.0")
-    }
+    implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
+    // Ajoute la dépendance pour Cloud Messaging
+    implementation("com.google.firebase:firebase-messaging")
 }

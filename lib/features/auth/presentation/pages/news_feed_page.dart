@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 // ==========================================
 // 0. DONNÉES CENTRALISÉES (10 ACTUALITÉS)
@@ -156,8 +157,8 @@ class _NewsFeedPageState extends State<NewsFeedPage> {
       ),
       child: Row(
         children: [
-          const CircleAvatar(
-            backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=3'),
+          CircleAvatar(
+            backgroundImage: CachedNetworkImageProvider('https://i.pravatar.cc/150?img=3'),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -211,10 +212,10 @@ class _VerticalNewsPostState extends State<VerticalNewsPost> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+              Row(
             children: [
-              const CircleAvatar(
-                backgroundImage: NetworkImage('https://i.pravatar.cc/150?img=11'),
+              CircleAvatar(
+                backgroundImage: CachedNetworkImageProvider('https://i.pravatar.cc/150?img=11'),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -287,35 +288,25 @@ class _VerticalNewsPostState extends State<VerticalNewsPost> {
   Widget _buildImageGrid(List<String> imgs) {
     if (imgs.isEmpty) return const SizedBox.shrink();
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: Image.network(
-        imgs[0],
-        fit: BoxFit.cover,
-        width: double.infinity,
-        height: 200,
-        loadingBuilder: (context, child, progress) {
-          if (progress == null) return child;
-          return Container(
-            height: 200,
-            color: Colors.grey.shade100,
-            child: const Center(
-              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.orange),
-            ),
-          );
-        },
-        errorBuilder: (context, error, stackTrace) {
-          return Container(
-            height: 200,
-            width: double.infinity,
-            color: Colors.grey.shade200,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.broken_image_outlined, color: Colors.grey.shade400, size: 40),
-                const SizedBox(height: 8),
-                const Text("Image non disponible", style: TextStyle(color: Colors.grey, fontSize: 12)),
-              ],
+    // Simple carousel for images using PageView
+    return SizedBox(
+      height: 220,
+      child: PageView.builder(
+        itemCount: imgs.length,
+        controller: PageController(viewportFraction: 0.95),
+        itemBuilder: (context, i) {
+          final img = imgs[i];
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6.0),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(15),
+              child: CachedNetworkImage(
+                imageUrl: img,
+                fit: BoxFit.cover,
+                width: double.infinity,
+                placeholder: (c, s) => Container(color: Colors.black12, child: const Center(child: CircularProgressIndicator(strokeWidth: 2))),
+                errorWidget: (c, s, e) => Container(color: Colors.black12, child: const Center(child: Icon(Icons.broken_image_outlined, size: 40, color: Colors.grey))),
+              ),
             ),
           );
         },

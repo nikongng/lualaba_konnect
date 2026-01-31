@@ -1,10 +1,25 @@
+// auth_main_page.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // Ajouté
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'account_choice_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 import 'ModernDashboard.dart';
+
+/// Petit modèle pour retourner les infos utilisateur
+class UserProfile {
+  final String displayName; // prénom ou équivalent
+  final String initials;
+  final String? photoUrl;
+
+  UserProfile({
+    required this.displayName,
+    required this.initials,
+    this.photoUrl,
+  });
+}
 
 class AuthMainPage extends StatefulWidget {
   const AuthMainPage({super.key});
@@ -17,15 +32,30 @@ class _AuthMainPageState extends State<AuthMainPage> {
   bool isLoginMode = true;
   bool _obscurePassword = true;
   bool _rememberMe = false;
-  bool _isLoading = false; // Ajouté pour le feedback visuel
+  bool _isLoading = false;
 
   final TextEditingController _idController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+
+  // cache local pour l'UI (optionnel)
+  String? _cachedPhotoUrl;
+  String? _cachedDisplayName;
 
   @override
   void initState() {
     super.initState();
     _loadRememberMe();
+    _loadCachedPhotoAndName();
+  }
+
+  Future<void> _loadCachedPhotoAndName() async {
+    final prefs = await SharedPreferences.getInstance();
+    final photo = prefs.getString('user_photoUrl');
+    final name = prefs.getString('user_display_name');
+    setState(() {
+      _cachedPhotoUrl = photo;
+      _cachedDisplayName = name;
+    });
   }
 
   @override
@@ -67,92 +97,137 @@ class _AuthMainPageState extends State<AuthMainPage> {
     );
   }
 
-  // --- NOUVELLE LOGIQUE FIREBASE DANS TON DESIGN ---
-  Future<void> _login() async {
-    if (_idController.text.isEmpty || _passwordController.text.isEmpty) {
-      _showError("Veuillez remplir tous les champs");
-      return;
-    }
+  // --- VALIDATION EMAIL SIMPLE ---
+  bool _isValidEmail(String email) {
+    final regex = RegExp(r"^[^\s@]+@[^\s@]+\.[^\s@]+$");
+    return regex.hasMatch(email);
+  }
 
-    setState(() => _isLoading = true);
-
+  // --- DERIVE UN "PRENOM" À PARTIR DE L'EMAIL SI RIEN D'AUTRE ---
+  String _deriveNameFromEmail(String? email) {
+    if (email == null || email.isEmpty) return 'Utilisateur';
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _idController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
-
-      await _handleRememberMe();
-      await _fetchAndCacheUserData();
-
-      // Bloquer la navigation jusqu'à ce que le prénom soit disponible.
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        while (true) {
-          if (!mounted) return;
-          // Si l'utilisateur s'est déconnecté, arrêter
-          if (FirebaseAuth.instance.currentUser == null) return;
-
-          final display = prefs.getString('user_display_name') ?? '';
-          if (display.isNotEmpty && display != 'Utilisateur') break;
-          await Future.delayed(const Duration(milliseconds: 200));
-        }
-      } catch (_) {}
-
-      _navigateToDashboard();
-    } on FirebaseAuthException catch (e) {
-      _showError(e.message ?? "Erreur de connexion");
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
+      final local = email.split('@').first;
+      final cleaned = local.replaceAll(RegExp(r'[\._\-\d]+'), ' ').trim();
+      if (cleaned.isEmpty) return 'Utilisateur';
+      final first = cleaned.split(' ').first;
+      return first[0].toUpperCase() + (first.length > 1 ? first.substring(1) : '');
+    } catch (_) {
+      return 'Utilisateur';
     }
   }
 
-  Future<void> _fetchAndCacheUserData() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
+  // --- CALCULE LES INITIALES (AU MOINS 1 CARACTÈRE) ---
+  String _computeInitials(String name) {
+    if (name.trim().isEmpty) return 'U';
+    final parts = name.trim().split(RegExp(r'\s+'));
+    if (parts.isEmpty) return 'U';
+    final first = parts.first;
+    final initial = first.isNotEmpty ? first[0].toUpperCase() : 'U';
+    if (parts.length == 1) return initial;
+    final second = parts.length > 1 && parts[1].isNotEmpty ? parts[1][0].toUpperCase() : '';
+    return (initial + second).substring(0, 2);
+  }
 
-      String? foundCollection = prefs.getString('user_collection');
-      if (foundCollection == null) {
-        final collections = ['classic_users', 'pro_users', 'enterprise_users'];
-        for (final col in collections) {
-          try {
-            final doc = await FirebaseFirestore.instance.collection(col).doc(user.uid).get();
-            if (doc.exists) {
-              foundCollection = col;
-              await prefs.setString('user_collection', col);
-              break;
-            }
-          } catch (_) {}
+  /// Récupère les données utilisateur depuis Firestore (recherche dans plusieurs collections),
+  /// sauvegarde dans SharedPreferences, et retourne un UserProfile garanti (au moins dérivé depuis l'email).
+  Future<UserProfile> _fetchAndCacheUserData() async {
+    final prefs = await SharedPreferences.getInstance();
+    final user = FirebaseAuth.instance.currentUser;
+
+    // fallback si pas d'utilisateur (très improbable après signIn)
+    if (user == null) {
+      final fallback = 'Utilisateur';
+      final initials = _computeInitials(fallback);
+      await prefs.setString('user_display_name', fallback);
+      await prefs.setString('user_initials', initials);
+      return UserProfile(displayName: fallback, initials: initials);
+    }
+
+    String? foundCollection = prefs.getString('user_collection');
+
+    // chercher la collection si non connue
+    if (foundCollection == null || foundCollection.isEmpty) {
+      final collections = ['classic_users', 'pro_users', 'enterprise_users'];
+      for (final col in collections) {
+        try {
+          final doc = await FirebaseFirestore.instance.collection(col).doc(user.uid).get();
+          if (doc.exists) {
+            foundCollection = col;
+            await prefs.setString('user_collection', col);
+            break;
+          }
+        } catch (e) {
+          // ignore: avoid_print
+          print('[DEBUG] erreur recherche collection $col : $e');
         }
       }
+    }
 
-      foundCollection ??= 'classic_users';
+    foundCollection ??= 'classic_users';
 
+    try {
+      final snap = await FirebaseFirestore.instance.collection(foundCollection).doc(user.uid).get();
+      final data = snap.data() ?? {};
+
+      // on tente plusieurs champs possibles pour le nom complet
+      String? rawDisplay = (data['firstName'] ??
+              data['firstname'] ??
+              data['prenom'] ??
+              data['name'] ??
+              data['displayName'] ??
+              user.displayName)
+          ?.toString();
+
+      // si pas de nom dispo, dériver depuis l'email (pour être sûr d'avoir un prénom)
+      String safeName;
+      if (rawDisplay != null && rawDisplay.trim().isNotEmpty) {
+        // prendre le premier token (prénom)
+        final tokens = rawDisplay.trim().split(RegExp(r'\s+'));
+        safeName = tokens.first;
+        // capitilize correctement
+        safeName = safeName[0].toUpperCase() + (safeName.length > 1 ? safeName.substring(1) : '');
+      } else {
+        safeName = _deriveNameFromEmail(user.email);
+      }
+
+      final initials = _computeInitials(safeName);
+
+      final photo = data['photoUrl']?.toString();
+      // sauve dans SharedPreferences
+      await prefs.setString('user_display_name', safeName);
+      await prefs.setString('user_initials', initials);
+      if (photo != null && photo.isNotEmpty) {
+        await prefs.setString('user_photoUrl', photo);
+      }
+
+      // mettre à jour cache local pour UI si la page est encore montée
+      if (mounted) {
+        setState(() {
+          _cachedDisplayName = safeName;
+          if (photo != null && photo.isNotEmpty) _cachedPhotoUrl = photo;
+        });
+      }
+
+      return UserProfile(displayName: safeName, initials: initials, photoUrl: photo);
+    } catch (e) {
+      // en cas d'erreur, fallback propre
+      // ignore: avoid_print
+      print('[DEBUG] erreur fetchAndCacheUserData: $e');
+      final fallbackName = _deriveNameFromEmail(user.email);
+      final initials = _computeInitials(fallbackName);
       try {
-        final snap = await FirebaseFirestore.instance.collection(foundCollection).doc(user.uid).get();
-        if (snap.exists) {
-          final data = snap.data();
-          if (data != null) {
-            final display = (data['firstName'] ?? data['firstname'] ?? data['prenom'] ?? data['name'] ?? data['displayName'] ?? user.displayName ?? 'Utilisateur').toString();
-            final initials = display.isNotEmpty ? display.split(' ').first[0].toUpperCase() : 'U';
-            final photo = data['photoUrl']?.toString();
-
-            await prefs.setString('user_display_name', display);
-            await prefs.setString('user_initials', initials);
-            if (photo != null && photo.isNotEmpty) await prefs.setString('user_photoUrl', photo);
-            // Debug log: confirmer l'écriture des SharedPreferences
-            // Sur web, regarde la console du navigateur (DevTools) ou la sortie du terminal
-            try {
-              final readBack = prefs.getString('user_display_name') ?? '<vide>';
-              // ignore: avoid_print
-              print('[DEBUG] SharedPreferences user_display_name = $readBack');
-            } catch (_) {}
-          }
-        }
+        final prefs2 = await SharedPreferences.getInstance();
+        await prefs2.setString('user_display_name', fallbackName);
+        await prefs2.setString('user_initials', initials);
       } catch (_) {}
-    } catch (_) {}
+      if (mounted) {
+        setState(() {
+          _cachedDisplayName = fallbackName;
+        });
+      }
+      return UserProfile(displayName: fallbackName, initials: initials);
+    }
   }
 
   void _showError(String msg) {
@@ -161,6 +236,53 @@ class _AuthMainPageState extends State<AuthMainPage> {
     );
   }
 
+  Future<void> _login() async {
+    final email = _idController.text.trim();
+    final password = _passwordController.text;
+
+    if (email.isEmpty || password.isEmpty) {
+      _showError("Veuillez remplir tous les champs");
+      return;
+    }
+
+    if (!_isValidEmail(email)) {
+      _showError("Veuillez entrer un email valide");
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      // connexion Firebase
+      await FirebaseAuth.instance.signInWithEmailAndPassword(email: email, password: password);
+
+      // gérer le "se souvenir"
+      await _handleRememberMe();
+
+      // ⚠️ IMPORTANT : on attend le profil AVANT de naviguer
+      // _fetchAndCacheUserData garantit un prénom (au moins dérivé de l'email)
+      final profile = await _fetchAndCacheUserData();
+
+      if (!mounted) return;
+
+      // debug
+      // ignore: avoid_print
+      print('[LOGIN] connecté en tant que: ${profile.displayName}');
+
+      // navigation vers le dashboard (le dashboard devra lire SharedPreferences pour afficher le nom)
+      _navigateToDashboard();
+    } on FirebaseAuthException catch (e) {
+      _showError(e.message ?? "Erreur de connexion");
+    } catch (e) {
+      _showError("Erreur inattendue lors de la connexion");
+      // ignore: avoid_print
+      print('[ERROR] login unexpected: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // --- UI BUILD ---
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -339,9 +461,9 @@ class _AuthMainPageState extends State<AuthMainPage> {
         children: [
           _buildProfileImage(),
           const SizedBox(height: 20),
-          const Text(
-            "Bon retour, Bienvenue !",
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1A237E)),
+          Text(
+            _cachedDisplayName != null ? "Bon retour, $_cachedDisplayName !" : "Bon retour, Bienvenue !",
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1A237E)),
           ),
           const Text("Connectez-vous pour continuer.", style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 30),
@@ -373,7 +495,9 @@ class _AuthMainPageState extends State<AuthMainPage> {
                 ],
               ),
               TextButton(
-                onPressed: () {},
+                onPressed: () {
+                  // Optionnel: implémenter reset password ici
+                },
                 child: const Text("Mot de passe oublié ?", style: TextStyle(color: Colors.orange, fontSize: 13, fontWeight: FontWeight.bold)),
               ),
             ],
@@ -392,10 +516,13 @@ class _AuthMainPageState extends State<AuthMainPage> {
         shape: BoxShape.circle,
         border: Border.all(color: Colors.orange.shade100, width: 2),
       ),
-      child: const CircleAvatar(
+      child: CircleAvatar(
         radius: 40,
-        backgroundColor: Color(0xFFF1F4F8),
-        child: Icon(Icons.person, size: 40, color: Colors.grey),
+        backgroundColor: const Color(0xFFF1F4F8),
+        backgroundImage: _cachedPhotoUrl != null && _cachedPhotoUrl!.isNotEmpty ? CachedNetworkImageProvider(_cachedPhotoUrl!) : null,
+        child: _cachedPhotoUrl == null || _cachedPhotoUrl!.isEmpty
+            ? const Icon(Icons.person, size: 40, color: Colors.grey)
+            : null,
       ),
     );
   }
@@ -443,10 +570,10 @@ class _AuthMainPageState extends State<AuthMainPage> {
           backgroundColor: const Color(0xFFE65100),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
         ),
-        onPressed: _isLoading ? null : _login, // Appelle maintenant _login
-        child: _isLoading 
-          ? const CircularProgressIndicator(color: Colors.white)
-          : const Text("Se connecter", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+        onPressed: _isLoading ? null : _login,
+        child: _isLoading
+            ? const CircularProgressIndicator(color: Colors.white)
+            : const Text("Se connecter", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
       ),
     );
   }

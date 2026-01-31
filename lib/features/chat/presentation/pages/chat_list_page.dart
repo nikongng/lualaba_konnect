@@ -782,7 +782,7 @@ Future<String?> _uploadFileWithProgress(File file, String destName) async {
       await client.storage.from(bucket).upload(path, file);
     } catch (uploadErr) {
       debugPrint('Supabase upload failed: $uploadErr');
-      throw uploadErr;
+      rethrow;
     }
 
     // Récupération de l'URL publique (supporte différents retours)
@@ -877,7 +877,7 @@ Future<void> _saveStoryDoc(Map<String, dynamic> data) async {
               ),
               const SizedBox(height: 12),
               if (_isUploading) ...[
-                LinearProgressIndicator(value: _uploadProgress, backgroundColor: Colors.white12, valueColor: const AlwaysStoppedAnimation(Colors.orange)),
+                LinearProgressIndicator(value: _uploadProgress, backgroundColor: Theme.of(ctx).colorScheme.onSurface.withOpacity(0.08), valueColor: AlwaysStoppedAnimation<Color>(Theme.of(ctx).colorScheme.primary)),
                 const SizedBox(height: 8),
               ],
               Row(children: [
@@ -924,7 +924,11 @@ Future<void> _saveStoryDoc(Map<String, dynamic> data) async {
               AspectRatio(aspectRatio: _videoController!.value.aspectRatio, child: VideoPlayer(_videoController!)),
               const SizedBox(height: 8),
               Row(children: [
-                IconButton(icon: Icon(_videoController!.value.isPlaying ? Icons.pause : Icons.play_arrow, color: Colors.white), onPressed: () async { if (_videoController!.value.isPlaying) await _videoController!.pause(); else await _videoController!.play(); setState(() {}); }),
+                IconButton(icon: Icon(_videoController!.value.isPlaying ? Icons.pause : Icons.play_arrow, color: Colors.white), onPressed: () async { if (_videoController!.value.isPlaying) {
+                  await _videoController!.pause();
+                } else {
+                  await _videoController!.play();
+                } setState(() {}); }),
                 Expanded(child: Text(file.path.split('/').last, style: const TextStyle(color: Colors.white70))),
               ]),
               TextField(
@@ -934,7 +938,7 @@ Future<void> _saveStoryDoc(Map<String, dynamic> data) async {
               ),
               const SizedBox(height: 12),
               if (_isUploading) ...[
-                LinearProgressIndicator(value: _uploadProgress, backgroundColor: Colors.white12, valueColor: const AlwaysStoppedAnimation(Colors.orange)),
+                LinearProgressIndicator(value: _uploadProgress, backgroundColor: Theme.of(ctx).colorScheme.onSurface.withOpacity(0.08), valueColor: AlwaysStoppedAnimation<Color>(Theme.of(ctx).colorScheme.primary)),
                 const SizedBox(height: 8),
               ],
               Row(children: [
@@ -1030,7 +1034,7 @@ Future<void> _saveStoryDoc(Map<String, dynamic> data) async {
                 child: StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance.collection('chats').where('participants', arrayContains: currentUser?.uid).orderBy('lastMessageTime', descending: true).limit(10).snapshots(),
                   builder: (context, snapshot) {
-                    if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+                    if (!snapshot.hasData) return Center(child: CircularProgressIndicator(color: Colors.orange));
                     final docs = snapshot.data!.docs;
                     if (docs.isEmpty) return const Center(child: Text("Lancez votre première discussion", style: TextStyle(color: Colors.white24)));
                     
@@ -1283,7 +1287,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
     return StreamBuilder<QuerySnapshot>(
       stream: query.orderBy('lastMessageTime', descending: true).snapshots(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        if (!snapshot.hasData) return Center(child: CircularProgressIndicator(color: Colors.orange));
         var docs = snapshot.data!.docs;
 
         if (selectedCategory == "PRO") {
@@ -1314,7 +1318,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
             final bool isGroup = data['isGroup'] == true;
             if (isGroup) {
               // keep groups by their doc id
-              unique['group_${d.id}'] = d as QueryDocumentSnapshot<Object?>;
+              unique['group_${d.id}'] = d;
               continue;
             }
 
@@ -1325,7 +1329,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
             final key = 'peer_${parts.join('-')}';
 
             if (!unique.containsKey(key)) {
-              unique[key] = d as QueryDocumentSnapshot<Object?>;
+              unique[key] = d;
             } else {
               // keep the most recent chat by lastMessageTime
               try {
@@ -1333,10 +1337,10 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                 final existingTime = (existing.data() as Map<String, dynamic>?)?['lastMessageTime'] as Timestamp?;
                 final newTime = data['lastMessageTime'] as Timestamp?;
                 if (newTime != null && (existingTime == null || newTime.seconds > existingTime.seconds)) {
-                  unique[key] = d as QueryDocumentSnapshot<Object?>;
+                  unique[key] = d;
                 }
               } catch (_) {
-                unique[key] = d as QueryDocumentSnapshot<Object?>;
+                unique[key] = d;
               }
             }
           }

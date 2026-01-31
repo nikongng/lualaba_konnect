@@ -128,7 +128,7 @@ class _VideoItemState extends State<VideoItem> with SingleTickerProviderStateMix
                     child: VideoPlayer(_controller!),
                   ),
                 )
-              : const Center(child: CircularProgressIndicator(color: Colors.orange)),
+              : Center(child: CircularProgressIndicator(color: Colors.orange)),
         ),
 
         // 2. DÉGRADÉ DE FOND (Lisibilité)

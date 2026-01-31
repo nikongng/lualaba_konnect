@@ -163,6 +163,7 @@ void _loadStory({required int index, bool animatePage = true}) async {
     super.dispose();
   }
 
+  // ignore: unused_element
   Future<void> _ensureCached(DocumentSnapshot doc) async {
     try {
       if (!mounted) return;
@@ -254,7 +255,7 @@ itemBuilder: (context, index) {
                     child: VideoPlayer(_videoController!),
                   ),
                 )
-              : const Center(child: CircularProgressIndicator(color: Colors.white));
+              : Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.onSurface));
         }
 
         // --- CAS AUDIO / ENREGISTREMENT ---
