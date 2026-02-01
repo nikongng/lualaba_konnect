@@ -65,8 +65,17 @@ async function getTokensForUid(uid) {
 }
 
 const app = express();
-app.use(cors());
+// Allow CORS including the Authorization header required by the client preflight
+app.use(cors({
+  origin: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.options('*', cors());
 app.use(express.json());
+
+// simple health endpoint to verify service is reachable
+app.get('/', (req, res) => res.json({ ok: true, service: 'notifier' }));
 
 // Secure endpoint: require Firebase ID token in Authorization header
 app.post('/sendNotification', async (req, res) => {
