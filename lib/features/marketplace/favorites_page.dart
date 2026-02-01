@@ -54,7 +54,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black, size: 20),
+          icon: Icon(Icons.arrow_back_ios_new, color: Theme.of(context).brightness == Brightness.dark ? Colors.orange : Colors.black, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
       ),

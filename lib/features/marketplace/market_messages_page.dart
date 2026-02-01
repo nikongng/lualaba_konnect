@@ -19,9 +19,10 @@ class MarketMessagesPage extends StatelessWidget {
     }
 
     final q = FirebaseFirestore.instance
-        .collection('market_messages')
-        .where('participants', arrayContains: uid)
-        .orderBy('createdAt', descending: true);
+      .collection('market_messages')
+      .where('participants', arrayContains: uid)
+      // Order by client-side timestamp to avoid flicker when serverTimestamp is applied
+      .orderBy('createdAtLocal', descending: true);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Messages (Market)')),
@@ -154,15 +155,38 @@ class _ChatThreadPageState extends State<ChatThreadPage> {
     final uid = FirebaseAuth.instance.currentUser?.uid;
 
     final q = FirebaseFirestore.instance
-        .collection('market_messages')
-        .where('productId', isEqualTo: widget.productId)
-        .where('participants', arrayContains: uid)
-        .orderBy('createdAt', descending: false);
+      .collection('market_messages')
+      .where('productId', isEqualTo: widget.productId)
+      .where('participants', arrayContains: uid)
+      // Use local timestamp for stable ordering on client
+      .orderBy('createdAtLocal', descending: false);
 
     return Scaffold(
       appBar: AppBar(title: Text(widget.productName)),
       body: Column(
         children: [
+          // Petite indication de l'annonce concernée
+          Container(
+            width: double.infinity,
+            color: Colors.orange.shade50,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            child: Row(
+              children: [
+                const Icon(Icons.campaign, color: Colors.orange),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Annonce: ${widget.productName}',
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+                Text(
+                  'ID ${widget.productId}',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: q.snapshots(),

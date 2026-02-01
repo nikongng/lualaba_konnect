@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/services.dart';
 import 'market_messages_page.dart';
 import 'cart_service.dart';
 
@@ -43,9 +44,9 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           margin: const EdgeInsets.all(8),
           decoration: BoxDecoration(color: Colors.white.withOpacity(0.9), shape: BoxShape.circle),
           child: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black, size: 18),
-            onPressed: () => Navigator.pop(context),
-          ),
+              icon: Icon(Icons.arrow_back_ios_new, color: Theme.of(context).brightness == Brightness.dark ? Colors.orange : Colors.black, size: 18),
+              onPressed: () => Navigator.pop(context),
+            ),
         ),
         actions: [
           Container(
@@ -273,6 +274,34 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                 onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MarketMessagesPage())),
               ),
             ),
+            const SizedBox(width: 8),
+            // BOUTON: copier UID du vendeur
+            Container(
+              height: 55, width: 55,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.person_pin, color: Colors.black),
+                tooltip: 'Copier UID vendeur',
+                onPressed: _copyOwnerUid,
+              ),
+            ),
+            const SizedBox(width: 8),
+            // BOUTON: récupérer l'ID token (copie dans le presse-papiers)
+            Container(
+              height: 55, width: 55,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.vpn_key, color: Colors.black),
+                tooltip: 'Récupérer token',
+                onPressed: _copyIdToken,
+              ),
+            ),
             const SizedBox(width: 15),
             // BOUTON PANIER: ne pas afficher pour les propres articles
             Expanded(
@@ -376,6 +405,40 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(msg), behavior: SnackBarBehavior.floating, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)))
     );
+  }
+
+  Future<void> _copyIdToken() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      _notify(context, "Utilisateur non connecté.");
+      return;
+    }
+    try {
+      final idToken = await user.getIdToken();
+      if (idToken == null || idToken.isEmpty) {
+        _notify(context, "Token vide.");
+        return;
+      }
+      await Clipboard.setData(ClipboardData(text: idToken));
+      _notify(context, "ID token copié dans le presse-papiers.");
+    } catch (e) {
+      _notify(context, "Impossible de récupérer le token: $e");
+    }
+  }
+
+  Future<void> _copyOwnerUid() async {
+    final owner = widget.product['owner'];
+    final ownerUid = owner is String ? owner : (owner?.toString() ?? '');
+    if (ownerUid.isEmpty) {
+      _notify(context, 'UID du vendeur introuvable.');
+      return;
+    }
+    try {
+      await Clipboard.setData(ClipboardData(text: ownerUid));
+      _notify(context, 'UID du vendeur copié.');
+    } catch (e) {
+      _notify(context, 'Impossible de copier l\'UID: $e');
+    }
   }
 
   String _formatDateTime(dynamic ts) {

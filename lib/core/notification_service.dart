@@ -5,7 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'dart:io' show Platform;
+// Avoid importing `dart:io` directly (breaks web builds). Use Flutter's
+// platform constants instead.
 
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _fln = FlutterLocalNotificationsPlugin();
@@ -60,9 +61,29 @@ class NotificationService {
     const String oneSignalAppId = String.fromEnvironment('ONESIGNAL_APP_ID', defaultValue: 'ac19fdcc-16e7-4775-8806-8cde03d1fadb');
     if (!kIsWeb && oneSignalAppId.isNotEmpty) {
       try {
-        OneSignal.shared.setAppId(oneSignalAppId);
-        // retrieve player id and store in Firestore under user doc if logged in
-        final ds = await OneSignal.shared.getDeviceState();
+        // Use dynamic invocation to support different versions of the plugin
+        final dynamic os = OneSignal();
+        try {
+          await os.setAppId(oneSignalAppId);
+        } catch (_) {
+          try {
+            await os.init(oneSignalAppId);
+          } catch (_) {
+            try {
+              await os.initWithAppId(oneSignalAppId);
+            } catch (e) {
+              debugPrint('OneSignal: could not call init/setAppId: $e');
+            }
+          }
+        }
+
+        // retrieve player id (plugin method name should exist at runtime)
+        dynamic ds;
+        try {
+          ds = await os.getDeviceState();
+        } catch (e) {
+          debugPrint('OneSignal getDeviceState failed: $e');
+        }
         final playerId = ds?.userId;
         if (playerId != null) {
           final user = FirebaseAuth.instance.currentUser;
@@ -75,7 +96,7 @@ class NotificationService {
                 if (doc.exists) {
                   await ref.collection('notification_players').doc(playerId).set({
                     'playerId': playerId,
-                    'platform': Platform.operatingSystem,
+                    'platform': _platformName(),
                     'lastSeen': FieldValue.serverTimestamp(),
                   }, SetOptions(merge: true));
                   break;
@@ -126,6 +147,26 @@ class NotificationService {
       platform,
       payload: payload,
     );
+  }
+
+  static String _platformName() {
+    if (kIsWeb) return 'web';
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return 'android';
+      case TargetPlatform.iOS:
+        return 'ios';
+      case TargetPlatform.macOS:
+        return 'macos';
+      case TargetPlatform.linux:
+        return 'linux';
+      case TargetPlatform.windows:
+        return 'windows';
+      case TargetPlatform.fuchsia:
+        return 'fuchsia';
+      default:
+        return 'unknown';
+    }
   }
 
   // --- GESTION DU SON (APPELS / CHAT) ---

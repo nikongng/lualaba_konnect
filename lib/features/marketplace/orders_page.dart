@@ -77,7 +77,7 @@ class _OrdersPageState extends State<OrdersPage> with SingleTickerProviderStateM
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black),
+          icon: Icon(Icons.arrow_back_ios_new, color: Theme.of(context).brightness == Brightness.dark ? Colors.orange : Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
         bottom: TabBar(

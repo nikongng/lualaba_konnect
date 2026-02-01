@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'orders_page.dart';
 import 'favorites_page.dart';
+import 'market_messages_page.dart';
 
 class ProfilePage extends StatefulWidget {
   final List<Map<String, dynamic>> allProducts;
@@ -78,7 +79,7 @@ class _ProfilePageState extends State<ProfilePage> {
         backgroundColor: Colors.orange.shade900,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+          icon: Icon(Icons.arrow_back_ios_new, color: Theme.of(context).brightness == Brightness.dark ? Colors.orange : Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text("Mon Profil", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -122,13 +123,13 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                   ),
 
-                  // MENU : PARAMÈTRES
+                  // MENU : MESSAGES (Market)
                   _buildMenuTile(
-                    icon: Icons.settings_rounded,
-                    title: "Paramètres",
-                    subtitle: "Compte, Sécurité, Notifications",
+                    icon: Icons.message_rounded,
+                    title: "Messages (Market)",
+                    subtitle: "Accéder à vos conversations Marketplace",
                     onTap: () {
-                      // Action pour les paramètres
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const MarketMessagesPage()));
                     },
                   ),
                   

@@ -190,7 +190,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
       backgroundColor: widget.isDark ? const Color(0xFF071010) : Colors.white,
       elevation: 0,
       leading: IconButton(
-        icon: const Icon(Icons.arrow_back_ios_new, color: Colors.black, size: 20),
+        icon: Icon(Icons.arrow_back_ios_new, color: widget.isDark ? Colors.orange : Colors.black, size: 20),
         onPressed: widget.onBack,
       ),
       title: Text("Market Pro", style: TextStyle(color: widget.isDark ? Colors.white : Colors.black, fontWeight: FontWeight.w900, fontSize: 24)),
@@ -201,7 +201,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
         ),
         IconButton(
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryPage())), 
-          icon: const Icon(Icons.history_toggle_off, color: Colors.black54)
+          icon: Icon(Icons.history_toggle_off, color: widget.isDark ? Colors.orange : Colors.black54)
         ),
         IconButton(
           onPressed: () {
@@ -219,7 +219,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
               )
             );
           }, 
-          icon: const Icon(Icons.account_circle_outlined, color: Colors.black87, size: 26)
+          icon: Icon(Icons.account_circle_outlined, color: widget.isDark ? Colors.orange : Colors.black87, size: 26)
         ),
       ],
       flexibleSpace: FlexibleSpaceBar(
