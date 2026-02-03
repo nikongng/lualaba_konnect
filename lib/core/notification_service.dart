@@ -1,4 +1,4 @@
-import 'package:firebase_messaging/firebase_messaging.dart';
+// Firebase Messaging removed — using OneSignal as push provider
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:flutter/foundation.dart';
@@ -24,15 +24,6 @@ class NotificationService {
 
   static Future<void> init() async {
     if (_initialized) return;
-
-    // 1. Demander les permissions (Indispensable Android 13+ et iOS)
-    FirebaseMessaging messaging = FirebaseMessaging.instance;
-    await messaging.requestPermission(
-      alert: true,
-      badge: true,
-      sound: true,
-      provisional: false,
-    );
 
     // 2. Créer officiellement le canal sur le système Android
     // C'est l'étape qui manquait pour l'affichage en arrière-plan
@@ -110,14 +101,65 @@ class NotificationService {
       }
     }
 
-    // 4. Ecouter les messages en FOREGROUND (App ouverte)
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      final title = message.notification?.title ?? message.data['title'] ?? 'Lualaba Konnect';
-      final body = message.notification?.body ?? message.data['body'] ?? '';
-      
-      // On force l'affichage de la bannière car Firebase ne le fait pas auto en foreground
-      showNotification(title, body, payload: message.data['type']);
-    });
+    // Register OneSignal handlers (multiple API names supported) to show local notifications
+    try {
+      final dynamic os = OneSignal();
+
+      // Helper to process incoming notification object
+      Future<void> handleIncoming(dynamic n) async {
+        try {
+          final String title = (n?.title ?? n?.heading ?? n?.notification?.title ?? '')?.toString() ?? 'Lualaba Konnect';
+          final String body = (n?.body ?? n?.content ?? n?.notification?.body ?? '')?.toString() ?? '';
+          dynamic data = n?.additionalData ?? n?.data ?? n?.notification?.additionalData ?? {};
+          if (data == null) data = {};
+
+          // Build a payload string type if present
+          String? type;
+          try { type = (data['type'] ?? data['notificationType'])?.toString(); } catch (_) { type = null; }
+
+          // show local banner and play short pop sound
+          showNotification(title, body, payload: type);
+          try {
+            FlutterRingtonePlayer().play(fromAsset: 'assets/sounds/pop.mp3', looping: false, volume: 1.0);
+          } catch (_) {}
+        } catch (e) {
+          debugPrint('handleIncoming error: $e');
+        }
+      }
+
+      // Modern handler name
+      try {
+        if (os.setNotificationWillShowInForegroundHandler != null) {
+          os.setNotificationWillShowInForegroundHandler((event) async {
+            await handleIncoming(event?.notification ?? event);
+            try { event.complete(event.notification); } catch (_) {}
+          });
+        }
+      } catch (_) {}
+
+      // Older/alternative handler names
+      try {
+        if (os.setNotificationReceivedHandler != null) {
+          os.setNotificationReceivedHandler((event) async {
+            await handleIncoming(event);
+          });
+        }
+      } catch (_) {}
+
+      try {
+        if (os.setNotificationOpenedHandler != null) {
+          os.setNotificationOpenedHandler((opened) async {
+            await handleIncoming(opened?.notification ?? opened);
+          });
+        }
+      } catch (_) {}
+
+    } catch (e) {
+      debugPrint('OneSignal handler registration failed: $e');
+    }
+
+    // Foreground handling: OneSignal plugin initializes separately.
+    // If you want to display local banners for custom events, call `showNotification(...)` where appropriate.
 
     _initialized = true;
     debugPrint("✅ NotificationService initialisé avec succès");

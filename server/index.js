@@ -1,115 +1,150 @@
 const express = require('express');
 const cors = require('cors');
 const admin = require('firebase-admin');
-const fetch = require('node-fetch'); // Importé une seule fois au démarrage
+const fetch = require('node-fetch');
 
-// 1. Initialisation de Firebase Admin (Uniquement pour l'Auth et Firestore)
+// 1. Initialisation Firebase Admin
 if (!process.env.SERVICE_ACCOUNT_JSON) {
-  console.error('SERVICE_ACCOUNT_JSON env var is required');
+    console.error('SERVICE_ACCOUNT_JSON env var is required');
 }
 try {
-  const sa = process.env.SERVICE_ACCOUNT_JSON ? JSON.parse(process.env.SERVICE_ACCOUNT_JSON) : undefined;
-  admin.initializeApp({ credential: sa ? admin.credential.cert(sa) : undefined });
+    const sa = process.env.SERVICE_ACCOUNT_JSON ? JSON.parse(process.env.SERVICE_ACCOUNT_JSON) : undefined;
+    admin.initializeApp({ credential: sa ? admin.credential.cert(sa) : undefined });
 } catch (e) {
-  console.error('Failed to init admin sdk', e);
-  admin.initializeApp();
+    console.error('Failed to init admin sdk', e);
+    admin.initializeApp();
 }
 
 const db = admin.firestore();
 const USER_COLLECTIONS = ['classic_users', 'pro_users', 'enterprise_users'];
 
+// 2. Variables d'environnement (À configurer sur le dashboard Render)
 const ONE_SIGNAL_APP_ID = process.env.ONE_SIGNAL_APP_ID || '';
 const ONE_SIGNAL_REST_KEY = process.env.ONE_SIGNAL_REST_KEY || '';
+const METERED_API_KEY = process.env.METERED_API_KEY; // Clé récupérée via .env
 
-// Helper pour récupérer les IDs OneSignal dans Firestore
+// Helper pour récupérer les IDs OneSignal
 async function getOneSignalPlayersForUid(uid) {
-  const players = [];
-  for (const col of USER_COLLECTIONS) {
-    try {
-      const docRef = db.collection(col).doc(uid);
-      const s = await docRef.get();
-      if (!s.exists) continue;
-      
-      const data = s.data() || {};
-      if (data.oneSignalPlayerId) players.push(data.oneSignalPlayerId);
-      
-      // Vérification de la sous-collection notification_players
-      try {
-        const sub = await docRef.collection('notification_players').get();
-        sub.docs.forEach(d => {
-          const td = d.data() || {};
-          if (td.playerId) players.push(td.playerId);
-        });
-      } catch (e) { /* ignore */ }
-      
-      break; // Utilisateur trouvé dans une collection, on arrête de chercher
-    } catch (e) { console.warn(`Error searching in ${col}`, e); }
-  }
-  return Array.from(new Set(players.filter(Boolean)));
+    const players = [];
+    for (const col of USER_COLLECTIONS) {
+        try {
+            const docRef = db.collection(col).doc(uid);
+            const s = await docRef.get();
+            if (!s.exists) continue;
+            const data = s.data() || {};
+            if (data.oneSignalPlayerId) players.push(data.oneSignalPlayerId);
+            try {
+                const sub = await docRef.collection('notification_players').get();
+                sub.docs.forEach(d => {
+                    const td = d.data() || {};
+                    if (td.playerId) players.push(td.playerId);
+                });
+            } catch (e) {}
+            break; 
+        } catch (e) { console.warn(`Error searching in ${col}`, e); }
+    }
+    return Array.from(new Set(players.filter(Boolean)));
 }
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// simple health endpoint to verify service is reachable
-app.get('/', (req, res) => res.json({ ok: true, service: 'notifier' }));
+// Endpoint de santé
+app.get('/', (req, res) => res.json({ 
+    ok: true, 
+    service: 'notifier-webrtc-bridge', 
+    mode: 'production' 
+}));
 
-// Santé du service
-app.get('/', (req, res) => res.json({ ok: true, service: 'notifier', mode: 'onesignal_only' }));
+// --- ROUTE : CONFIGURATION WEBRTC DYNAMIQUE (STUN + TURN) ---
+// Cette route privilégie STUN (gratuit) et utilise Metered (TURN) en secours
+app.get('/webrtc-config', async (req, res) => {
+    try {
+        if (!METERED_API_KEY) {
+            console.error("METERED_API_KEY manquante sur Render");
+            // Secours minimal si la clé est absente
+            return res.json({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+        }
 
-// Route d'envoi
+        // On appelle l'API Metered pour obtenir des identifiants TURN temporaires
+        const response = await fetch(`https://mhb.metered.live/api/v1/turn/credentials?apiKey=${METERED_API_KEY}`);
+        const turnServers = await response.json();
+
+        // On fusionne : STUN de Google en premier (priorité P2P direct)
+        // puis les serveurs TURN de Metered (relais si échec P2P)
+        const iceServers = [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            ...turnServers 
+        ];
+
+        res.json({ iceServers });
+    } catch (e) {
+        console.error("Erreur lors de la génération des accès WebRTC:", e.message);
+        res.json({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+    }
+});
+
+// --- ROUTE : ENVOI DE NOTIFICATIONS ---
 app.post('/sendNotification', async (req, res) => {
-  try {
-    // A. Authentification
-    const auth = req.headers.authorization || '';
-    if (!auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Missing token' });
-    
-    const idToken = auth.split('Bearer ')[1];
-    const caller = await admin.auth().verifyIdToken(idToken);
-    if (!caller) return res.status(403).json({ error: 'Invalid token' });
+    try {
+        const auth = req.headers.authorization || '';
+        if (!auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Missing token' });
+        
+        const idToken = auth.split('Bearer ')[1];
+        const caller = await admin.auth().verifyIdToken(idToken);
+        if (!caller) return res.status(403).json({ error: 'Invalid token' });
 
-    // B. Validation des données reçues
-    const { recipients, title, body, data } = req.body;
-    if (!recipients || !Array.isArray(recipients)) return res.status(400).json({ error: 'recipients required' });
+        const { recipients, title, body, data } = req.body;
+        if (!recipients || !Array.isArray(recipients)) return res.status(400).json({ error: 'recipients required' });
 
-    // C. Recherche des IDs OneSignal
-    let allPlayers = [];
-    for (const uid of recipients) {
-      const p = await getOneSignalPlayersForUid(uid);
-      allPlayers = [...allPlayers, ...p];
+        let allPlayers = [];
+        for (const uid of recipients) {
+            const p = await getOneSignalPlayersForUid(uid);
+            allPlayers = [...allPlayers, ...p];
+        }
+        const players = Array.from(new Set(allPlayers));
+
+        if (players.length === 0) return res.status(404).json({ error: 'no_onesignal_ids_found' });
+
+        const isCall = data && data.type === 'incoming_call';
+
+        const payload = {
+            app_id: ONE_SIGNAL_APP_ID,
+            include_player_ids: players,
+            headings: { fr: title || 'Lualaba Konnect', en: title || 'Lualaba Konnect' },
+            contents: { fr: body || '', en: body || '' },
+            large_icon: req.body.senderAvatarUrl || '', 
+            big_picture: req.body.imageUrl || '',
+            priority: 10, 
+            android_channel_id: isCall ? "calls_channel" : "messages_channel",
+            android_group: isCall ? "calls_group" : "messages_group",
+            buttons: isCall ? [
+                { id: "accept", text: "Répondre", icon: "ic_menu_call" },
+                { id: "decline", text: "Refuser", icon: "ic_menu_close" }
+            ] : [],
+            data: { ...data, sentBy: caller.uid }
+        };
+
+        const resp = await fetch('https://onesignal.com/api/v1/notifications', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Basic ${ONE_SIGNAL_REST_KEY}`
+            },
+            body: JSON.stringify(payload)
+        });
+
+        const result = await resp.json();
+        return res.json({ ok: true, result });
+
+    } catch (e) {
+        console.error('Notification Error:', e.message);
+        return res.status(500).json({ error: 'Internal server error' });
     }
-    const players = Array.from(new Set(allPlayers));
-
-    if (players.length === 0) {
-      return res.status(404).json({ error: 'no_onesignal_ids_found' });
-    }
-
-    // D. Envoi via l'API REST de OneSignal
-    const payload = {
-      app_id: ONE_SIGNAL_APP_ID,
-      include_player_ids: players,
-      headings: { en: title || 'Lualaba Konnect' },
-      contents: { en: body || '' },
-      data: { ...data, sentBy: caller.uid }
-    };
-
-    const resp = await fetch('https://onesignal.com/api/v1/notifications', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Basic ${ONE_SIGNAL_REST_KEY}`
-      },
-      body: JSON.stringify(payload)
-    });
-
-    const result = await resp.json();
-    return res.json({ ok: true, result });
-
-  } catch (e) {
-    console.error('Final Error:', e.message);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
 });
 
 const port = process.env.PORT || 10000;

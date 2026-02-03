@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_sound/flutter_sound.dart';
@@ -15,6 +15,8 @@ import 'package:timeago/timeago.dart' as timeago;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'call_webrtc_page.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
+import 'package:lualaba_konnect/core/supabase_service.dart';
 import 'package:lualaba_konnect/core/notification_service.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import '../../../auth/presentation/pages/ModernDashboard.dart';
@@ -65,6 +67,8 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
   late FocusNode _searchFocus;
   bool _isSearchActive = false;
   late GlobalKey<ScaffoldState> _scaffoldKey;
+
+
 
   // Audio recording/player
   final FlutterSoundRecorder _soundRecorder = FlutterSoundRecorder();
@@ -1070,15 +1074,19 @@ return ListView.builder(
         var uData = userSnap.data!.data() as Map<String, dynamic>?;
         String name = UserUtils.formatName(uData);
 
+        final photo = (uData?['photoUrl'] ?? uData?['photo'] ?? uData?['avatar'] ?? '') as String? ?? '';
         return ListTile(
           contentPadding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
           leading: CircleAvatar(
             radius: 24,
             backgroundColor: Colors.white.withOpacity(0.05),
-            child: Text(
-              name.isNotEmpty ? name[0].toUpperCase() : "?",
-              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-            ),
+            backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null,
+            child: photo.isEmpty
+                ? Text(
+                    name.isNotEmpty ? name[0].toUpperCase() : "?",
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  )
+                : null,
           ),
           title: Text(
             name,
@@ -1420,17 +1428,21 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                     subtitleText = 'enregistrement audio...';
                   } else if (isTyping) subtitleText = 'en train d\'écrire...';
 
+                  final photo = (userSnap.hasData && userSnap.data!.exists) ? ((userSnap.data!.data() as Map<String, dynamic>?)?['photoUrl'] ?? (userSnap.data!.data() as Map<String, dynamic>?)?['photo'] ?? (userSnap.data!.data() as Map<String, dynamic>?)?['avatar'] ?? '') as String : '';
                   return ListTile(
                     onTap: () async {
                       ModernDashboardGlobals.navBarVisible.value = false;
                       await Navigator.push(context, MaterialPageRoute(builder: (context) => ChatDetailPage(chatId: docId, chatName: name)));
                       ModernDashboardGlobals.navBarVisible.value = true;
                     },
-                    leading: Stack(
-                      children: [
-                        const CircleAvatar(radius: 26, backgroundColor: Color(0xFF2C3E50), child: Icon(Icons.person, color: Colors.white54)),
-                        if (isOnline) Positioned(right: 1, bottom: 1, child: Container(width: 12, height: 12, decoration: BoxDecoration(color: Colors.greenAccent, shape: BoxShape.circle, border: Border.all(color: primaryDark, width: 2)))),
-                      ],
+                    leading: GestureDetector(
+                      onTap: () => _showAvatarActions(context, otherUserId, canEdit: otherUserId == currentUser?.uid, photoUrl: photo),
+                      child: Stack(
+                        children: [
+                          CircleAvatar(radius: 26, backgroundColor: Color(0xFF2C3E50), backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null, child: photo.isEmpty ? const Icon(Icons.person, color: Colors.white54) : null),
+                          if (isOnline) Positioned(right: 1, bottom: 1, child: Container(width: 12, height: 12, decoration: BoxDecoration(color: Colors.greenAccent, shape: BoxShape.circle, border: Border.all(color: primaryDark, width: 2)))),
+                        ],
+                      ),
                     ),
                     title: Row(
                       children: [
@@ -1517,8 +1529,54 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
       return;
     }
     final contacts = await FlutterContacts.getContacts(withProperties: true);
-    List<int> selected = [];
+    // Resolve contacts to app users (by email) to display only app users
+    final List<Map<String, dynamic>> appUsers = [];
+    for (final ct in contacts) {
+      if (ct.emails.isEmpty) continue;
+      final email = ct.emails.first.address;
+      if (email.isEmpty) continue;
+      for (var col in ['classic_users', 'pro_users', 'enterprise_users']) {
+        final res = await FirebaseFirestore.instance.collection(col).where('email', isEqualTo: email).limit(1).get();
+        if (res.docs.isNotEmpty) {
+          final d = res.docs.first;
+          final data = d.data() as Map<String, dynamic>;
+          appUsers.add({
+            'uid': d.id,
+            'name': data['displayName'] ?? data['name'] ?? ct.displayName,
+            'email': email,
+            'photo': data['photoUrl'] ?? data['photo'] ?? '',
+            'contactIndex': contacts.indexOf(ct),
+          });
+          break;
+        }
+      }
+    }
+
+    // Only show users that the current user already has in their chats
+    final Set<String> existingChatUids = {};
+    final user = currentUser;
+    if (user != null) {
+      final chatSnap = await FirebaseFirestore.instance.collection('chats').where('participants', arrayContains: user.uid).get();
+      for (final d in chatSnap.docs) {
+        final data = d.data() as Map<String, dynamic>;
+        final participants = List<String>.from(data['participants'] ?? []);
+        for (final p in participants) {
+          if (p != user.uid) existingChatUids.add(p);
+        }
+      }
+    }
+
+    // Filter appUsers to only those present in existing chats
+    final List<Map<String, dynamic>> filteredAppUsers =
+        appUsers.where((u) => existingChatUids.contains(u['uid'] as String)).toList();
+
+    List<String> selectedUids = [];
     String groupName = '';
+    String description = '';
+    XFile? groupPhoto;
+    final Map<String, XFile?> memberPhotos = {};
+    String canAddMembers = 'admins'; // 'admins' or 'all'
+    String canChangeInfo = 'admins';
 
     showModalBottomSheet(
       context: context,
@@ -1527,41 +1585,135 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
       builder: (ctx) {
         return StatefulBuilder(builder: (ctx, setState) {
           return Container(
-            height: MediaQuery.of(context).size.height * 0.85,
+            height: MediaQuery.of(context).size.height * 0.9,
             decoration: BoxDecoration(color: primaryDark, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
             padding: const EdgeInsets.all(12),
             child: Column(
               children: [
                 Container(width: 45, height: 5, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(10))),
                 const SizedBox(height: 12),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                  child: TextField(
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(hintText: 'Nom du groupe', hintStyle: const TextStyle(color: Colors.white38), filled: true, fillColor: Colors.white10, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)),
-                    onChanged: (v) => setState(() => groupName = v.trim()),
+                // group photo + name + description
+                Row(children: [
+                  GestureDetector(
+                    onTap: () async {
+                      final picker = ImagePicker();
+                      final img = await picker.pickImage(source: ImageSource.gallery, maxWidth: 800);
+                      if (img != null) setState(() => groupPhoto = img);
+                    },
+                    child: CircleAvatar(
+                      radius: 32,
+                      backgroundColor: Colors.white10,
+                      backgroundImage: groupPhoto != null ? FileImage(File(groupPhoto!.path)) : null,
+                      child: groupPhoto == null ? const Icon(Icons.group, color: Colors.white70) : null,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(children: [
+                      TextField(
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(hintText: 'Nom du groupe', hintStyle: const TextStyle(color: Colors.white38), filled: true, fillColor: Colors.white10, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)),
+                        onChanged: (v) => setState(() => groupName = v.trim()),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        style: const TextStyle(color: Colors.white70),
+                        decoration: InputDecoration(hintText: 'Description (optionnelle)', hintStyle: const TextStyle(color: Colors.white30), filled: true, fillColor: Colors.white10, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)),
+                        maxLines: 2,
+                        onChanged: (v) => setState(() => description = v.trim()),
+                      ),
+                    ]),
+                  ),
+                ]),
+                const SizedBox(height: 8),
+                // allow user to set their own profile photo (avatar)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () async {
+                      if (currentUser == null) return;
+                      final picker = ImagePicker();
+                      final img = await picker.pickImage(source: ImageSource.gallery, maxWidth: 1000);
+                      if (img == null) return;
+                      try {
+                        final uid = currentUser!.uid;
+                        final ref = FirebaseStorage.instance.ref().child('users/$uid/profile.jpg');
+                        await ref.putFile(File(img.path));
+                        final url = await ref.getDownloadURL();
+                        // update Firebase Auth profile
+                        try { await FirebaseAuth.instance.currentUser?.updatePhotoURL(url); } catch (e) { debugPrint('auth updatePhotoURL err: $e'); }
+                        // update user document in the correct users collection
+                        String? found;
+                        for (var c in ['classic_users', 'pro_users', 'enterprise_users']) {
+                          final doc = await FirebaseFirestore.instance.collection(c).doc(uid).get();
+                          if (doc.exists) { found = c; break; }
+                        }
+                        if (found != null) {
+                          await FirebaseFirestore.instance.collection(found).doc(uid).update({'photoUrl': url, 'photo': url});
+                        }
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Photo de profil mise à jour')));
+                      } catch (e) {
+                        debugPrint('upload profile err: $e');
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur lors de l\'upload de la photo')));
+                      }
+                    },
+                    icon: const Icon(Icons.person, color: Colors.white70),
+                    label: const Text('Définir ma photo de profil', style: TextStyle(color: Colors.white70)),
                   ),
                 ),
                 const SizedBox(height: 12),
+                // permissions
+                Row(children: [
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('Qui peut ajouter des membres ?', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                    DropdownButton<String>(value: canAddMembers, items: const [DropdownMenuItem(value: 'admins', child: Text('Admins seulement')), DropdownMenuItem(value: 'all', child: Text('Tous les membres'))], onChanged: (v) => setState(() => canAddMembers = v ?? 'admins')),
+                  ])),
+                  const SizedBox(width: 8),
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('Qui peut changer les infos ?', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                    DropdownButton<String>(value: canChangeInfo, items: const [DropdownMenuItem(value: 'admins', child: Text('Admins seulement')), DropdownMenuItem(value: 'all', child: Text('Tous les membres'))], onChanged: (v) => setState(() => canChangeInfo = v ?? 'admins')),
+                  ])),
+                ]),
+                const SizedBox(height: 12),
+                const Divider(color: Colors.white12),
+                const SizedBox(height: 8),
+                const Align(alignment: Alignment.centerLeft, child: Text('Sélectionnez des contacts (app users)', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold))),
+                const SizedBox(height: 8),
                 Expanded(
-                  child: ListView.builder(
-                    itemCount: contacts.length,
-                    itemBuilder: (c, i) {
-                      final ct = contacts[i];
-                      final hasEmail = ct.emails.isNotEmpty;
-                      return CheckboxListTile(
-                        value: selected.contains(i),
-                        onChanged: (v) => setState(() { if (v == true) {
-                          selected.add(i);
-                        } else {
-                          selected.remove(i);
-                        } }),
-                        title: Text(ct.displayName, style: const TextStyle(color: Colors.white)),
-                        subtitle: hasEmail ? Text(ct.emails.first.address, style: const TextStyle(color: Colors.white60)) : null,
-                        controlAffinity: ListTileControlAffinity.leading,
-                      );
-                    },
-                  ),
+                  child: appUsers.isEmpty
+                      ? const Center(child: Text('Aucun contact trouvé dans l\'application', style: TextStyle(color: Colors.white38)))
+                      : ListView.builder(
+                          itemCount: appUsers.length,
+                          itemBuilder: (c, i) {
+                            final u = appUsers[i];
+                            final uid = u['uid'] as String;
+                            final name = u['name'] as String? ?? '';
+                            final photo = u['photo'] as String? ?? '';
+                            final selected = selectedUids.contains(uid);
+                            return ListTile(
+                              leading: GestureDetector(
+                                onTap: () async {
+                                  // allow selecting a member-specific avatar for group
+                                  final picker = ImagePicker();
+                                  final img = await picker.pickImage(source: ImageSource.gallery, maxWidth: 800);
+                                  if (img != null) setState(() => memberPhotos[uid] = img);
+                                },
+                                child: CircleAvatar(
+                                  radius: 22,
+                                  backgroundColor: Colors.white10,
+                                  backgroundImage: memberPhotos[uid] != null
+                                      ? FileImage(File(memberPhotos[uid]!.path))
+                                      : (photo.isNotEmpty ? NetworkImage(photo) as ImageProvider : null),
+                                  child: (memberPhotos[uid] == null && (photo == null || photo.isEmpty)) ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?') : null,
+                                ),
+                              ),
+                              title: Text(name, style: const TextStyle(color: Colors.white)),
+                              subtitle: Text(u['email'] ?? '', style: const TextStyle(color: Colors.white60)),
+                              trailing: Checkbox(value: selected, onChanged: (v) => setState(() => v == true ? selectedUids.add(uid) : selectedUids.remove(uid))),
+                              onTap: () => setState(() => selectedUids.contains(uid) ? selectedUids.remove(uid) : selectedUids.add(uid)),
+                            );
+                          },
+                        ),
                 ),
                 Row(
                   children: [
@@ -1570,35 +1722,68 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                     ElevatedButton(
                       onPressed: () async {
                         if (currentUser == null) return;
-                        // resolve selected contacts to app user ids via email
-                        List<String> participantIds = [currentUser!.uid];
-                        for (var idx in selected) {
-                          final ct = contacts[idx];
-                          if (ct.emails.isEmpty) continue;
-                          final String email = ct.emails.first.address;
-                          if (email.isEmpty) continue;
-                          for (var col in ['classic_users', 'pro_users', 'enterprise_users']) {
-                            final res = await FirebaseFirestore.instance.collection(col).where('email', isEqualTo: email).limit(1).get();
-                            if (res.docs.isNotEmpty) { participantIds.add(res.docs.first.id); break; }
-                          }
-                        }
-                        if (participantIds.length < 2) {
-                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sélectionnez au moins 1 contact présent dans l\'application')));
-                          return;
-                        }
-                        // create group chat
-                        final newChat = await FirebaseFirestore.instance.collection('chats').add({
+                        if (selectedUids.isEmpty) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Sélectionnez au moins 1 contact'))); return; }
+                        final participantIds = [currentUser!.uid, ...selectedUids];
+                        // create chat doc placeholder
+                        final newChatRef = await FirebaseFirestore.instance.collection('chats').add({
                           'participants': participantIds,
                           'lastMessage': '',
                           'lastMessageTime': FieldValue.serverTimestamp(),
                           'unreadCounts': Map.fromEntries(participantIds.map((id) => MapEntry(id, 0))),
                           'isGroup': true,
                           'groupName': groupName.isNotEmpty ? groupName : 'Groupe',
+                          'description': description,
+                          'admins': [currentUser!.uid],
+                          'permissions': {'canAddMembers': canAddMembers, 'canChangeInfo': canChangeInfo},
                           'userTypes': Map.fromEntries(participantIds.map((p) => MapEntry(p, 'classic_users'))),
                           'typing': Map.fromEntries(participantIds.map((p) => MapEntry(p, false))),
                         });
+
+                        final updates = <String, dynamic>{};
+
+                        // upload group photo if any (Supabase if available, otherwise Firebase Storage)
+                        if (groupPhoto != null) {
+                          final gp = groupPhoto; // capture local non-null reference
+                          try {
+                            String url = '';
+                            if (SupabaseService.isInitialized) {
+                              final bytes = await File(gp!.path).readAsBytes();
+                              url = await SupabaseService.uploadBytes(bytes, '${newChatRef.id}/group_photo.jpg', 'chats');
+                            } else {
+                              final ref = FirebaseStorage.instance.ref().child('chats/${newChatRef.id}/group_photo.jpg');
+                              await ref.putFile(File(gp!.path));
+                              url = await ref.getDownloadURL();
+                            }
+                            updates['groupPhoto'] = url;
+                          } catch (e) { debugPrint('upload group photo err: $e'); }
+                        }
+
+                        // upload member photos if selected
+                        final Map<String, String> memberAvatars = {};
+                        for (final e in memberPhotos.entries) {
+                          final uid = e.key;
+                          final x = e.value;
+                          if (x == null) continue;
+                          final xLocal = x; // capture local non-null reference
+                          try {
+                            String url = '';
+                            if (SupabaseService.isInitialized) {
+                              final bytes = await File(xLocal!.path).readAsBytes();
+                              url = await SupabaseService.uploadBytes(bytes, '${newChatRef.id}/members/$uid.jpg', 'chats');
+                            } else {
+                              final r = FirebaseStorage.instance.ref().child('chats/${newChatRef.id}/members/$uid.jpg');
+                              await r.putFile(File(xLocal!.path));
+                              url = await r.getDownloadURL();
+                            }
+                            memberAvatars[uid] = url;
+                          } catch (e) { debugPrint('upload member photo $uid err: $e'); }
+                        }
+                        if (memberAvatars.isNotEmpty) updates['memberAvatars'] = memberAvatars;
+
+                        if (updates.isNotEmpty) await newChatRef.update(updates);
+
                         Navigator.pop(ctx);
-                        if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => ChatDetailPage(chatId: newChat.id, chatName: groupName.isNotEmpty ? groupName : 'Groupe')));
+                        if (mounted) Navigator.push(context, MaterialPageRoute(builder: (_) => ChatDetailPage(chatId: newChatRef.id, chatName: groupName.isNotEmpty ? groupName : 'Groupe')));
                       },
                       child: const Text('Créer'),
                     ),
@@ -1645,4 +1830,227 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
       },
     );
   }
+}
+
+Future<void> _showAvatarActions(
+  BuildContext context,
+  String uid, {
+  required bool canEdit,
+  String? photoUrl,
+}) async {
+  const Color primaryDark = Color(0xFF0F172A); // ✅ couleur définie
+
+  final photo = photoUrl ?? '';
+
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) {
+      return SafeArea(
+        child: Container(
+          decoration: BoxDecoration(
+            color: primaryDark,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          child: Wrap(
+            children: [
+              // ===== Voir la photo =====
+              if (photo.isNotEmpty)
+                ListTile(
+                  leading:
+                      const Icon(Icons.visibility, color: Colors.white70),
+                  title: const Text(
+                    'Voir la photo',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    showDialog(
+                      context: context,
+                      builder: (_) => Dialog(
+                        child: InteractiveViewer(
+                          child: Image.network(photo),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+
+              // ===== Changer la photo =====
+              if (canEdit)
+                ListTile(
+                  leading:
+                      const Icon(Icons.photo_camera, color: Colors.white70),
+                  title: const Text(
+                    'Changer la photo',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+
+                    final picker = ImagePicker();
+                    final img = await picker.pickImage(
+                      source: ImageSource.gallery,
+                      maxWidth: 1000,
+                    );
+                    if (img == null) return;
+
+                    try {
+                      String url = '';
+
+                      if (SupabaseService.isInitialized) {
+                        final bytes =
+                            await File(img.path).readAsBytes();
+
+                        url = await SupabaseService.uploadBytes(
+                          bytes,
+                          'users/$uid/profile.jpg',
+                          'IDENTITY',
+                        );
+                      } else {
+                        final ref = FirebaseStorage.instance
+                            .ref()
+                            .child('users/$uid/profile.jpg');
+
+                        await ref.putFile(File(img.path));
+                        url = await ref.getDownloadURL();
+                      }
+
+                      if (uid == FirebaseAuth.instance.currentUser?.uid) {
+                        try {
+                          await FirebaseAuth.instance.currentUser
+                              ?.updatePhotoURL(url);
+                        } catch (_) {}
+                      }
+
+                      for (var c in [
+                        'classic_users',
+                        'pro_users',
+                        'enterprise_users'
+                      ]) {
+                        final doc =
+                            FirebaseFirestore.instance.collection(c).doc(uid);
+                        final snap = await doc.get();
+                        if (snap.exists) {
+                          await doc.update({
+                            'photoUrl': url,
+                            'photo': url,
+                          });
+                          break;
+                        }
+                      }
+
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Photo mise à jour'),
+                        ),
+                      );
+                    } catch (e) {
+                      debugPrint('update avatar err: $e');
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Erreur lors de l\'upload'),
+                        ),
+                      );
+                    }
+                  },
+                ),
+
+              // ===== Supprimer la photo =====
+              if (canEdit && photo.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.delete, color: Colors.white70),
+                  title: const Text(
+                    'Supprimer la photo',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (d) => AlertDialog(
+                        title: const Text('Confirmer'),
+                        content: const Text(
+                            'Supprimer la photo de profil ?'),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(d, false),
+                            child: const Text('Annuler'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(d, true),
+                            child: const Text('Supprimer'),
+                          ),
+                        ],
+                      ),
+                    );
+
+                    if (ok != true) return;
+
+                    try {
+                      if (SupabaseService.isInitialized) {
+                        await supabase.Supabase.instance.client.storage
+                            .from('IDENTITY')
+                            .remove(['users/$uid/profile.jpg']);
+                      } else {
+                        final ref = FirebaseStorage.instance
+                            .ref()
+                            .child('users/$uid/profile.jpg');
+                        await ref.delete();
+                      }
+                    } catch (_) {}
+
+                    try {
+                      for (var c in [
+                        'classic_users',
+                        'pro_users',
+                        'enterprise_users'
+                      ]) {
+                        final doc = FirebaseFirestore.instance
+                            .collection(c)
+                            .doc(uid);
+                        final snap = await doc.get();
+                        if (snap.exists) {
+                          await doc.update({
+                            'photoUrl': FieldValue.delete(),
+                            'photo': FieldValue.delete(),
+                          });
+                          break;
+                        }
+                      }
+
+                      if (uid == FirebaseAuth.instance.currentUser?.uid) {
+                        try {
+                          await FirebaseAuth.instance.currentUser
+                              ?.updatePhotoURL('');
+                        } catch (_) {}
+                      }
+
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Photo supprimée'),
+                        ),
+                      );
+                    } catch (e) {
+                      debugPrint('delete avatar err: $e');
+                    }
+                  },
+                ),
+
+              // ===== Annuler =====
+              ListTile(
+                leading: const Icon(Icons.close, color: Colors.white54),
+                title: const Text(
+                  'Annuler',
+                  style: TextStyle(color: Colors.white54),
+                ),
+                onTap: () => Navigator.pop(ctx),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }

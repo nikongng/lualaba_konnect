@@ -23,12 +23,15 @@ import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:lualaba_konnect/screnns/camera_screen.dart';
 import 'package:lualaba_konnect/screnns/media_preview_screen.dart';
 import 'package:lualaba_konnect/core/supabase_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:lottie/lottie.dart';
 import 'user_utils.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 
 const Color tgBg = Color(0xFF0B1418);
 const Color tgAccent = Color(0xFF00CBA9);
@@ -459,6 +462,7 @@ Future<void> _deleteContact(String otherId) async {
       }
       await chatRef.update(updateData);
       // --- Envoi d'une demande de notification au service notifier (client-to-server)
+// --- Envoi d'une demande de notification au service notifier (client-to-server)
       try {
         final user = FirebaseAuth.instance.currentUser;
         if (user != null) {
@@ -467,10 +471,21 @@ Future<void> _deleteContact(String otherId) async {
           final chatData = chatSnap.data() ?? {};
           final parts = (chatData['participants'] is List) ? List.from(chatData['participants']) : [];
           final recipients = parts.where((p) => p != user.uid).toList();
+
           if (recipients.isNotEmpty) {
-            final url = Uri.parse(const String.fromEnvironment('NOTIFIER_URL', defaultValue: 'https://example.com/sendNotification'));
-            final title = data['text'] ?? 'Nouveau message';
-            final body = data['text'] ?? '';
+            final url = Uri.parse(const String.fromEnvironment('NOTIFIER_URL', defaultValue: 'https://lualaba-konnect.onrender.com/sendNotification'));
+            
+            // On prépare le Nom et l'Avatar de l'utilisateur actuel
+          // Sécurité : si le nom est vide, on met "Un utilisateur"
+          final String senderName = (user.displayName != null && user.displayName!.isNotEmpty) 
+              ? user.displayName! 
+              : 'Un utilisateur';
+
+          // Sécurité : si la photo est vide, on met une icône par défaut
+          final String senderPhoto = (user.photoURL != null && user.photoURL!.isNotEmpty) 
+              ? user.photoURL! 
+              : 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+
             await http.post(
               url,
               headers: {
@@ -479,14 +494,18 @@ Future<void> _deleteContact(String otherId) async {
               },
               body: jsonEncode({
                 'recipients': recipients,
-                'title': title,
-                'body': body,
-                'data': { 'chatId': widget.chatId }
+                'title': senderName,         // IRA DANS HEADINGS (NOM EN GRAS)
+                'body': data['text'] ?? '',  // IRA DANS CONTENTS (LE MESSAGE)
+                'senderAvatarUrl': senderPhoto, // IRA DANS LARGE_ICON (L'AVATAR)
+                'data': { 
+                  'chatId': widget.chatId,
+                  'type': 'chat_message'
+                }
               }),
             );
           }
         }
-      } catch (e) {
+      }  catch (e) {
         debugPrint('Notifier call error: $e');
       }
     } catch (e) {
@@ -923,32 +942,54 @@ Future<void> _editContactLocal(String otherId) async {
               }
 
               if (otherId != null && otherId.isNotEmpty) {
-                return Row(
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: LinearGradient(colors: [Colors.white10, Colors.white12]),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 6, offset: const Offset(0, 2))],
+                return FutureBuilder<DocumentSnapshot?>(
+                  future: _getUserDoc(otherId),
+                  builder: (ctx, userSnap) {
+                    String photo = '';
+                    bool isCert = false;
+                    String resolvedNameTemp = name;
+                    if (userSnap.hasData && userSnap.data != null && userSnap.data!.exists) {
+                      final rawUd = userSnap.data!.data();
+                      final ud = rawUd is Map ? Map<String, dynamic>.from(rawUd as Map<String, dynamic>) : <String, dynamic>{};
+                      photo = (ud['photoUrl'] ?? ud['photo'] ?? ud['avatar'] ?? '') as String;
+                      if (ud['displayName'] is String && (ud['displayName'] as String).trim().isNotEmpty) {
+                        resolvedNameTemp = (ud['displayName'] as String).trim();
+                      } else if (ud['name'] is String && (ud['name'] as String).trim().isNotEmpty) {
+                        resolvedNameTemp = (ud['name'] as String).trim();
+                      }
+                      isCert = ud['isCertified'] == true;
+                    }
+
+                    final avatar = GestureDetector(
+                      onTap: () => _showAvatarActions(otherId, canEdit: otherId == currentUser?.uid, photoUrl: photo),
+                      child: Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: LinearGradient(colors: [Colors.white10, Colors.white12]),
+                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 6, offset: const Offset(0, 2))],
+                        ),
+                        child: CircleAvatar(
+                          radius: 18,
+                          backgroundColor: Colors.transparent,
+                          backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null,
+                          child: photo.isEmpty ? Text(avatarLetter, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)) : null,
+                        ),
                       ),
-                      child: CircleAvatar(radius: 18, backgroundColor: Colors.transparent, child: Text(avatarLetter, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                    ),
-                    const SizedBox(width: 12),
-                    FutureBuilder<DocumentSnapshot?>(
-                      future: _getUserDoc(otherId),
-                      builder: (ctx, userSnap) {
-                        bool isCert = false;
-                        if (userSnap.hasData && userSnap.data != null && userSnap.data!.exists) {
-                          final rawUd = userSnap.data!.data();
-                          final ud = rawUd is Map ? Map<String, dynamic>.from(rawUd as Map<String, dynamic>) : <String, dynamic>{};
-                          isCert = ud['isCertified'] == true;
-                        }
-                        return nameAndBadge(isCert);
-                      },
-                    ),
-                  ],
+                    );
+
+                    return Row(
+                      children: [
+                        avatar,
+                        const SizedBox(width: 12),
+                        // use resolvedNameTemp for display if available
+                        Builder(builder: (_) {
+                          return nameAndBadge(isCert);
+                        }),
+                      ],
+                    );
+                  },
                 );
               }
 
@@ -1154,7 +1195,8 @@ Future<void> _editContactLocal(String otherId) async {
       );
     }
 
-    return TweenAnimationBuilder<double>(
+    // Create the bubble widget (animation + content)
+    final bubbleWidget = TweenAnimationBuilder<double>(
       key: ValueKey(doc.id),
       tween: Tween(begin: 18.0, end: 0.0),
       duration: const Duration(milliseconds: 380),
@@ -1177,7 +1219,7 @@ Future<void> _editContactLocal(String otherId) async {
             maxWidth: MediaQuery.of(context).size.width * 0.78,
           ),
           decoration: bubbleDecoration,
-              child: Material(
+          child: Material(
             color: Colors.transparent,
             child: InkWell(
               borderRadius: bubbleDecoration.borderRadius as BorderRadius,
@@ -1216,6 +1258,54 @@ Future<void> _editContactLocal(String otherId) async {
           ),
         ),
       ),
+    );
+
+    // If the message is from the current user, show the bubble on the right as before
+    if (isMe) return bubbleWidget;
+
+    // For incoming messages, show avatar at left (load from user doc)
+    final senderId = (m['senderId'] ?? '') as String;
+    return FutureBuilder<DocumentSnapshot?>(
+      future: senderId.isNotEmpty ? _getUserDoc(senderId) : Future.value(null),
+      builder: (ctx, snap) {
+        String photo = '';
+        String avatarLetterLocal = '?';
+        if (snap.hasData && snap.data != null && snap.data!.exists) {
+          final raw = snap.data!.data();
+          final ud = raw is Map ? Map<String, dynamic>.from(raw as Map<String, dynamic>) : <String, dynamic>{};
+          photo = (ud['photoUrl'] ?? ud['photo'] ?? ud['avatar'] ?? '') as String;
+          final nm = ud['displayName'] ?? ud['name'] ?? '';
+          if (nm is String && nm.isNotEmpty) avatarLetterLocal = nm[0].toUpperCase();
+        } else {
+          // fallback to message senderName or id
+          final maybeName = (m['senderName'] ?? '') as String? ?? '';
+          if (maybeName.isNotEmpty) avatarLetterLocal = maybeName[0].toUpperCase();
+        }
+
+        final avatarWidget = GestureDetector(
+          onTap: () => _showAvatarActions(senderId, canEdit: senderId == currentUser?.uid, photoUrl: photo),
+          child: Container(
+            width: 36,
+            height: 36,
+            margin: const EdgeInsets.only(right: 8, left: 6),
+            decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 6)]),
+            child: CircleAvatar(
+              radius: 18,
+              backgroundColor: Colors.transparent,
+              backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null,
+              child: photo.isEmpty ? Text(avatarLetterLocal, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)) : null,
+            ),
+          ),
+        );
+
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            avatarWidget,
+            Expanded(child: bubbleWidget),
+          ],
+        );
+      },
     );
   }
 
@@ -1274,6 +1364,248 @@ Future<DocumentSnapshot?> _getUserDoc(String userId) async {
   // Aucun document trouvé
   return null;
 }
+
+Future<void> _showAvatarActions(
+  String uid, {
+  required bool canEdit,
+  String? photoUrl,
+}) async {
+  final photo = photoUrl ?? '';
+
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) {
+      return SafeArea(
+        child: Container(
+          decoration: BoxDecoration(
+            color: tgBar,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          ),
+          child: Wrap(
+            children: [
+              // =======================
+              // VOIR LA PHOTO
+              // =======================
+              if (photo.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.visibility, color: Colors.white70),
+                  title: const Text(
+                    'Voir la photo',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    showDialog(
+                      context: context,
+                      builder: (_) => Dialog(
+                        child: InteractiveViewer(
+                          child: Image.network(photo),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+
+              // =======================
+              // CHANGER LA PHOTO
+              // =======================
+              if (canEdit)
+                ListTile(
+                  leading:
+                      const Icon(Icons.photo_camera, color: Colors.white70),
+                  title: const Text(
+                    'Changer la photo',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+
+                    final picker = ImagePicker();
+                    final img = await picker.pickImage(
+                      source: ImageSource.gallery,
+                      maxWidth: 1000,
+                    );
+                    if (img == null) return;
+
+                    try {
+                      String url = '';
+
+                      // 🔹 SUPABASE
+                      if (SupabaseService.isInitialized) {
+                        final bytes =
+                            await File(img.path).readAsBytes();
+
+                        url = await SupabaseService.uploadBytes(
+                          bytes,
+                          'users/$uid/profile.jpg',
+                          'IDENTITY',
+                        );
+                      }
+                      // 🔹 FIREBASE
+                      else {
+                        final ref = FirebaseStorage.instance
+                            .ref()
+                            .child('users/$uid/profile.jpg');
+
+                        await ref.putFile(File(img.path));
+                        url = await ref.getDownloadURL();
+                      }
+
+                      // Mise à jour du profil Firebase Auth
+                      if (uid == currentUser?.uid) {
+                        try {
+                          await FirebaseAuth.instance.currentUser
+                              ?.updatePhotoURL(url);
+                        } catch (_) {}
+                      }
+
+                      // Mise à jour Firestore
+                      for (var c in [
+                        'classic_users',
+                        'pro_users',
+                        'enterprise_users'
+                      ]) {
+                        final doc =
+                            FirebaseFirestore.instance.collection(c).doc(uid);
+                        final snap = await doc.get();
+                        if (snap.exists) {
+                          await doc.update({
+                            'photoUrl': url,
+                            'photo': url,
+                          });
+                          break;
+                        }
+                      }
+
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Photo mise à jour'),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      debugPrint('update avatar err: $e');
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Erreur lors de l\'upload'),
+                          ),
+                        );
+                      }
+                    }
+                  },
+                ),
+
+              // =======================
+              // SUPPRIMER LA PHOTO
+              // =======================
+              if (canEdit && photo.isNotEmpty)
+                ListTile(
+                  leading: const Icon(Icons.delete, color: Colors.white70),
+                  title: const Text(
+                    'Supprimer la photo',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(ctx);
+
+                    final ok = await showDialog<bool>(
+                      context: context,
+                      builder: (d) => AlertDialog(
+                        title: const Text('Confirmer'),
+                        content: const Text(
+                          'Supprimer la photo de profil ?',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(d, false),
+                            child: const Text('Annuler'),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.pop(d, true),
+                            child: const Text('Supprimer'),
+                          ),
+                        ],
+                      ),
+                    );
+
+                    if (ok != true) return;
+
+                    // 🔹 Suppression STORAGE
+                    try {
+                      if (SupabaseService.isInitialized) {
+                        await Supabase.instance.client.storage
+                            .from('IDENTITY')
+                            .remove(['users/$uid/profile.jpg']);
+                      } else {
+                        final ref = FirebaseStorage.instance
+                            .ref()
+                            .child('users/$uid/profile.jpg');
+                        await ref.delete();
+                      }
+                    } catch (_) {}
+
+                    // 🔹 Suppression Firestore + Auth
+                    try {
+                      for (var c in [
+                        'classic_users',
+                        'pro_users',
+                        'enterprise_users'
+                      ]) {
+                        final doc = FirebaseFirestore.instance
+                            .collection(c)
+                            .doc(uid);
+                        final snap = await doc.get();
+                        if (snap.exists) {
+                          await doc.update({
+                            'photoUrl': FieldValue.delete(),
+                            'photo': FieldValue.delete(),
+                          });
+                          break;
+                        }
+                      }
+
+                      if (uid == currentUser?.uid) {
+                        try {
+                          await FirebaseAuth.instance.currentUser
+                              ?.updatePhotoURL('');
+                        } catch (_) {}
+                      }
+
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Photo supprimée'),
+                          ),
+                        );
+                      }
+                    } catch (e) {
+                      debugPrint('delete avatar err: $e');
+                    }
+                  },
+                ),
+
+              // =======================
+              // ANNULER
+              // =======================
+              ListTile(
+                leading: const Icon(Icons.close, color: Colors.white54),
+                title: const Text(
+                  'Annuler',
+                  style: TextStyle(color: Colors.white54),
+                ),
+                onTap: () => Navigator.pop(ctx),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
 
   Future<void> _deleteMessageForMe(DocumentReference ref) async {
     if (currentUser == null) return;

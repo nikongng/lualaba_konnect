@@ -14,7 +14,6 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        // AJOUTE CETTE LIGNE - Crucial pour régler l'erreur flutter_local_notifications
         isCoreLibraryDesugaringEnabled = true 
 
         sourceCompatibility = JavaVersion.VERSION_17
@@ -28,23 +27,24 @@ android {
     defaultConfig {
         applicationId = "com.example.lualaba_konnect"
         
-        // CONSEIL : Si l'erreur persiste, change flutter.minSdkVersion par 21 ici
-        minSdk = flutter.minSdkVersion 
+        // MODIFICATION ICI : Forcer le minSdk à 21 pour WebRTC
+        // flutter.minSdkVersion est souvent trop bas (16 ou 19)
+        minSdk = 21 
         
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         
-        // Utile pour éviter les erreurs de limite de méthodes
         multiDexEnabled = true
     }
 
     buildTypes {
         getByName("debug") {
-            // Pas de keystore nécessaire pour debug
+            // Pas de changement
         }
         getByName("release") {
             signingConfig = signingConfigs.getByName("debug")
+            // Conseil : Pour la production, vous passerez minifyEnabled à true
             isMinifyEnabled = false
             isShrinkResources = false
         }
@@ -56,9 +56,6 @@ flutter {
 }
 
 dependencies {
-    // Cette ligne est correcte, elle fonctionne avec isCoreLibraryDesugaringEnabled ci-dessus
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
     implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
-    // Ajoute la dépendance pour Cloud Messaging
-    implementation("com.google.firebase:firebase-messaging")
 }

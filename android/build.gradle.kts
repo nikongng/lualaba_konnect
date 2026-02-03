@@ -17,6 +17,13 @@ allprojects {
     }
 }
 
+// Ensure Java/Kotlin compile target is modern to suppress obsolete-8 warnings
+tasks.withType(org.gradle.api.tasks.compile.JavaCompile::class.java).configureEach {
+    sourceCompatibility = "17"
+    targetCompatibility = "17"
+    options.release.set(17)
+}
+
 // Ta configuration personnalisée du répertoire de build
 val newBuildDir: Directory =
     rootProject.layout.buildDirectory
