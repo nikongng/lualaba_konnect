@@ -48,8 +48,8 @@ class _CallWebRTCPageState extends State<CallWebRTCPage> with SingleTickerProvid
   late Stopwatch _stopwatch;
   late Timer _timer;
   late AnimationController _pulseController;
-  String _networkQuality = 'Stable';
-  Color _networkColor = Colors.greenAccent;
+  final String _networkQuality = 'Stable';
+  final Color _networkColor = Colors.greenAccent;
 
   @override
   void initState() {

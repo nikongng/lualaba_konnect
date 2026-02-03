@@ -23,7 +23,6 @@ import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:lualaba_konnect/screnns/camera_screen.dart';
 import 'package:lualaba_konnect/screnns/media_preview_screen.dart';
 import 'package:lualaba_konnect/core/supabase_service.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:lottie/lottie.dart';
 import 'user_utils.dart';
 import 'package:audioplayers/audioplayers.dart';

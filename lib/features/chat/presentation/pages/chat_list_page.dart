@@ -1539,7 +1539,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
         final res = await FirebaseFirestore.instance.collection(col).where('email', isEqualTo: email).limit(1).get();
         if (res.docs.isNotEmpty) {
           final d = res.docs.first;
-          final data = d.data() as Map<String, dynamic>;
+          final data = d.data();
           appUsers.add({
             'uid': d.id,
             'name': data['displayName'] ?? data['name'] ?? ct.displayName,
@@ -1558,7 +1558,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
     if (user != null) {
       final chatSnap = await FirebaseFirestore.instance.collection('chats').where('participants', arrayContains: user.uid).get();
       for (final d in chatSnap.docs) {
-        final data = d.data() as Map<String, dynamic>;
+        final data = d.data();
         final participants = List<String>.from(data['participants'] ?? []);
         for (final p in participants) {
           if (p != user.uid) existingChatUids.add(p);
@@ -1704,7 +1704,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                                   backgroundImage: memberPhotos[uid] != null
                                       ? FileImage(File(memberPhotos[uid]!.path))
                                       : (photo.isNotEmpty ? NetworkImage(photo) as ImageProvider : null),
-                                  child: (memberPhotos[uid] == null && (photo == null || photo.isEmpty)) ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?') : null,
+                                  child: (memberPhotos[uid] == null && (photo.isEmpty)) ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?') : null,
                                 ),
                               ),
                               title: Text(name, style: const TextStyle(color: Colors.white)),
@@ -1768,11 +1768,11 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                           try {
                             String url = '';
                             if (SupabaseService.isInitialized) {
-                              final bytes = await File(xLocal!.path).readAsBytes();
+                              final bytes = await File(xLocal.path).readAsBytes();
                               url = await SupabaseService.uploadBytes(bytes, '${newChatRef.id}/members/$uid.jpg', 'chats');
                             } else {
                               final r = FirebaseStorage.instance.ref().child('chats/${newChatRef.id}/members/$uid.jpg');
-                              await r.putFile(File(xLocal!.path));
+                              await r.putFile(File(xLocal.path));
                               url = await r.getDownloadURL();
                             }
                             memberAvatars[uid] = url;

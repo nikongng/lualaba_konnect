@@ -111,7 +111,7 @@ class NotificationService {
           final String title = (n?.title ?? n?.heading ?? n?.notification?.title ?? '')?.toString() ?? 'Lualaba Konnect';
           final String body = (n?.body ?? n?.content ?? n?.notification?.body ?? '')?.toString() ?? '';
           dynamic data = n?.additionalData ?? n?.data ?? n?.notification?.additionalData ?? {};
-          if (data == null) data = {};
+          data ??= {};
 
           // Build a payload string type if present
           String? type;
