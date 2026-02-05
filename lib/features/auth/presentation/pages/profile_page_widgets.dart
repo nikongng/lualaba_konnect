@@ -43,7 +43,16 @@ class ProfilePageWidgets {
   }
 
   // --- CARTE PREMIUM ---
-  static Widget buildPremiumCard(bool isDark, Color textColor) {
+  static Widget buildPremiumCard(
+    bool isDark,
+    Color textColor, {
+    required double usedGb,
+    double? totalGb,
+    String? sourceLabel,
+    DateTime? updatedAt,
+    bool isRefreshing = false,
+    VoidCallback? onRefresh,
+  }) {
     final bg = isDark ? const Color(0xFF0F171A) : Colors.white;
     final accent = Colors.orange;
     final iconColor = isDark ? Colors.greenAccent : Colors.green;
@@ -75,20 +84,39 @@ class ProfilePageWidgets {
                   Text("Lualaba Premium", style: TextStyle(color: textColor, fontSize: 18, fontWeight: FontWeight.bold)),
                 ]
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), 
-                decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(10)), 
-                child: const Text("ACTIF", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900))
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6), 
+                    decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(10)), 
+                    child: const Text("ACTIF", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900))
+                  ),
+                  const SizedBox(width: 8),
+                  InkWell(
+                    onTap: onRefresh,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: (isDark ? Colors.white10 : Colors.black12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: isRefreshing
+                          ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                          : Icon(Icons.refresh, size: 16, color: textColor.withOpacity(0.8)),
+                    ),
+                  ),
+                ],
               ),
             ]
           ),
           const SizedBox(height: 20),
-          Text("Data LAN Utilisée : 45GB / Illimité", style: TextStyle(color: subtitleColor, fontSize: 12)),
+          Text(_formatDataLabel(usedGb, totalGb, sourceLabel: sourceLabel, updatedAt: updatedAt), style: TextStyle(color: _statusColor(subtitleColor, sourceLabel), fontSize: 12)),
           const SizedBox(height: 10),
           ClipRRect(
             borderRadius: BorderRadius.circular(10),
             child: LinearProgressIndicator(
-              value: 0.45, 
+              value: _progressValue(usedGb, totalGb), 
               backgroundColor: isDark ? Colors.white10 : Colors.grey[200], 
               color: accent, 
               minHeight: 8
@@ -105,6 +133,50 @@ class ProfilePageWidgets {
         ],
       ),
     );
+  }
+
+  static String _formatDataLabel(double usedGb, double? totalGb, {String? sourceLabel, DateTime? updatedAt}) {
+    String used = _formatSize(usedGb);
+    String suffix = '';
+    if (updatedAt != null) {
+      final y = updatedAt.year.toString().padLeft(4, '0');
+      final m = updatedAt.month.toString().padLeft(2, '0');
+      final d = updatedAt.day.toString().padLeft(2, '0');
+      final hh = updatedAt.hour.toString().padLeft(2, '0');
+      final mm = updatedAt.minute.toString().padLeft(2, '0');
+      suffix = " (MàJ: $y-$m-$d $hh:$mm)";
+    }
+    if (sourceLabel != null && sourceLabel.isNotEmpty) {
+      final src = sourceLabel.toLowerCase() == 'live' ? 'live' : 'cache';
+      suffix = "$suffix [$src]";
+    }
+    if (totalGb == null || !totalGb.isFinite || totalGb <= 0) {
+      return "Data LAN Utilisée : $used / Illimité$suffix";
+    }
+    String total = _formatSize(totalGb);
+    return "Data LAN Utilisée : $used / $total$suffix";
+  }
+
+  static double _progressValue(double usedGb, double? totalGb) {
+    if (totalGb == null || !totalGb.isFinite || totalGb <= 0) return 0.0;
+    final v = usedGb / totalGb;
+    if (!v.isFinite) return 0.0;
+    return v.clamp(0.0, 1.0);
+  }
+
+  static String _formatSize(double? gb) {
+    if (gb == null || !gb.isFinite) return "0.00GB";
+    if (gb < 1) {
+      final mb = gb * 1024;
+      return "${mb.toStringAsFixed(0)}MB";
+    }
+    return "${gb.toStringAsFixed(2)}GB";
+  }
+
+  static Color _statusColor(Color base, String? sourceLabel) {
+    if (sourceLabel == null || sourceLabel.isEmpty) return base;
+    if (sourceLabel.toLowerCase() == 'live') return Colors.greenAccent;
+    return base;
   }
 
   // --- TITRE DE SECTION ---

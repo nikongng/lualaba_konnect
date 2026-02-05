@@ -1,6 +1,6 @@
 class UserUtils {
   static String formatName(Map<String, dynamic>? data) {
-    if (data == null) return "Utilisateur";
+    if (data == null) return '';
 
     // 1. Test des combinaisons Prénom + Nom
     final firstKeys = ['firstName', 'firstname', 'prenom', 'givenName'];
@@ -33,6 +33,6 @@ class UserUtils {
       }
     }
 
-    return "Utilisateur";
+    return '';
   }
 }

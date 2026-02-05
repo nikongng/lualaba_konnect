@@ -78,8 +78,26 @@ class _CallWebRTCPageState extends State<CallWebRTCPage> with SingleTickerProvid
       callId: widget.callId,
       otherId: widget.otherId,
       isCaller: widget.isCaller,
-      onLocalStream: (s) => setState(() => _localRenderer.srcObject = s),
-      onRemoteStream: (s) => setState(() => _remoteRenderer.srcObject = s),
+      onLocalStream: (s) {
+        if (!mounted) return;
+        try {
+          setState(() {
+            _localRenderer.srcObject = s;
+          });
+        } catch (e) {
+          debugPrint('safe onLocalStream assign error: $e');
+        }
+      },
+      onRemoteStream: (s) {
+        if (!mounted) return;
+        try {
+          setState(() {
+            _remoteRenderer.srcObject = s;
+          });
+        } catch (e) {
+          debugPrint('safe onRemoteStream assign error: $e');
+        }
+      },
       onStateChanged: (st) {
         if (!mounted) return;
         setState(() {
@@ -109,7 +127,29 @@ class _CallWebRTCPageState extends State<CallWebRTCPage> with SingleTickerProvid
 
   Future<void> _startCallFlow() async {
     try {
-      await [Permission.camera, Permission.microphone].request();
+      final statuses = await [Permission.camera, Permission.microphone].request();
+
+      // Check camera permission when video is requested
+      if (widget.isVideo) {
+        final camStatus = statuses[Permission.camera];
+        if (camStatus == null || !camStatus.isGranted) {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Permission caméra requise pour appeler en vidéo')));
+          // If permanently denied, open app settings
+          if (camStatus != null && camStatus.isPermanentlyDenied) {
+            openAppSettings();
+          }
+          return;
+        }
+      }
+
+      // Check microphone permission
+      final micStatus = statuses[Permission.microphone];
+      if (micStatus == null || !micStatus.isGranted) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Permission microphone requise')));
+        if (micStatus != null && micStatus.isPermanentlyDenied) openAppSettings();
+        return;
+      }
+
       await _logic.openUserMedia(video: widget.isVideo);
       widget.isCaller ? await _logic.startAsCaller() : await _logic.startAsCallee();
     } catch (e) {

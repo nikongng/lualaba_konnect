@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'account_choice_page.dart';
+import 'forgot_password_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'ModernDashboard.dart';
@@ -454,9 +455,10 @@ class _AuthMainPageState extends State<AuthMainPage> {
   }
 
   Widget _buildLoginForm() {
+    final double kb = MediaQuery.of(context).viewInsets.bottom;
     return SingleChildScrollView(
       key: const ValueKey("login_form_content"),
-      padding: const EdgeInsets.fromLTRB(30, 0, 30, 30),
+      padding: EdgeInsets.fromLTRB(30, 0, 30, kb > 0 ? kb + 12 : 12),
       child: Column(
         children: [
           _buildProfileImage(),
@@ -496,7 +498,7 @@ class _AuthMainPageState extends State<AuthMainPage> {
               ),
               TextButton(
                 onPressed: () {
-                  // Optionnel: implémenter reset password ici
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const ForgotPasswordPage()));
                 },
                 child: const Text("Mot de passe oublié ?", style: TextStyle(color: Colors.orange, fontSize: 13, fontWeight: FontWeight.bold)),
               ),

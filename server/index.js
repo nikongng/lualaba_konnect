@@ -22,6 +22,41 @@ const USER_COLLECTIONS = ['classic_users', 'pro_users', 'enterprise_users'];
 const ONE_SIGNAL_APP_ID = process.env.ONE_SIGNAL_APP_ID || '';
 const ONE_SIGNAL_REST_KEY = process.env.ONE_SIGNAL_REST_KEY || '';
 const METERED_API_KEY = process.env.METERED_API_KEY; // Clé récupérée via .env
+const METALS_API_KEY = process.env.METALS_API_KEY || '';
+
+// Cache métaux en mémoire (rafraîchit 1 fois/jour)
+const metalsCache = {
+    data: null,
+    fetchedAt: 0,
+    asOf: '',
+    currency: 'USD',
+    unit: 't',
+};
+
+function _todayKey() {
+    return new Date().toISOString().slice(0, 10);
+}
+
+async function _fetchMetalsLME() {
+    if (!METALS_API_KEY) {
+        throw new Error('METALS_API_KEY missing on server');
+    }
+    const url = `https://api.metals.dev/v1/latest?api_key=${METALS_API_KEY}&currency=${metalsCache.currency}&unit=${metalsCache.unit}`;
+    const resp = await fetch(url);
+    if (!resp.ok) {
+        const t = await resp.text();
+        throw new Error(`Metals API error ${resp.status}: ${t}`);
+    }
+    const payload = await resp.json();
+    const metals = payload && payload.metals ? payload.metals : null;
+    if (!metals || typeof metals !== 'object') {
+        throw new Error('Metals payload invalid');
+    }
+    metalsCache.data = metals;
+    metalsCache.fetchedAt = Date.now();
+    metalsCache.asOf = _todayKey();
+    return metals;
+}
 
 // Helper pour récupérer les IDs OneSignal
 async function getOneSignalPlayersForUid(uid) {
@@ -56,6 +91,41 @@ app.get('/', (req, res) => res.json({
     service: 'notifier-webrtc-bridge', 
     mode: 'production' 
 }));
+
+// --- ROUTE : PRIX METAUX (CACHE JOURNALIER) ---
+app.get('/metals-lme', async (req, res) => {
+    try {
+        const force = req.query.force === '1';
+        const today = _todayKey();
+        const cacheValid = metalsCache.data && metalsCache.asOf === today;
+
+        if (!force && cacheValid) {
+            return res.json({
+                ok: true,
+                source: 'cache',
+                asOf: metalsCache.asOf,
+                updatedAt: metalsCache.fetchedAt,
+                currency: metalsCache.currency,
+                unit: metalsCache.unit,
+                metals: metalsCache.data,
+            });
+        }
+
+        const metals = await _fetchMetalsLME();
+        return res.json({
+            ok: true,
+            source: 'metals.dev',
+            asOf: metalsCache.asOf,
+            updatedAt: metalsCache.fetchedAt,
+            currency: metalsCache.currency,
+            unit: metalsCache.unit,
+            metals,
+        });
+    } catch (e) {
+        console.error('Metals cache error:', e.message);
+        return res.status(500).json({ ok: false, error: 'metals_fetch_failed' });
+    }
+});
 
 // --- ROUTE : CONFIGURATION WEBRTC DYNAMIQUE (STUN + TURN) ---
 // Cette route privilégie STUN (gratuit) et utilise Metered (TURN) en secours
@@ -120,7 +190,7 @@ app.post('/sendNotification', async (req, res) => {
             large_icon: req.body.senderAvatarUrl || '', 
             big_picture: req.body.imageUrl || '',
             priority: 10, 
-            android_channel_id: isCall ? "calls_channel" : "messages_channel",
+            android_channel_id: isCall ? "94ab1e00-53da-497e-bf3a-4b0936d269df" : "messages_channel",
             android_group: isCall ? "calls_group" : "messages_group",
             buttons: isCall ? [
                 { id: "accept", text: "Répondre", icon: "ic_menu_call" },

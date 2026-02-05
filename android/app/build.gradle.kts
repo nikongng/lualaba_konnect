@@ -29,7 +29,7 @@ android {
         
         // MODIFICATION ICI : Forcer le minSdk à 21 pour WebRTC
         // flutter.minSdkVersion est souvent trop bas (16 ou 19)
-        minSdk = 21 
+        minSdk = flutter.minSdkVersion 
         
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

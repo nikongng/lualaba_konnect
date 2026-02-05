@@ -191,6 +191,36 @@ class NotificationService {
     );
   }
 
+  // --- ACTIVER/DESACTIVER LES NOTIFICATIONS ---
+  static Future<void> setEnabled(bool enabled) async {
+    try {
+      if (kIsWeb) return;
+      final dynamic os = OneSignal();
+      // Newer API
+      try {
+        await os.disablePush(!enabled);
+        if (!enabled) {
+          try { await _fln.cancelAll(); } catch (_) {}
+        }
+        return;
+      } catch (_) {}
+      // Older API
+      try {
+        await os.setSubscription(enabled);
+        if (!enabled) {
+          try { await _fln.cancelAll(); } catch (_) {}
+        }
+        return;
+      } catch (_) {}
+      // Consent based
+      try {
+        await os.consentGranted(enabled);
+      } catch (_) {}
+    } catch (e) {
+      debugPrint('NotificationService.setEnabled error: $e');
+    }
+  }
+
   static String _platformName() {
     if (kIsWeb) return 'web';
     switch (defaultTargetPlatform) {

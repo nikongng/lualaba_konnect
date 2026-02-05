@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:lualaba_konnect/core/config.dart';
 
 /// ===============================
 /// PAGE : LISTE DES CONVERSATIONS
@@ -259,8 +260,7 @@ Future<void> _send() async {
 
     // 2. Envoi de la notification via ton serveur Render
     final idToken = await user.getIdToken();
-    final url = Uri.parse(const String.fromEnvironment('NOTIFIER_URL', 
-        defaultValue: 'https://lualaba-konnect.onrender.com/sendNotification'));
+    final url = Uri.parse(kNotifierUrl);
         await http.post(
       url,
       headers: {
@@ -293,6 +293,8 @@ Future<void> _send() async {
       .where('participants', arrayContains: uid)
       // Use local timestamp for stable ordering on client
       .orderBy('createdAtLocal', descending: false);
+
+    final double kb = MediaQuery.of(context).viewInsets.bottom;
 
     return Scaffold(
       appBar: AppBar(title: Text(widget.productName)),
@@ -384,21 +386,24 @@ Future<void> _send() async {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _ctrl,
-                    decoration:
-                        const InputDecoration(hintText: 'Message...'),
+            padding: EdgeInsets.only(bottom: kb > 0 ? kb : 6.0),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8.0,2.0,8.0,2.0),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _ctrl,
+                      decoration:
+                          const InputDecoration(hintText: 'Message...'),
+                    ),
                   ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.send, color: Colors.orange),
-                  onPressed: _send,
-                ),
-              ],
+                  IconButton(
+                    icon: const Icon(Icons.send, color: Colors.orange),
+                    onPressed: _send,
+                  ),
+                ],
+              ),
             ),
           ),
         ],

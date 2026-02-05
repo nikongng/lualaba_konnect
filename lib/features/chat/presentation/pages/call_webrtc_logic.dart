@@ -134,9 +134,28 @@ class CallWebRTCLogic {
       }
     };
 
-    pc.onTrack = (RTCTrackEvent event) {
-      if (event.streams.isNotEmpty) {
-        onRemoteStream?.call(event.streams[0]);
+    pc.onTrack = (RTCTrackEvent event) async {
+      try {
+        if (event.streams.isNotEmpty) {
+          _log('onTrack: received stream with id=${event.streams[0].id}');
+          onRemoteStream?.call(event.streams[0]);
+          return;
+        }
+
+        // Fallback: some platforms deliver track without streams — wrap track in a MediaStream
+        if (event.track != null) {
+          _log('onTrack: received track id=${event.track?.id}, creating MediaStream fallback');
+          try {
+            final ms = await createLocalMediaStream('remote_${event.track?.id ?? DateTime.now().millisecondsSinceEpoch}');
+            await ms.addTrack(event.track!);
+            onRemoteStream?.call(ms);
+            return;
+          } catch (e) {
+            _log('onTrack fallback failed: $e');
+          }
+        }
+      } catch (e) {
+        _log('onTrack handler error: $e');
       }
     };
 

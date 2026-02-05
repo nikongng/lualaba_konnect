@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:video_player/video_player.dart';
@@ -21,7 +23,9 @@ class _MediaPreviewScreenState extends State<MediaPreviewScreen> {
   void initState() {
     super.initState();
     if (widget.type == 'video') {
-      _initVideoPlayer();
+      if (!kIsWeb) {
+        _initVideoPlayer();
+      }
     }
   }
 
@@ -61,13 +65,23 @@ class _MediaPreviewScreenState extends State<MediaPreviewScreen> {
           Expanded(
             child: Center(
               child: widget.type == 'image'
-                  ? Image.file(File(widget.mediaFile.path), fit: BoxConstraints.expand().biggest.aspectRatio > 1 ? BoxFit.contain : BoxFit.cover)
+                  ? (kIsWeb
+                      ? FutureBuilder<Uint8List>(
+                          future: widget.mediaFile.readAsBytes(),
+                          builder: (ctx, snap) {
+                            if (snap.hasData) {
+                              return Image.memory(snap.data!, fit: BoxConstraints.expand().biggest.aspectRatio > 1 ? BoxFit.contain : BoxFit.cover);
+                            }
+                            return const CircularProgressIndicator();
+                          },
+                        )
+                      : Image.file(File(widget.mediaFile.path), fit: BoxConstraints.expand().biggest.aspectRatio > 1 ? BoxFit.contain : BoxFit.cover))
                   : (_videoController != null && _videoController!.value.isInitialized
                       ? AspectRatio(
                           aspectRatio: _videoController!.value.aspectRatio,
                           child: VideoPlayer(_videoController!),
                         )
-                      : CircularProgressIndicator(color: Colors.black54)),
+                      : const CircularProgressIndicator(color: Colors.black54)),
             ),
           ),
           

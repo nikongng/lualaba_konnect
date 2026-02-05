@@ -23,6 +23,7 @@ import '../widgets/weather_widget.dart';
 import '../widgets/header_widget.dart';
 import '../widgets/masta_card.dart';
 import '../widgets/copper_card.dart';
+import '../../../../core/notification_service.dart';
 
 final List<Map<String, dynamic>> lualabaNewsData = [
   {'source': 'Lualaba News', 'title': 'Nouveau projet minier à Kolwezi', 'images': ['https://placeholder.com/150']},
@@ -44,12 +45,108 @@ class _ModernDashboardState extends State<ModernDashboard> {
   final GlobalKey<ChatListPageState> _chatKey = GlobalKey<ChatListPageState>();
   int _selectedIndex = 0;
   bool _isDarkMode = true;
+  bool _notificationsEnabled = true;
+  double _dataLanUsedGb = 0;
+  double? _dataLanTotalGb;
+  String _dataLanSource = 'cache';
+  DateTime? _dataLanUpdatedAt;
+  bool _isRefreshingLan = false;
   // --- partage alerte ---
   List<Map<String, String>> _contacts = [];
   List<Map<String, String>> _savedRecipients = [];
   final Set<String> _selectedEmails = {};
   String _messageType = 'auto';
   bool _isSendingAlert = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadNotificationPref();
+    _loadDataLanUsage();
+  }
+
+  Future<void> _loadNotificationPref() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final enabled = prefs.getBool('notifications_enabled');
+      if (enabled != null && mounted) {
+        setState(() => _notificationsEnabled = enabled);
+      }
+    } catch (_) {}
+  }
+
+  double? _parseNum(dynamic v) {
+    if (v == null) return null;
+    if (v is num) return v.toDouble();
+    try { return double.parse(v.toString()); } catch (_) { return null; }
+  }
+
+  Future<void> _loadDataLanUsage() async {
+    if (mounted) setState(() => _isRefreshingLan = true);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedUsed = prefs.getDouble('data_lan_used_gb');
+      final cachedTotal = prefs.getDouble('data_lan_total_gb');
+      final cachedUpdatedAt = prefs.getInt('data_lan_updated_at');
+      if (mounted) {
+        if (cachedUsed != null) _dataLanUsedGb = cachedUsed;
+        if (cachedTotal != null) _dataLanTotalGb = cachedTotal;
+        if (cachedUpdatedAt != null) _dataLanUpdatedAt = DateTime.fromMillisecondsSinceEpoch(cachedUpdatedAt);
+        _dataLanSource = 'cache';
+        setState(() {});
+      }
+
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final cols = ['classic_users', 'pro_users', 'enterprise_users'];
+      Map<String, dynamic>? data;
+      for (final col in cols) {
+        final snap = await FirebaseFirestore.instance.collection(col).doc(user.uid).get();
+        if (snap.exists) {
+          data = snap.data();
+          break;
+        }
+      }
+      if (data == null) return;
+
+      final used = _parseNum(data['dataLanUsedGb']) ??
+          _parseNum(data['dataLanUsed']) ??
+          _parseNum(data['dataUsedGb']) ??
+          _parseNum(data['dataUsed']) ??
+          _parseNum(data['dataUsageGb']) ??
+          _parseNum(data['lanUsedGb']);
+
+      final total = _parseNum(data['dataLanTotalGb']) ??
+          _parseNum(data['dataLanTotal']) ??
+          _parseNum(data['dataTotalGb']) ??
+          _parseNum(data['dataCapGb']) ??
+          _parseNum(data['dataLimitGb']) ??
+          _parseNum(data['lanTotalGb']);
+
+      if (used != null) {
+        await prefs.setDouble('data_lan_used_gb', used);
+        if (mounted) {
+          _dataLanUsedGb = used;
+          _dataLanSource = 'live';
+          _dataLanUpdatedAt = DateTime.now();
+          setState(() {});
+        }
+      }
+      if (total != null) {
+        await prefs.setDouble('data_lan_total_gb', total);
+        if (mounted) {
+          _dataLanTotalGb = total;
+          _dataLanSource = 'live';
+          _dataLanUpdatedAt = DateTime.now();
+          setState(() {});
+        }
+      }
+      if (used != null || total != null) {
+        await prefs.setInt('data_lan_updated_at', DateTime.now().millisecondsSinceEpoch);
+      }
+    } catch (_) {}
+    if (mounted) setState(() => _isRefreshingLan = false);
+  }
 
   // --- FONCTIONS SOS ---
   Future<void> _makeCall(String phoneNumber) async {
@@ -896,7 +993,16 @@ Widget _buildProfilePage(bool isDark, Color textColor, {Key? key}) {
           const SizedBox(height: 25),
 
           // 2. TA CARTE PREMIUM
-          ProfilePageWidgets.buildPremiumCard(isDark, textColor),
+          ProfilePageWidgets.buildPremiumCard(
+            isDark,
+            textColor,
+            usedGb: _dataLanUsedGb,
+            totalGb: _dataLanTotalGb,
+            sourceLabel: _dataLanSource,
+            updatedAt: _dataLanUpdatedAt,
+            isRefreshing: _isRefreshingLan,
+            onRefresh: _loadDataLanUsage,
+          ),
           
           const SizedBox(height: 25),
 
@@ -916,8 +1022,17 @@ Widget _buildProfilePage(bool isDark, Color textColor, {Key? key}) {
           // --- SECTION : PRÉFÉRENCES ---
           ProfilePageWidgets.sectionTitle("PRÉFÉRENCES", Colors.orange),
           ProfilePageWidgets.settingsSwitchTile(
-            Icons.notifications_none, "Notifications", true, 
-            isDark ? Colors.white.withOpacity(0.05) : Colors.white, textColor, (val) {}
+            Icons.notifications_none, "Notifications", _notificationsEnabled,
+            isDark ? Colors.white.withOpacity(0.05) : Colors.white,
+            textColor,
+            (val) async {
+              setState(() => _notificationsEnabled = val);
+              try {
+                final prefs = await SharedPreferences.getInstance();
+                await prefs.setBool('notifications_enabled', val);
+              } catch (_) {}
+              await NotificationService.setEnabled(val);
+            },
           ),
           ProfilePageWidgets.settingsTile(
             Icons.language, "Langue", 

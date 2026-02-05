@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
+import 'package:intl/intl.dart';
 
 class StoryViewerPage extends StatefulWidget {
   final List<DocumentSnapshot> stories;
@@ -66,19 +67,35 @@ void _loadStory({required int index, bool animatePage = true}) async {
     _pageController.jumpToPage(index);
   }
 
+  // Enregistrer la vue pour la story courante
+  _recordViewForStory(index);
+
   if (videoUrl != null && videoUrl.isNotEmpty) {
     _videoController = VideoPlayerController.networkUrl(Uri.parse(videoUrl))
       ..initialize().then((_) {
+        if (!mounted) return;
         setState(() {});
-        if (mounted) {
-          _animController.duration = _videoController!.value.duration; // La barre suit la vidéo
-          _videoController!.play();
-          _animController.forward();
-        }
+        _animController.duration = _videoController!.value.duration; // La barre suit la vidéo
+        _videoController!.play();
+        _animController.forward();
       });
   } else {
     _animController.duration = const Duration(seconds: 5); // Image = 5 sec
     _animController.forward();
+  }
+}
+
+Future<void> _recordViewForStory(int index) async {
+  try {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final doc = widget.stories[index];
+    final id = doc.id;
+    final name = FirebaseAuth.instance.currentUser?.displayName ?? '';
+    final ref = FirebaseFirestore.instance.collection('stories').doc(id).collection('views').doc(uid);
+    await ref.set({'viewerId': uid, 'viewerName': name, 'seenAt': FieldValue.serverTimestamp()});
+  } catch (e) {
+    debugPrint('Record view error: $e');
   }
 }
 
@@ -90,7 +107,7 @@ void _loadStory({required int index, bool animatePage = true}) async {
       _loadStory(index: _currentIndex);
     } else {
       // Si c'est la dernière story, on ferme l'afficheur
-      Navigator.of(context).pop();
+      if (mounted) Navigator.of(context).pop();
     }
   }
 
@@ -143,10 +160,58 @@ void _loadStory({required int index, bool animatePage = true}) async {
                       if (text.trim().isEmpty || uid == null) return;
                       await FirebaseFirestore.instance.collection('stories').doc(id).collection('comments').add({'text': text.trim(), 'authorId': uid, 'authorName': name, 'createdAt': FieldValue.serverTimestamp()});
                       Navigator.pop(ctx);
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Commentaire ajouté')));
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Commentaire ajouté')));
                     })
                   ]),
                 )
+              ],
+            ),
+          ),
+        );
+      }
+    );
+  }
+
+  void _showViewersSheet(int index) {
+    final doc = widget.stories[index];
+    final id = doc.id;
+    final data = doc.data() as Map<String, dynamic>? ?? {};
+    final ownerId = _ownerIdOf(data);
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null || ownerId.isEmpty || ownerId != uid) {
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.black87,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: SizedBox(
+            height: 420,
+            child: Column(
+              children: [
+                const Padding(padding: EdgeInsets.all(12.0), child: Text('Vus par', style: TextStyle(color: Colors.white, fontSize: 18))),
+                const Divider(color: Colors.white24),
+                Expanded(child: StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance.collection('stories').doc(id).collection('views').orderBy('seenAt', descending: true).snapshots(),
+                  builder: (c, snap) {
+                    if (!snap.hasData || snap.data!.docs.isEmpty) return Center(child: Text('Aucun visiteur', style: TextStyle(color: Colors.white54)));
+                    return ListView.separated(
+                      itemCount: snap.data!.docs.length,
+                      separatorBuilder: (_, __) => const Divider(color: Colors.white12),
+                      itemBuilder: (ctx, i) {
+                        final d = snap.data!.docs[i].data() as Map<String, dynamic>;
+                        final seen = d['seenAt'] is Timestamp ? DateFormat.yMd().add_Hm().format((d['seenAt'] as Timestamp).toDate()) : '';
+                        return ListTile(
+                          leading: const CircleAvatar(backgroundColor: Colors.white24, child: Icon(Icons.person, color: Colors.white, size: 18)),
+                          title: Text(seen, style: const TextStyle(color: Colors.white)),
+                        );
+                      },
+                    );
+                  },
+                )),
               ],
             ),
           ),
@@ -228,394 +293,290 @@ void _loadStory({required int index, bool animatePage = true}) async {
           },
         child: Stack(
           children: [
-            // Affichage de l'image
+            // Affichage du média (Page view)
             PageView.builder(
-
               controller: _pageController,
-              physics: const NeverScrollableScrollPhysics(), // On gère via le clic
+              physics: const NeverScrollableScrollPhysics(),
               itemCount: widget.stories.length,
-itemBuilder: (context, index) {
-  final story = widget.stories[index].data() as Map<String, dynamic>;
-  final videoUrl = story['videoUrl'] as String?;
-  final imageUrl = story['imageUrl'] as String?;
-  final audioUrl = story['audioUrl'] as String?; // On récupère l'URL audio
-  final caption = (story['caption'] ?? story['text'] ?? story['legende'] ?? '') as String;
+              itemBuilder: (context, index) {
+                final story = widget.stories[index].data() as Map<String, dynamic>;
+                final videoUrl = story['videoUrl'] as String?;
+                final imageUrl = story['imageUrl'] as String?;
+                final audioUrl = story['audioUrl'] as String?;
+                final caption = (story['caption'] ?? story['text'] ?? story['legende'] ?? '') as String;
 
-  return Stack(
-    alignment: Alignment.center,
-    children: [
-      // 1. LE MÉDIA (VIDÉO, AUDIO OU IMAGE)
-      Builder(builder: (context) {
-        // --- CAS VIDÉO ---
-        if (videoUrl != null && videoUrl.isNotEmpty && index == _currentIndex) {
-          return _videoController != null && _videoController!.value.isInitialized
-              ? Center(
-                  child: AspectRatio(
-                    aspectRatio: _videoController!.value.aspectRatio,
-                    child: VideoPlayer(_videoController!),
-                  ),
-                )
-              : Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.onSurface));
-        }
-
-        // --- CAS AUDIO / ENREGISTREMENT ---
-        // On vérifie si c'est un audio et si c'est la story en cours
-        if (audioUrl != null && audioUrl.isNotEmpty && index == _currentIndex) {
-          return Container(
-            color: Colors.black, 
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Icône micro pour enregistrement, note pour musique
-                  Icon(
-                    videoUrl == null && imageUrl == null ? Icons.mic : Icons.music_note,
-                    size: 80,
-                    color: Colors.white54,
-                  ),
-                  const SizedBox(height: 20),
-                  const Text("Lecture audio...", style: TextStyle(color: Colors.white70)),
-                ],
-              ),
-            ),
-          );
-        }
-
-        // --- CAS IMAGE (Par défaut) ---
-        return SizedBox.expand(
-          child: CachedNetworkImage(
-            imageUrl: imageUrl ?? '',
-            fit: BoxFit.contain,
-            placeholder: (context, url) => const Center(child: CircularProgressIndicator(color: Colors.white)),
-            errorWidget: (context, url, error) => const Icon(Icons.broken_image, color: Colors.white54, size: 60),
-          ),
-        );
-      }),
-
-      // 2. LA LÉGENDE (S'affiche par-dessus le média)
-      if (caption.trim().isNotEmpty)
-        AnimatedOpacity(
-          duration: const Duration(milliseconds: 200),
-          opacity: _isPaused ? 0.0 : 1.0,
-          child: Positioned(
-            bottom: 50,
-            left: 30,
-            right: 30,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color: Colors.black45,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Text(
-                caption,
-                style: const TextStyle(color: Colors.white, fontSize: 15),
-                textAlign: TextAlign.center,
-                softWrap: true,
-              ),
-            ),
-          ),
-        ),
-    ],
-  );
-}
-            ),
-
-// Barres de progression (disparaissent au maintien)
-AnimatedOpacity(
-  duration: const Duration(milliseconds: 200),
-  opacity: _isPaused ? 0.0 : 1.0,
-  child: Positioned(
-    top: 50,
-    left: 10,
-    right: 10,
-    child: Row(
-      children: widget.stories.asMap().entries.map((entry) {
-        return Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: AnimatedBuilder(
-              animation: _animController,
-              builder: (context, child) {
-                double val = 0.0;
-                if (entry.key < _currentIndex) {
-                  val = 1.0;
-                } else if (entry.key == _currentIndex) {
-                  val = _animController.value;
+                if (videoUrl != null && videoUrl.isNotEmpty && index == _currentIndex) {
+                  return _videoController != null && _videoController!.value.isInitialized
+                      ? Center(
+                          child: AspectRatio(
+                            aspectRatio: _videoController!.value.aspectRatio,
+                            child: VideoPlayer(_videoController!),
+                          ),
+                        )
+                      : Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.onSurface));
                 }
-                return LinearProgressIndicator(
-                  value: val,
-                  backgroundColor: Colors.white24,
-                  valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
-                  minHeight: 3,
-                );
-              },
-            ),
-          ),
-        );
-      }).toList(),
-    ),
-  ),
-),
 
-            // Infos (Nom + Bouton fermer)
-// Infos utilisateur (Avatar, Nom, Bouton Fermer) - Disparaît au maintien
-AnimatedOpacity(
-  duration: const Duration(milliseconds: 200),
-  opacity: _isPaused ? 0.0 : 1.0,
-  child: IgnorePointer(
-    ignoring: _isPaused, // Empêche de cliquer sur fermer accidentellement pendant la pause
-    child: Positioned(
-      top: 65,
-      left: 15,
-      right: 15,
-      child: Row(
-        children: [
-          const CircleAvatar(
-            radius: 18,
-            backgroundColor: Colors.white24,
-            child: Icon(Icons.person, color: Colors.white, size: 20),
-          ),
-          const SizedBox(width: 10),
-          Builder(builder: (ctx) {
-            final data = (widget.stories[_currentIndex].data() as Map<String, dynamic>?) ?? {};
-            return FutureBuilder<String>(
-              key: ValueKey(widget.stories[_currentIndex].id),
-              future: _fetchDisplayNameForData(data),
-              builder: (context, snap) {
-                final display = snap.hasData ? snap.data! : '...';
-                return Text(
-                  display,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    shadows: [Shadow(blurRadius: 10, color: Colors.black)],
-                  ),
-                );
-              },
-            );
-          }),
-          const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.close, color: Colors.white),
-            onPressed: () => Navigator.of(context).pop(),
-          ),
-        ],
-      ),
-    ),
-  ),
-),
-
-            // Actions (like/comment/save/share/hide/block)
-AnimatedOpacity(
-  duration: const Duration(milliseconds: 200),
-  opacity: _isPaused ? 0.0 : 1.0,
-  child: IgnorePointer(
-    ignoring: _isPaused,
-    child: Positioned(
-      left: 12,
-      bottom: 5,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Like (store reaction in Firestore under stories/{id}/reactions/{uid})
-          FloatingActionButton(
-            heroTag: 'like_btn',
-            mini: true,
-            backgroundColor: _likedIndices.contains(_currentIndex) ? Colors.red : Colors.white24,
-            onPressed: () async {
-              try {
-                final doc = widget.stories[_currentIndex];
-                final id = doc.id;
-                final uid = FirebaseAuth.instance.currentUser?.uid;
-                if (uid == null) return;
-                final ref = FirebaseFirestore.instance.collection('stories').doc(id).collection('reactions').doc(uid);
-                final snap = await ref.get();
-                if (snap.exists) {
-                  await ref.delete();
-                  setState(() => _likedIndices.remove(_currentIndex));
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Like retiré')));
-                } else {
-                  await ref.set({'authorId': uid, 'type': 'like', 'createdAt': FieldValue.serverTimestamp()});
-                  setState(() => _likedIndices.add(_currentIndex));
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Story aimée')));
-                }
-              } catch (e) {
-                debugPrint('Reaction error: $e');
-              }
-            },
-            child: Icon(
-              _likedIndices.contains(_currentIndex) ? Icons.favorite : Icons.favorite_border,
-              color: Colors.white,
-              size: 18,
-            ),
-          ),
-          const SizedBox(height: 8),
-          
-          // Comment
-          FloatingActionButton(
-            heroTag: 'comment_btn',
-            mini: true,
-            backgroundColor: Colors.white24,
-            onPressed: () { _showCommentsSheet(_currentIndex); },
-            child: const Icon(Icons.mode_comment_outlined, color: Colors.white, size: 18),
-          ),
-          const SizedBox(height: 8),
-          
-          // Save
-          FloatingActionButton(
-            heroTag: 'save_btn',
-            mini: true,
-            backgroundColor: Colors.white24,
-            onPressed: () async {
-              try {
-                final doc = widget.stories[_currentIndex];
-                final data = doc.data() as Map<String, dynamic>? ?? {};
-                final String? url = data['imageUrl'] ?? data['videoUrl'] ?? data['audioUrl'];
-                if (url == null || url.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pas de média à enregistrer')));
-                  return;
-                }
-                final path = await _downloadAndSave(url);
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Enregistré: $path')));
-              } catch (e) {
-                debugPrint('Save story error: $e');
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur lors de l’enregistrement')));
-              }
-            },
-            child: const Icon(Icons.bookmark_border, color: Colors.white, size: 18),
-          ),
-          const SizedBox(height: 8),
-          
-          // Share
-          FloatingActionButton(
-            heroTag: 'share_btn',
-            mini: true,
-            backgroundColor: Colors.white24,
-            onPressed: () async {
-              try {
-                final doc = widget.stories[_currentIndex];
-                final data = doc.data() as Map<String, dynamic>? ?? {};
-                final String? url = data['imageUrl'] ?? data['videoUrl'] ?? data['audioUrl'];
-                if (url == null || url.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Rien à partager')));
-                  return;
-                }
-                await Clipboard.setData(ClipboardData(text: url));
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lien copié dans le presse‑papier')));
-              } catch (e) {
-                debugPrint('Share story error: $e');
-              }
-            },
-            child: const Icon(Icons.share, color: Colors.white, size: 18),
-          ),
-          const SizedBox(height: 8),
-          
-          // Hide
-          FloatingActionButton(
-            heroTag: 'hide_btn',
-            mini: true,
-            backgroundColor: Colors.white24,
-            onPressed: () async {
-              try {
-                final doc = widget.stories[_currentIndex];
-                final data = doc.data() as Map<String, dynamic>? ?? {};
-                final owner = _ownerIdOf(data);
-                final uid = FirebaseAuth.instance.currentUser?.uid;
-                if (uid == null) return;
-                final meRef = FirebaseFirestore.instance.collection('classic_users').doc(uid);
-                await meRef.update({'hiddenStories': FieldValue.arrayUnion([owner])});
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Stories masquées pour cet utilisateur')));
-              } catch (e) {
-                debugPrint('Hide story error: $e');
-              }
-            },
-            child: const Icon(Icons.visibility_off, color: Colors.white, size: 18),
-          ),
-          const SizedBox(height: 8),
-          
-          // Block
-          FloatingActionButton(
-            heroTag: 'block_btn',
-            mini: true,
-            backgroundColor: Colors.white24,
-            onPressed: () async {
-              try {
-                final doc = widget.stories[_currentIndex];
-                final data = doc.data() as Map<String, dynamic>? ?? {};
-                final owner = _ownerIdOf(data);
-                final uid = FirebaseAuth.instance.currentUser?.uid;
-                if (uid == null) return;
-                final ok = await showDialog<bool>(context: context, builder: (c) {
-                  return AlertDialog(
-                    backgroundColor: Colors.black87,
-                    title: const Text('Bloquer cet utilisateur?', style: TextStyle(color: Colors.white)),
-                    content: const Text('Vous ne verrez plus les stories de cet utilisateur.', style: TextStyle(color: Colors.white70)),
-                    actions: [
-                      TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Annuler')),
-                      TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Bloquer', style: TextStyle(color: Colors.red)))
-                    ],
+                if (audioUrl != null && audioUrl.isNotEmpty && index == _currentIndex) {
+                  return Container(
+                    color: Colors.black,
+                    child: Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(videoUrl == null && imageUrl == null ? Icons.mic : Icons.music_note, size: 80, color: Colors.white54),
+                          const SizedBox(height: 20),
+                          const Text('Lecture audio...', style: TextStyle(color: Colors.white70)),
+                        ],
+                      ),
+                    ),
                   );
-                });
-                if (ok == true) {
-                  final meRef = FirebaseFirestore.instance.collection('classic_users').doc(uid);
-                  await meRef.update({'blocked': FieldValue.arrayUnion([owner])});
-                  final otherRef = FirebaseFirestore.instance.collection('classic_users').doc(owner);
-                  try { await otherRef.update({'blockedBy': FieldValue.arrayUnion([uid])}); } catch(_) {}
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Utilisateur bloqué')));
                 }
-              } catch (e) { debugPrint('Block story owner error: $e'); }
-            },
-            child: const Icon(Icons.block, color: Colors.white, size: 18),
-          ),
-          const SizedBox(height: 8),
-          
-          // Delete story — only visible to owner
-          Builder(builder: (ctx) {
-            try {
-              final doc = widget.stories[_currentIndex];
-              final data = doc.data() as Map<String, dynamic>? ?? {};
-              final owner = _ownerIdOf(data);
-              final uid = FirebaseAuth.instance.currentUser?.uid;
-              if (uid == null || owner != uid) return const SizedBox.shrink();
-              return FloatingActionButton(
-                heroTag: 'delete_story',
-                mini: true,
-                backgroundColor: Colors.redAccent,
-                onPressed: () async {
-                  try {
-                    final id = doc.id;
-                    final url = data['imageUrl'] ?? data['videoUrl'] ?? data['audioUrl'];
-                    if (url is String && url.isNotEmpty) {
+
+                return SizedBox.expand(
+                  child: CachedNetworkImage(
+                    imageUrl: imageUrl ?? '',
+                    fit: BoxFit.contain,
+                    placeholder: (context, url) => const Center(child: CircularProgressIndicator(color: Colors.white)),
+                    errorWidget: (context, url, error) => const Icon(Icons.broken_image, color: Colors.white54, size: 60),
+                  ),
+                );
+              },
+            ),
+
+            // Barres de progression (top)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 10,
+              left: 10,
+              right: 10,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 200),
+                opacity: _isPaused ? 0.0 : 1.0,
+                child: Row(
+                  children: widget.stories.asMap().entries.map((entry) {
+                    return Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: AnimatedBuilder(
+                          animation: _animController,
+                          builder: (context, child) {
+                            double val = 0.0;
+                            if (entry.key < _currentIndex) {
+                              val = 1.0;
+                            } else if (entry.key == _currentIndex) val = _animController.value;
+                            return LinearProgressIndicator(value: val, backgroundColor: Colors.white24, valueColor: const AlwaysStoppedAnimation<Color>(Colors.white), minHeight: 3);
+                          },
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+
+            // Infos utilisateur + close
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 20,
+              left: 15,
+              right: 15,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 200),
+                opacity: _isPaused ? 0.0 : 1.0,
+                child: IgnorePointer(
+                  ignoring: _isPaused,
+                  child: Row(
+                    children: [
+                      const CircleAvatar(radius: 18, backgroundColor: Colors.white24, child: Icon(Icons.person, color: Colors.white, size: 20)),
+                      const SizedBox(width: 10),
+                      FutureBuilder<String>(
+                        key: ValueKey(widget.stories[_currentIndex].id),
+                        future: _fetchDisplayNameForData(widget.stories[_currentIndex].data() as Map<String, dynamic>),
+                        builder: (context, snap) {
+                          final display = snap.hasData ? snap.data! : '...';
+                          return Text(display, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 10, color: Colors.black)]));
+                        },
+                      ),
+                      const Spacer(),
+                      IconButton(icon: const Icon(Icons.close, color: Colors.white), onPressed: () => Navigator.of(context).pop()),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Actions column (left, bottom)
+            Positioned(
+              left: 12,
+              bottom: MediaQuery.of(context).padding.bottom + 20,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 200),
+                opacity: _isPaused ? 0.0 : 1.0,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        FloatingActionButton(heroTag: 'like_btn', mini: true, backgroundColor: _likedIndices.contains(_currentIndex) ? Colors.red : Colors.white24, onPressed: () async {
+                          try {
+                            final doc = widget.stories[_currentIndex];
+                            final id = doc.id;
+                            final uid = FirebaseAuth.instance.currentUser?.uid;
+                            if (uid == null) return;
+                            final ref = FirebaseFirestore.instance.collection('stories').doc(id).collection('reactions').doc(uid);
+                            final snap = await ref.get();
+                            if (snap.exists) {
+                              await ref.delete();
+                              if (mounted) {
+                                setState(() => _likedIndices.remove(_currentIndex));
+                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Like retiré')));
+                              }
+                            } else {
+                              await ref.set({'authorId': uid, 'type': 'like', 'createdAt': FieldValue.serverTimestamp()});
+                              if (mounted) {
+                                setState(() => _likedIndices.add(_currentIndex));
+                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Story aimée')));
+                              }
+                            }
+                          } catch (e) { debugPrint('Reaction error: $e'); }
+                        }, child: Icon(_likedIndices.contains(_currentIndex) ? Icons.favorite : Icons.favorite_border, color: Colors.white, size: 18)),
+                        const SizedBox(height: 4),
+                        StreamBuilder<QuerySnapshot>(
+                          stream: FirebaseFirestore.instance.collection('stories').doc(widget.stories[_currentIndex].id).collection('reactions').snapshots(),
+                          builder: (c, snap) {
+                            final count = snap.hasData ? snap.data!.docs.length : 0;
+                            return Text('$count', style: const TextStyle(color: Colors.white, fontSize: 12));
+                          },
+                        ),
+                        const SizedBox(height: 6),
+                        Builder(builder: (context) {
+                          final data = widget.stories[_currentIndex].data() as Map<String, dynamic>? ?? {};
+                          final ownerId = _ownerIdOf(data);
+                          final uid = FirebaseAuth.instance.currentUser?.uid;
+                          final isOwner = uid != null && ownerId.isNotEmpty && ownerId == uid;
+                          if (!isOwner) return const SizedBox.shrink();
+                          return StreamBuilder<QuerySnapshot>(
+                            stream: FirebaseFirestore.instance.collection('stories').doc(widget.stories[_currentIndex].id).collection('views').snapshots(),
+                            builder: (c, snap) {
+                              final vcount = snap.hasData ? snap.data!.docs.length : 0;
+                              return GestureDetector(
+                                onTap: () => _showViewersSheet(_currentIndex),
+                                child: Text('$vcount vues', style: const TextStyle(color: Colors.white70, fontSize: 11)),
+                              );
+                            },
+                          );
+                        }),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    FloatingActionButton(heroTag: 'comment_btn', mini: true, backgroundColor: Colors.white24, onPressed: () { _showCommentsSheet(_currentIndex); }, child: const Icon(Icons.mode_comment_outlined, color: Colors.white, size: 18)),
+                    const SizedBox(height: 8),
+                    FloatingActionButton(heroTag: 'save_btn', mini: true, backgroundColor: Colors.white24, onPressed: () async {
                       try {
-                        final path = url.contains('/storage/v1/object/public/') 
-                            ? url.split('/storage/v1/object/public/').last 
-                            : url.split('/').last;
-                        if (path.isNotEmpty) {
-                          try { await supabase.Supabase.instance.client.storage.from('stories').remove([path]); } 
-                          catch (e) { debugPrint('Supabase delete file error: $e'); }
+                        final doc = widget.stories[_currentIndex];
+                        final data = doc.data() as Map<String, dynamic>? ?? {};
+                        final String? url = data['imageUrl'] ?? data['videoUrl'] ?? data['audioUrl'];
+                        if (url == null || url.isEmpty) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pas de média à enregistrer'))); return; }
+                        final path = await _downloadAndSave(url);
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Enregistré: $path')));
+                      } catch (e) { debugPrint('Save story error: $e'); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur lors de l’enregistrement'))); }
+                    }, child: const Icon(Icons.bookmark_border, color: Colors.white, size: 18)),
+                    const SizedBox(height: 8),
+                    FloatingActionButton(heroTag: 'share_btn', mini: true, backgroundColor: Colors.white24, onPressed: () async {
+                      try {
+                        final doc = widget.stories[_currentIndex];
+                        final data = doc.data() as Map<String,dynamic>? ?? {};
+                        final String? url = data['imageUrl'] ?? data['videoUrl'] ?? data['audioUrl'];
+                        if (url==null||url.isEmpty) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Rien à partager'))); return; }
+                        await Clipboard.setData(ClipboardData(text: url));
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lien copié dans le presse‑papier')));
+                      } catch (e) { debugPrint('Share story error: $e'); }
+                    }, child: const Icon(Icons.share, color: Colors.white, size: 18)),
+                    const SizedBox(height: 8),
+                    FloatingActionButton(heroTag: 'hide_btn', mini: true, backgroundColor: Colors.white24, onPressed: () async {
+                      try {
+                        final doc = widget.stories[_currentIndex];
+                        final data = doc.data() as Map<String,dynamic>? ?? {};
+                        final owner = _ownerIdOf(data);
+                        final uid = FirebaseAuth.instance.currentUser?.uid;
+                        if (uid==null) return;
+                        final meRef = FirebaseFirestore.instance.collection('classic_users').doc(uid);
+                        await meRef.update({'hiddenStories': FieldValue.arrayUnion([owner])});
+                        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Stories masquées pour cet utilisateur')));
+                      } catch (e) { debugPrint('Hide story error: $e'); }
+                    }, child: const Icon(Icons.visibility_off, color: Colors.white, size: 18)),
+                    const SizedBox(height: 8),
+                    FloatingActionButton(heroTag: 'block_btn', mini: true, backgroundColor: Colors.white24, onPressed: () async {
+                      try {
+                        final doc = widget.stories[_currentIndex];
+                        final data = doc.data() as Map<String,dynamic>? ?? {};
+                        final owner = _ownerIdOf(data);
+                        final uid = FirebaseAuth.instance.currentUser?.uid;
+                        if (uid==null) return;
+                        final ok = await showDialog<bool>(context: context, builder: (c) { return AlertDialog(backgroundColor: Colors.black87, title: const Text('Bloquer cet utilisateur?', style: TextStyle(color: Colors.white)), content: const Text('Vous ne verrez plus les stories de cet utilisateur.', style: TextStyle(color: Colors.white70)), actions: [ TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Annuler')), TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Bloquer', style: TextStyle(color: Colors.red))) ],); });
+                        if (ok==true) {
+                          final meRef = FirebaseFirestore.instance.collection('classic_users').doc(uid);
+                          await meRef.update({'blocked': FieldValue.arrayUnion([owner])});
+                          final otherRef = FirebaseFirestore.instance.collection('classic_users').doc(owner);
+                          try { await otherRef.update({'blockedBy': FieldValue.arrayUnion([uid])}); } catch(_) {}
+                          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Utilisateur bloqué')));
                         }
-                      } catch (e) { debugPrint('Supabase delete file error: $e'); }
-                    }
-                    await FirebaseFirestore.instance.collection('stories').doc(id).delete();
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Story supprimée')));
-                    if (_currentIndex >= widget.stories.length - 1) Navigator.of(context).pop();
-                  } catch (e) {
-                    debugPrint('Delete story error: $e');
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur lors de la suppression')));
-                  }
-                },
-                child: const Icon(Icons.delete, color: Colors.white, size: 18),
-              );
-            } catch (_) {
-              return const SizedBox.shrink();
-            }
-          }),
-        ],
-      ),
-    ),
-  ),
-)
+                      } catch (e) { debugPrint('Block story owner error: $e'); }
+                    }, child: const Icon(Icons.block, color: Colors.white, size: 18)),
+                  ],
+                ),
+              ),
+            ),
+
+            // Delete button handled inline (only visible to owner)
+            Positioned(
+              left: 12,
+              bottom: MediaQuery.of(context).padding.bottom + 20,
+              child: Builder(builder: (ctx) {
+                try {
+                  final doc = widget.stories[_currentIndex];
+                  final data = doc.data() as Map<String, dynamic>? ?? {};
+                  final owner = _ownerIdOf(data);
+                  final uid = FirebaseAuth.instance.currentUser?.uid;
+                  if (uid == null || owner != uid) return const SizedBox.shrink();
+                  return FloatingActionButton(heroTag: 'delete_story', mini: true, backgroundColor: Colors.redAccent, onPressed: () async {
+                    try {
+                      final id = doc.id;
+                      final url = data['imageUrl'] ?? data['videoUrl'] ?? data['audioUrl'];
+                      if (url is String && url.isNotEmpty) {
+                        try {
+                          final path = url.contains('/storage/v1/object/public/') ? url.split('/storage/v1/object/public/').last : url.split('/').last;
+                          if (path.isNotEmpty) { try { await supabase.Supabase.instance.client.storage.from('stories').remove([path]); } catch (e) { debugPrint('Supabase delete file error: $e'); } }
+                        } catch (e) { debugPrint('Supabase delete file error: $e'); }
+                      }
+                      await FirebaseFirestore.instance.collection('stories').doc(id).delete();
+                      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Story supprimée')));
+                      if (mounted && _currentIndex >= widget.stories.length - 1) Navigator.of(context).pop();
+                    } catch (e) { debugPrint('Delete story error: $e'); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur lors de la suppression'))); }
+                  }, child: const Icon(Icons.delete, color: Colors.white, size: 18));
+                } catch (_) { return const SizedBox.shrink(); }
+              }),
+            ),
+
+            // Caption overlay (on top)
+            Positioned(
+              bottom: MediaQuery.of(context).padding.bottom + 10,
+              // augmenter la marge gauche pour ne pas chevaucher la colonne de boutons à gauche
+              left: MediaQuery.of(context).padding.left + 100,
+              right: 30,
+              child: AnimatedOpacity(
+                duration: const Duration(milliseconds: 200),
+                opacity: _isPaused ? 0.0 : 1.0,
+                child: Builder(builder: (ctx) {
+                  final data = widget.stories[_currentIndex].data() as Map<String, dynamic>;
+                  final currentCaption = (data['caption'] ?? data['text'] ?? data['legende'] ?? '') as String;
+                  if (currentCaption.trim().isEmpty) return const SizedBox.shrink();
+                  return ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: MediaQuery.of(ctx).size.width - (MediaQuery.of(ctx).padding.left + 100) - 30),
+                    child: Container(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10), decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(12)), child: Text(currentCaption, style: const TextStyle(color: Colors.white, fontSize: 15), textAlign: TextAlign.center, softWrap: true)),
+                  );
+                }),
+              ),
+            ),
           ],
         ),
       ),

@@ -37,27 +37,48 @@ class _CopperCardState extends State<CopperCard> {
     
     setState(() => isLoading = true);
 
-    final String apiKey = dotenv.env['METALS_API_KEY'] ?? '';
-    // Unité 't' pour la Tonne (LME standard)
-    final url = Uri.parse('https://api.metals.dev/v1/latest?api_key=$apiKey&currency=USD&unit=t');
+    final String proxyBase = (dotenv.env['METALS_PROXY_URL'] ?? '').trim();
+    if (proxyBase.isEmpty) {
+      debugPrint("METALS_PROXY_URL manquant (.env)");
+      if (mounted) setState(() => isLoading = false);
+      return;
+    }
+    final base = proxyBase.endsWith('/') ? proxyBase.substring(0, proxyBase.length - 1) : proxyBase;
+    final url = Uri.parse('$base/metals-lme');
 
     try {
       final response = await http.get(url).timeout(const Duration(seconds: 15));
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
-        final metals = data['metals'];
+        final metals = (data is Map && data['metals'] is Map)
+            ? data['metals']
+            : (data is Map && data['data'] is Map && data['data']['metals'] is Map)
+                ? data['data']['metals']
+                : (data is Map && data['data'] is Map)
+                    ? data['data']
+                    : null;
         final now = DateTime.now();
+        String updateLabel = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
+        if (data is Map && data['asOf'] is String && (data['asOf'] as String).trim().isNotEmpty) {
+          updateLabel = data['asOf'] as String;
+        } else if (data is Map && data['updatedAt'] != null) {
+          try {
+            final millis = data['updatedAt'] is int ? data['updatedAt'] as int : int.parse(data['updatedAt'].toString());
+            final dt = DateTime.fromMillisecondsSinceEpoch(millis);
+            updateLabel = "${dt.year.toString().padLeft(4, '0')}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}";
+          } catch (_) {}
+        }
 
         if (mounted) {
           setState(() {
-            if (metals.containsKey('copper')) {
+            if (metals != null && metals.containsKey('copper')) {
               copperPrice = _formatNumber(metals['copper']);
             }
-            if (metals.containsKey('cobalt')) {
+            if (metals != null && metals.containsKey('cobalt')) {
               cobaltPrice = _formatNumber(metals['cobalt']);
             }
-            lastUpdate = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
+            lastUpdate = updateLabel;
             isLoading = false;
           });
         }

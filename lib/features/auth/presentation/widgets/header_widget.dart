@@ -4,11 +4,12 @@ import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 
 /// --- CONFIGURATION DU CACHE DES IMAGES (30 JOURS) ---
 class ProfileCacheManager {
@@ -198,29 +199,55 @@ class _HeaderWidgetState extends State<HeaderWidget>
   }
 
   // ================== ACTIONS IMAGES ==================
+Future<void> _handleImageUpload(ImageSource source) async {
+  final XFile? image = await _picker.pickImage(
+    source: source,
+    imageQuality: 70,
+  );
+  if (image == null || _collection == null) return;
 
-  Future<void> _handleImageUpload(ImageSource source) async {
-    final XFile? image = await _picker.pickImage(source: source, imageQuality: 70);
-    if (image == null || _collection == null) return;
+  setState(() => _isUploading = true);
 
-    setState(() => _isUploading = true);
-    try {
-      final user = FirebaseAuth.instance.currentUser;
-      if (user == null) return;
-      final bytes = await image.readAsBytes();
-      final ref = FirebaseStorage.instance.ref('profiles/${user.uid}.jpg');
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
 
-      await ref.putData(bytes);
-      final url = await ref.getDownloadURL();
+    final bytes = await image.readAsBytes();
+    final filePath = 'users/${user.uid}.jpg';
 
-      await FirebaseFirestore.instance.collection(_collection!).doc(user.uid).update({'photoUrl': url});
-      // on mettra à jour l'UI via le StreamBuilder quand Firestore notifie
-    } catch (e) {
-      debugPrint("Erreur upload: $e");
-    } finally {
-      if (mounted) setState(() => _isUploading = false);
-    }
+    // 🔥 UPLOAD SUPABASE
+    await Supabase.instance.client.storage
+        .from('profiles')
+        .uploadBinary(
+          filePath,
+          bytes,
+          fileOptions: const FileOptions(
+            upsert: true,
+            contentType: 'image/jpeg',
+          ),
+        );
+
+    // 🔗 URL PUBLIQUE SUPABASE
+    final publicUrl = Supabase.instance.client.storage
+        .from('profiles')
+        .getPublicUrl(filePath);
+
+    // 📝 UPDATE FIRESTORE AVEC L’URL SUPABASE
+    await FirebaseFirestore.instance
+        .collection(_collection!)
+        .doc(user.uid)
+        .update({
+          'photoUrl': publicUrl,
+        });
+
+    // UI mise à jour automatiquement via StreamBuilder
+  } catch (e) {
+    debugPrint('❌ Erreur upload Supabase: $e');
+  } finally {
+    if (mounted) setState(() => _isUploading = false);
   }
+}
+
 
   // ================== INTERFACE (BUILD) ==================
 

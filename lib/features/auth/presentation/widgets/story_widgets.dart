@@ -238,6 +238,13 @@ class _StoryBarState extends State<StoryBar> {
   }
 
   void _ensureVisibilityFor(List<String> userIds, String? viewerEmail) {
+    // Pre-mark known peers as visible to avoid flash-of-hidden content
+    for (final id in userIds) {
+      if (!_visibilityCache.containsKey(id) && _peerIds.contains(id)) {
+        _visibilityCache[id] = true;
+      }
+    }
+
     final toCheck = userIds.where((id) => !_visibilityCache.containsKey(id) && !_pendingChecks.contains(id)).toList();
     if (toCheck.isEmpty) return;
     for (final id in toCheck) {
@@ -330,6 +337,14 @@ class _StoryBarState extends State<StoryBar> {
             return 0;
           });
 
+          // DEBUG: informations pour diagnostiquer l'affichage des stories (temporaires)
+          try {
+            debugPrint('StoryBar DEBUG: viewerId=$viewerId');
+            debugPrint('StoryBar DEBUG: viewerEmail=${FirebaseAuth.instance.currentUser?.email}');
+            debugPrint('StoryBar DEBUG: peerIds=${_peerIds.toList()} (count=${_peerIds.length})');
+            debugPrint('StoryBar DEBUG: groupedList userIds=${groupedList.map((e) => e['userId']).toList()} length=${groupedList.length} cachedLoaded=$_cachedLoaded cachedStories=${_cachedStories.length}');
+          } catch (e) { debugPrint('StoryBar DEBUG error: $e'); }
+
           WidgetsBinding.instance.addPostFrameCallback((_) {
             final ids = groupedList.map((e) => e['userId'] as String).toList();
             final viewerEmail = FirebaseAuth.instance.currentUser?.email;
@@ -345,8 +360,13 @@ class _StoryBarState extends State<StoryBar> {
               final userStories = entry['stories'] as List<DocumentSnapshot>;
               final userId = entry['userId'] as String;
               final visible = _visibilityCache[userId];
-              if (visible == null) return const SizedBox.shrink();
-              if (visible != true) return const SizedBox.shrink();
+              // If visibility hasn't been resolved yet, optimistically show the story
+              // for known peers (found via chats/contacts). This prevents a UI
+              // discrepancy where web shows stories immediately but mobile hides them
+              // until the async permission check completes.
+              if (visible == null) {
+                if (!(userId == widget.currentUserId || _peerIds.contains(userId))) return const SizedBox.shrink();
+              } else if (visible != true) return const SizedBox.shrink();
               return _buildFriendStoryCircle(
                 context,
                 userId,
