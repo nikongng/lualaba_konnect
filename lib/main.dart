@@ -48,10 +48,15 @@ void main() async {
 
   // 3. Chargement .env
   try {
-    await dotenv.load(fileName: ".env");
+    // `flutter_dotenv` throws if the file is missing/empty unless `isOptional: true`.
+    // On CI (Codemagic), `.env` is usually generated at build time via `DOTENV_FILE`.
+    await dotenv.load(fileName: ".env", isOptional: true);
   } catch (e) {
-    debugPrint("ℹ️ Note : Fichier .env non trouvé (Utilisation des defaults)");
+    // Never crash the app for a missing env file; just continue with defaults.
+    dotenv.loadFromString(envString: '', isOptional: true);
+    debugPrint("ℹ️ Note : Problème chargement .env (defaults). error=$e");
   }
+  debugPrint('dotenv initialized=${dotenv.isInitialized} keys=${dotenv.env.length}');
 
   // 4. Initialisation Supabase (Optionnel selon ton projet)
   final String supabaseUrl = dotenv.maybeGet('SUPABASE_URL') ?? '';
