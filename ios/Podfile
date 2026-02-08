@@ -8,9 +8,30 @@ def flutter_root
   unless File.exist?(generated_xcode_build_settings_path)
     raise "Generated.xcconfig must exist. If you're running pod install manually, make sure flutter pub get is executed first"
   end
-  File.expand_path('..', __FILE__)
+
+  flutter_root = nil
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    matches = line.match(/FLUTTER_ROOT\=(.*)/)
+    flutter_root = matches[1].strip if matches
+    break if flutter_root
+  end
+
+  # Prefer environment (CI) if available.
+  flutter_root = ENV['FLUTTER_ROOT'] if (flutter_root.nil? || flutter_root.empty?) && ENV['FLUTTER_ROOT']
+
+  # Some repos accidentally commit a Windows FLUTTER_ROOT path. On CI/macOS, fall back to `which flutter`.
+  if flutter_root.nil? || flutter_root.empty? || flutter_root.match?(/^[A-Za-z]:\\/)
+    flutter_bin = `which flutter 2>/dev/null`.strip
+    flutter_root = File.expand_path('..', File.dirname(flutter_bin)) unless flutter_bin.empty?
+  end
+
+  if flutter_root.nil? || flutter_root.empty?
+    raise "FLUTTER_ROOT not found. Tried #{generated_xcode_build_settings_path}, ENV['FLUTTER_ROOT'], and `which flutter`."
+  end
+
+  flutter_root
 end
 
-require File.expand_path(File.join('Flutter', 'podhelper'), flutter_root)
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
 
 install_all_ios_pods(File.dirname(__FILE__))
