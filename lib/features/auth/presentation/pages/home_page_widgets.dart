@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'news_feed_page.dart';
 
 // Widgets pour la page d'accueil
@@ -90,19 +91,68 @@ class HomePageWidgets {
       const SizedBox(height: 15),
       SizedBox(
         height: 280,
-        child: ListView.builder(
-          scrollDirection: Axis.horizontal,
-          itemCount: lualabaNewsData.length,
-          itemBuilder: (context, index) {
-            final item = lualabaNewsData[index];
-            return _newsCard(
-              item['source'],
-              item['title'],
-              isDark,
-              item['images'][0]
+        child: StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('posts')
+              .orderBy('createdAt', descending: true)
+              .limit(12)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              // Skeletons
+              return ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: 4,
+                separatorBuilder: (_, __) => const SizedBox(width: 15),
+                itemBuilder: (_, __) => Container(
+                  width: 260,
+                  margin: const EdgeInsets.only(right: 15),
+                  padding: const EdgeInsets.all(15),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1E3E3B) : Colors.white,
+                    borderRadius: BorderRadius.circular(25),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(width: 120, height: 14, decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8))),
+                      const SizedBox(height: 12),
+                      Expanded(child: Container(decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(15)))),
+                      const SizedBox(height: 12),
+                      Container(width: 200, height: 14, decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(8))),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            final docs = snapshot.data!.docs;
+            if (docs.isEmpty) {
+              return Center(
+                child: Text(
+                  "Aucune actu pour l'instant",
+                  style: TextStyle(color: isDark ? Colors.white70 : Colors.black54, fontSize: 13),
+                ),
+              );
+            }
+
+            return ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: docs.length,
+              itemBuilder: (context, index) {
+                final raw = docs[index].data();
+                final data = raw is Map ? Map<String, dynamic>.from(raw as Map) : <String, dynamic>{};
+
+                final source = (data['category'] ?? data['authorName'] ?? 'Actu').toString();
+                final title = (data['text'] ?? '').toString();
+                final images = (data['images'] is List) ? List.from(data['images']) : const [];
+                final img = images.isNotEmpty ? images.first.toString() : '';
+
+                return _newsCard(source, title, isDark, img);
+              },
             );
           },
-        )
+        ),
       ),
     ]);
   }
