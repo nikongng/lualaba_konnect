@@ -34,4 +34,12 @@ end
 
 require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
 
-install_all_ios_pods(File.dirname(__FILE__))
+flutter_ios_podfile_setup
+
+target 'Runner' do
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+end
+
+post_install do |installer|
+  flutter_additional_ios_build_settings(installer)
+end
