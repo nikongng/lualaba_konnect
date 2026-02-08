@@ -20,6 +20,10 @@ import 'features/dashboard/presentation/pages/dashboard_page.dart';
 import 'core/theme_controller.dart';
 import 'core/call_invite_listener.dart';
 
+// Keep OneSignal push subscription id synced to Firestore (Android can take a bit to provide it).
+String? _oneSignalBoundUid;
+bool _oneSignalObserverAttached = false;
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -68,6 +72,10 @@ void main() async {
         ?? dotenv.maybeGet('ONESIGNAL_APP_ID') 
         ?? 'TON_APP_ID_PAR_DEFAUT_ICI'; // Remplace par ton ID en dur au cas où
 
+    if (envAppId.trim().isEmpty || envAppId == 'TON_APP_ID_PAR_DEFAUT_ICI') {
+      debugPrint('ERROR: OneSignal AppId missing. Set ONE_SIGNAL_APP_ID in .env (or hardcode it).');
+    }
+
     debugPrint('ℹ️ OneSignal AppId resolved -> $envAppId');
 
     try {
@@ -78,7 +86,8 @@ void main() async {
       OneSignal.initialize(envAppId);
       
       // C. Demande de permission immédiate
-      OneSignal.Notifications.requestPermission(true);
+      final accepted = await OneSignal.Notifications.requestPermission(true);
+      debugPrint('OneSignal permission accepted=$accepted');
 
       // D. Gestion des clics sur notification (Appel entrant)
       OneSignal.Notifications.addClickListener((event) {
@@ -138,10 +147,13 @@ void main() async {
   // Dès que l'utilisateur se connecte, on met à jour son ID OneSignal
   FirebaseAuth.instance.authStateChanges().listen((User? user) {
     if (user != null) {
+      _oneSignalBoundUid = user.uid;
+      _attachOneSignalPushSubscriptionObserver();
       debugPrint('👤 User connecté : ${user.uid} -> Mise à jour OneSignal...');
       _updateUserOneSignalId(user.uid);
       CallInviteListener.start(user.uid);
     } else {
+      _oneSignalBoundUid = null;
       CallInviteListener.stop();
     }
   });
@@ -150,6 +162,76 @@ void main() async {
   await ThemeController.instance.load();
 
   runApp(const MyApp());
+}
+
+void _attachOneSignalPushSubscriptionObserver() {
+  if (kIsWeb) return;
+  if (_oneSignalObserverAttached) return;
+  _oneSignalObserverAttached = true;
+
+  try {
+    OneSignal.User.pushSubscription.addObserver((state) {
+      final uid = _oneSignalBoundUid;
+      final playerId = state.current.id;
+      if (uid == null || uid.trim().isEmpty) return;
+      if (playerId == null || playerId.trim().isEmpty) return;
+
+      // Best-effort: keep Firestore in sync so the notifier can target this device.
+      _saveOneSignalIdToFirestore(uid: uid.trim(), onesignalId: playerId.trim());
+    });
+  } catch (e) {
+    debugPrint('OneSignal addObserver error: $e');
+  }
+}
+
+Future<void> _saveOneSignalIdToFirestore({
+  required String uid,
+  required String onesignalId,
+}) async {
+  if (kIsWeb) return;
+  if (uid.trim().isEmpty || onesignalId.trim().isEmpty) return;
+
+  final collections = ['classic_users', 'pro_users', 'enterprise_users'];
+  bool userFound = false;
+
+  for (final col in collections) {
+    final docRef = FirebaseFirestore.instance.collection(col).doc(uid);
+    final doc = await docRef.get();
+    if (!doc.exists) continue;
+
+    await docRef.update({
+      'oneSignalPlayerId': onesignalId,
+      'last_seen_device': DateTime.now().toIso8601String(),
+      'device_platform': 'android_flutter',
+    });
+
+    // Keep a history of devices/subscriptions (server reads this as a fallback).
+    await docRef.collection('notification_players').doc(onesignalId).set({
+      'playerId': onesignalId,
+      'platform': 'android_flutter',
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    userFound = true;
+    break;
+  }
+
+  if (!userFound) {
+    final fallbackRef = FirebaseFirestore.instance.collection('classic_users').doc(uid);
+    await fallbackRef.set({
+      'oneSignalPlayerId': onesignalId,
+      'uid': uid,
+      'email': FirebaseAuth.instance.currentUser?.email ?? 'no-email',
+      'createdAt': FieldValue.serverTimestamp(),
+      'role': 'classic',
+    }, SetOptions(merge: true));
+
+    await fallbackRef.collection('notification_players').doc(onesignalId).set({
+      'playerId': onesignalId,
+      'platform': 'android_flutter',
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
 }
 
 /// Fonction CRITIQUE pour lier l'utilisateur à son téléphone
@@ -177,37 +259,7 @@ Future<void> _updateUserOneSignalId(String uid) async {
     debugPrint('🚀 OneSignal pushSubscription.id prêt : $onesignalId');
 
     // ÉTAPE 3 : Sauvegarde dans Firestore pour que Render puisse le trouver
-    final collections = ['classic_users', 'pro_users', 'enterprise_users'];
-    bool userFound = false;
-
-    for (var col in collections) {
-      final docRef = FirebaseFirestore.instance.collection(col).doc(uid);
-      final doc = await docRef.get();
-
-      if (doc.exists) {
-        // On met à jour l'ID et on ajoute un timestamp
-        await docRef.update({
-          'oneSignalPlayerId': onesignalId,
-          'last_seen_device': DateTime.now().toIso8601String(),
-          'device_platform': 'android_flutter'
-        });
-        debugPrint('✅ ID OneSignal sauvegardé dans : $col');
-        userFound = true;
-        break;
-      }
-    }
-
-    // ÉTAPE 4 : Filet de sécurité (Création de profil si inexistant)
-    if (!userFound) {
-      debugPrint('ℹ️ User introuvable, création profil de secours...');
-      await FirebaseFirestore.instance.collection('classic_users').doc(uid).set({
-        'oneSignalPlayerId': onesignalId,
-        'uid': uid,
-        'email': FirebaseAuth.instance.currentUser?.email ?? 'no-email',
-        'createdAt': FieldValue.serverTimestamp(),
-        'role': 'classic',
-      }, SetOptions(merge: true));
-    }
+    await _saveOneSignalIdToFirestore(uid: uid, onesignalId: onesignalId);
 
   } catch (e) {
     debugPrint('❌ Erreur critique _updateUserOneSignalId : $e');

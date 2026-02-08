@@ -2944,7 +2944,7 @@ Future<void> _blockContact(String otherId) async {
             final String mediaUrl = (payload['url'] ?? payload['imageUrl'] ?? payload['fileUrl'] ?? '').toString();
             final String imageUrl = (msgType == 'image' || msgType == 'video') ? mediaUrl : '';
 
-            await http.post(
+            final resp = await http.post(
               url,
               headers: {
                 'Content-Type': 'application/json',
@@ -2964,6 +2964,8 @@ Future<void> _blockContact(String otherId) async {
                 }
               }),
             );
+            // Useful when debugging "no push received" issues.
+            debugPrint('[Notifier][chat_message] status=${resp.statusCode} body=${resp.body}');
           }
         }
       }  catch (e) {
@@ -3341,7 +3343,7 @@ Future<void> _editContactLocal(String otherId) async {
           ? user.photoURL!.trim()
           : 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
 
-      await http.post(
+      final resp = await http.post(
         url,
         headers: {
           'Content-Type': 'application/json',
@@ -3362,6 +3364,7 @@ Future<void> _editContactLocal(String otherId) async {
           },
         }),
       );
+      debugPrint('[Notifier][incoming_call] status=${resp.statusCode} body=${resp.body}');
     } catch (e) {
       debugPrint('Send incoming call push error: $e');
     }

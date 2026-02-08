@@ -241,7 +241,15 @@ app.post('/sendNotification', async (req, res) => {
             body: JSON.stringify(payload)
         });
 
-        const result = await resp.json();
+        const raw = await resp.text();
+        let result = null;
+        try { result = JSON.parse(raw); } catch (_) { result = { raw }; }
+
+        if (!resp.ok) {
+            console.error('OneSignal API error:', resp.status, result);
+            return res.status(resp.status).json({ ok: false, error: 'onesignal_api_error', result });
+        }
+
         return res.json({ ok: true, result });
 
     } catch (e) {
