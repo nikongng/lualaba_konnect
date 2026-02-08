@@ -443,6 +443,7 @@ class _Field extends StatelessWidget {
     required this.textColor,
     required this.subColor,
     required this.divider,
+    this.validator,
     this.maxLines = 1,
     this.keyboardType,
   });

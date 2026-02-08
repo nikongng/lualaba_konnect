@@ -1118,7 +1118,9 @@ class _Field extends StatelessWidget {
     required this.subColor,
     required this.divider,
     this.validator,
+    this.maxLines = 1,
     this.keyboardType,
+    this.onChanged,
   });
 
   final String label;

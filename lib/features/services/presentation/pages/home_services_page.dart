@@ -1068,6 +1068,7 @@ class _Field extends StatelessWidget {
     this.validator,
     this.maxLines = 1,
     this.keyboardType,
+    this.onChanged,
   });
 
   final String label;
