@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'dart:isolate';
 
 /// Android-only foreground service used to keep ongoing calls alive
 /// when the app goes to background (more reliable audio continuity).
@@ -16,11 +17,16 @@ class OngoingCallService {
       androidNotificationOptions: AndroidNotificationOptions(
         channelId: 'lualaba_calls',
         channelName: 'Appels',
-        channelDescription: 'Notification affichée pendant un appel en cours.',
+        channelDescription: 'Notification affichee pendant un appel en cours.',
         channelImportance: NotificationChannelImportance.LOW,
         priority: NotificationPriority.LOW,
         // Keep it quiet; call sound should come from the in-app ringtone/audio session.
         enableVibration: false,
+        playSound: false,
+      ),
+      // Required by the plugin API even if we only run the service on Android.
+      iosNotificationOptions: const IOSNotificationOptions(
+        showNotification: false,
         playSound: false,
       ),
       foregroundTaskOptions: const ForegroundTaskOptions(
@@ -75,13 +81,13 @@ void _startCallback() {
 
 class _NoopTaskHandler extends TaskHandler {
   @override
-  Future<void> onStart(DateTime timestamp, TaskStarter starter) async {}
+  void onStart(DateTime timestamp, SendPort? sendPort) {}
 
   @override
-  Future<void> onRepeatEvent(DateTime timestamp) async {}
+  void onRepeatEvent(DateTime timestamp, SendPort? sendPort) {}
 
   @override
-  Future<void> onDestroy(DateTime timestamp) async {}
+  void onDestroy(DateTime timestamp, SendPort? sendPort) {}
 
   @override
   void onNotificationPressed() {
@@ -90,6 +96,5 @@ class _NoopTaskHandler extends TaskHandler {
   }
 
   @override
-  void onButtonPressed(String id) {}
+  void onNotificationButtonPressed(String id) {}
 }
-
