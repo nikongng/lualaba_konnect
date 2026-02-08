@@ -3,11 +3,11 @@ ENV['COCOAPODS_DISABLE_STATS'] = 'true'
 
 project 'Runner'
 
-# CocoaPods on CI may integrate Swift pods as static libraries. Some of our
-# dependencies (Firebase, DKPhotoGallery, flutter_sound, etc.) pull in pods that
-# don't define modules, which breaks Swift static integration unless we enable
-# modular headers.
-use_modular_headers!
+# Use (static) frameworks so Swift pods and their dependencies have module maps.
+# This avoids CocoaPods errors about "Swift pods cannot yet be integrated as static libraries"
+# and issues like missing gRPC modulemap files.
+use_frameworks! :linkage => :static
+$FirebaseAsStaticFramework = true
 
 def flutter_root
   generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
