@@ -17,6 +17,26 @@ allprojects {
     }
 }
 
+// Force a modern compileSdk across ALL Android subprojects (including Flutter plugins).
+// This prevents AAPT errors like "android:attr/lStar not found" from plugins such as
+// google_mlkit_commons when Flutter's default compileSdk is older.
+subprojects {
+    afterEvaluate {
+        val androidExt = extensions.findByName("android") ?: return@afterEvaluate
+
+        // AGP 7/8: CommonExtension has property `compileSdk` (setter `setCompileSdk(int)`).
+        // AGP older: BaseExtension exposes `compileSdkVersion(int)`.
+        val desiredCompileSdk = 36
+        runCatching {
+            androidExt.javaClass.getMethod("setCompileSdk", Int::class.javaPrimitiveType)
+                .invoke(androidExt, desiredCompileSdk)
+        }.recoverCatching {
+            androidExt.javaClass.getMethod("compileSdkVersion", Int::class.javaPrimitiveType)
+                .invoke(androidExt, desiredCompileSdk)
+        }
+    }
+}
+
 // Ensure Java/Kotlin compile target is modern to suppress obsolete-8 warnings
 tasks.withType(org.gradle.api.tasks.compile.JavaCompile::class.java).configureEach {
     sourceCompatibility = "17"
