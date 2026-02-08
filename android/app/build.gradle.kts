@@ -10,9 +10,10 @@ plugins {
 
 android {
     namespace = "com.example.lualaba_konnect"
-    // google_mlkit_* requires API 31+ attrs (e.g. android:attr/lStar).
+    // Some transitive AndroidX deps (e.g. androidx.activity 1.11.0) now require
+    // compiling with API 36+.
     // Pinning compileSdk here avoids CI/build failures when Flutter's default is lower.
-    compileSdk = 34
+    compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -33,6 +34,8 @@ android {
         // flutter.minSdkVersion est souvent trop bas (16 ou 19)
         minSdk = flutter.minSdkVersion 
         
+        // Keep targetSdk conservative to avoid opting into new runtime behaviors accidentally.
+        // (You can raise this later once tested.)
         targetSdk = 34
         versionCode = flutter.versionCode
         versionName = flutter.versionName
