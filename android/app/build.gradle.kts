@@ -10,7 +10,9 @@ plugins {
 
 android {
     namespace = "com.example.lualaba_konnect"
-    compileSdk = flutter.compileSdkVersion
+    // google_mlkit_* requires API 31+ attrs (e.g. android:attr/lStar).
+    // Pinning compileSdk here avoids CI/build failures when Flutter's default is lower.
+    compileSdk = 34
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
@@ -31,7 +33,7 @@ android {
         // flutter.minSdkVersion est souvent trop bas (16 ou 19)
         minSdk = flutter.minSdkVersion 
         
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 34
         versionCode = flutter.versionCode
         versionName = flutter.versionName
         
