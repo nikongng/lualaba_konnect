@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart'; // Pour kIsWeb
 
 // --- Tes imports personnalisés ---
 import 'features/chat/presentation/pages/call_webrtc_page.dart';
+import 'features/chat/presentation/pages/chat_detail_page.dart';
 import 'firebase_options.dart';
 import 'core/supabase_service.dart';
 // Assure-toi que ce fichier existe et contient : final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
@@ -16,6 +17,8 @@ import 'core/app_navigator.dart';
 import 'features/auth/presentation/pages/splash_screen.dart';
 import 'features/auth/presentation/pages/AuthMainPage.dart';
 import 'features/dashboard/presentation/pages/dashboard_page.dart';
+import 'core/theme_controller.dart';
+import 'core/call_invite_listener.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -85,8 +88,24 @@ void main() async {
         debugPrint("🔔 Notification click : $data");
 
         if (data != null && data['type'] == 'incoming_call') {
+          final callId = (data['callId'] ?? '').toString();
+
+          if (actionId == 'decline') {
+            // Best-effort: update Firestore so caller sees it as rejected.
+            if (callId.isNotEmpty) {
+              try {
+                FirebaseFirestore.instance.collection('calls').doc(callId).update({'status': 'rejected'});
+              } catch (_) {}
+            }
+            return;
+          }
           // Si on clique sur "Répondre" ou sur la notif elle-même
           if (actionId == 'accept' || actionId == null) {
+            if (callId.isNotEmpty) {
+              try {
+                FirebaseFirestore.instance.collection('calls').doc(callId).update({'status': 'accepted'});
+              } catch (_) {}
+            }
              appNavigatorKey.currentState?.push(
               MaterialPageRoute(
                 builder: (_) => CallWebRTCPage(
@@ -100,6 +119,13 @@ void main() async {
               ),
             );
           }
+        } else if (data != null && data['type'] == 'chat_message') {
+          final chatId = (data['chatId'] ?? '').toString();
+          if (chatId.isEmpty) return;
+          final chatName = (data['chatName'] ?? event.notification.title ?? 'Discussion').toString();
+          appNavigatorKey.currentState?.push(
+            MaterialPageRoute(builder: (_) => ChatDetailPage(chatId: chatId, chatName: chatName)),
+          );
         }
       });
 
@@ -114,8 +140,14 @@ void main() async {
     if (user != null) {
       debugPrint('👤 User connecté : ${user.uid} -> Mise à jour OneSignal...');
       _updateUserOneSignalId(user.uid);
+      CallInviteListener.start(user.uid);
+    } else {
+      CallInviteListener.stop();
     }
   });
+
+  // 7. Charger le thème global
+  await ThemeController.instance.load();
 
   runApp(const MyApp());
 }
@@ -142,7 +174,7 @@ Future<void> _updateUserOneSignalId(String uid) async {
       debugPrint('⚠️ Impossible de récupérer le Subscription ID OneSignal.');
       return;
     }
-    debugPrint('🚀 ID OneSignal Device prêt : $onesignalId');
+    debugPrint('🚀 OneSignal pushSubscription.id prêt : $onesignalId');
 
     // ÉTAPE 3 : Sauvegarde dans Firestore pour que Render puisse le trouver
     final collections = ['classic_users', 'pro_users', 'enterprise_users'];
@@ -187,20 +219,35 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      navigatorKey: appNavigatorKey, // Indispensable pour la navigation hors contexte
-      title: 'Lualaba Konnect',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primarySwatch: Colors.orange,
-        textTheme: GoogleFonts.notoSansTextTheme(),
-        fontFamily: 'Poppins', 
-        useMaterial3: true,
-      ),
-      home: const SplashScreen(), 
-      routes: {
-        '/login': (context) => const AuthMainPage(),
-        '/dashboard': (context) => const DashboardPage(),
+    final themeCtrl = ThemeController.instance;
+    return AnimatedBuilder(
+      animation: themeCtrl,
+      builder: (context, _) {
+        return MaterialApp(
+          navigatorKey: appNavigatorKey, // Indispensable pour la navigation hors contexte
+          title: 'Lualaba Konnect',
+          debugShowCheckedModeBanner: false,
+          theme: ThemeData(
+            brightness: Brightness.light,
+            primarySwatch: Colors.orange,
+            textTheme: GoogleFonts.notoSansTextTheme(),
+            fontFamily: 'Poppins',
+            useMaterial3: true,
+          ),
+          darkTheme: ThemeData(
+            brightness: Brightness.dark,
+            primarySwatch: Colors.orange,
+            textTheme: GoogleFonts.notoSansTextTheme(),
+            fontFamily: 'Poppins',
+            useMaterial3: true,
+          ),
+          themeMode: themeCtrl.mode,
+          home: const SplashScreen(),
+          routes: {
+            '/login': (context) => const AuthMainPage(),
+            '/dashboard': (context) => const DashboardPage(),
+          },
+        );
       },
     );
   }

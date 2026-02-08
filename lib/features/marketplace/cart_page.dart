@@ -45,14 +45,19 @@ class _CartPageState extends State<CartPage> {
 
   Widget _paymentChip(String name, Color color, {Color textColor = Colors.white}) {
     final selected = _payment == name;
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
     return Expanded(
       child: GestureDetector(
         onTap: () => setState(() => _payment = name),
         child: Container(
           height: 44,
           alignment: Alignment.center,
-          decoration: BoxDecoration(color: selected ? color : Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.grey.shade200)),
-          child: Text(name, style: TextStyle(color: selected ? textColor : Colors.black87)),
+          decoration: BoxDecoration(
+            color: selected ? color : (isDark ? const Color(0xFF1B1F23) : Colors.white),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: isDark ? Colors.white12 : Colors.grey.shade200),
+          ),
+          child: Text(name, style: TextStyle(color: selected ? textColor : (isDark ? Colors.white70 : Colors.black87))),
         ),
       ),
     );
@@ -60,10 +65,24 @@ class _CartPageState extends State<CartPage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color bg = isDark ? const Color(0xFF0F1214) : Colors.grey.shade100;
+    final Color card = isDark ? const Color(0xFF1B1F23) : Colors.white;
+    final Color text = isDark ? Colors.white : Colors.black87;
+    final Color sub = isDark ? Colors.white70 : Colors.black54;
     return Scaffold(
-      backgroundColor: Colors.grey.shade100,
-      appBar: AppBar(title: const Text('Mon Panier'), backgroundColor: Colors.transparent, elevation: 0, iconTheme: const IconThemeData(color: Colors.black)),
-      body: _loading ? Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary)) : _items.isEmpty ? const Center(child: Text('Panier vide')) : SingleChildScrollView(
+      backgroundColor: bg,
+      appBar: AppBar(
+        title: Text('Mon Panier', style: TextStyle(color: text)),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: IconThemeData(color: text),
+      ),
+      body: _loading
+          ? Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary))
+          : _items.isEmpty
+              ? Center(child: Text('Panier vide', style: TextStyle(color: sub)))
+              : SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
           child: Column(
@@ -72,6 +91,7 @@ class _CartPageState extends State<CartPage> {
               ..._items.map((it) => Card(
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 margin: const EdgeInsets.only(bottom: 12),
+                color: card,
                 child: Padding(
                   padding: const EdgeInsets.all(12.0),
                   child: Column(
@@ -81,21 +101,29 @@ class _CartPageState extends State<CartPage> {
                         children: [
                           ClipRRect(
                             borderRadius: BorderRadius.circular(8),
-                            child: SizedBox(width: 80, height: 80, child: CachedNetworkImage(imageUrl: it['image'] ?? '', fit: BoxFit.cover, placeholder: (c,s)=>Container(color:Colors.grey.shade200))),
+                            child: SizedBox(
+                              width: 80,
+                              height: 80,
+                              child: CachedNetworkImage(
+                                imageUrl: it['image'] ?? '',
+                                fit: BoxFit.cover,
+                                placeholder: (c, s) => Container(color: isDark ? Colors.white10 : Colors.grey.shade200),
+                              ),
+                            ),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(it['name'] ?? '', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                Text(it['name'] ?? '', style: TextStyle(fontWeight: FontWeight.bold, color: text)),
                                 const SizedBox(height: 8),
                                 Text(it['price'] ?? '', style: TextStyle(color: Colors.orange.shade800, fontWeight: FontWeight.bold, fontSize: 16)),
                                 const SizedBox(height: 8),
                                   Row(children: [
-                                    IconButton(icon: const Icon(Icons.remove_circle_outline), onPressed: () => _changeQty(it['id'], -1)),
-                                    Text('${it['quantity']}'),
-                                    IconButton(icon: const Icon(Icons.add_circle_outline), onPressed: () => _changeQty(it['id'], 1)),
+                                    IconButton(icon: Icon(Icons.remove_circle_outline, color: text), onPressed: () => _changeQty(it['id'], -1)),
+                                    Text('${it['quantity']}', style: TextStyle(color: text)),
+                                    IconButton(icon: Icon(Icons.add_circle_outline, color: text), onPressed: () => _changeQty(it['id'], 1)),
                                   ])
                               ],
                             ),
@@ -103,7 +131,7 @@ class _CartPageState extends State<CartPage> {
                         ],
                       ),
                       const SizedBox(height: 8),
-                      Align(alignment: Alignment.centerLeft, child: Text('Discuter avec ${it['sellerName'] ?? 'le vendeur'}', style: TextStyle(color: Colors.black54))),
+                      Align(alignment: Alignment.centerLeft, child: Text('Discuter avec ${it['sellerName'] ?? 'le vendeur'}', style: TextStyle(color: sub))),
                     ],
                   ),
                 ),

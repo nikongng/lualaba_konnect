@@ -156,7 +156,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isDark = widget.isDark;
+    final bool isDark = widget.isDark || Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? const Color(0xFF0B1415) : const Color(0xFFF4F7FA);
     final cardBg = isDark ? const Color(0xFF122422) : Colors.white;
     final textColor = isDark ? Colors.white : Colors.black87;
@@ -184,16 +184,17 @@ class _MarketplacePageState extends State<MarketplacePage> {
   }
 
   Widget _buildModernAppBar() {
+    final bool isDark = widget.isDark || Theme.of(context).brightness == Brightness.dark;
     return SliverAppBar(
       pinned: true,
       expandedHeight: 150,
-      backgroundColor: widget.isDark ? const Color(0xFF071010) : Colors.white,
+      backgroundColor: isDark ? const Color(0xFF071010) : Colors.white,
       elevation: 0,
       leading: IconButton(
-        icon: Icon(Icons.arrow_back_ios_new, color: (widget.isDark || Theme.of(context).brightness == Brightness.dark) ? Colors.orange.shade800 : Colors.black, size: 20),
+        icon: Icon(Icons.arrow_back_ios_new, color: isDark ? Colors.orange.shade800 : Colors.black, size: 20),
         onPressed: widget.onBack,
       ),
-      title: Text("Market Pro", style: TextStyle(color: widget.isDark ? Colors.white : Colors.black, fontWeight: FontWeight.w900, fontSize: 24)),
+      title: Text("Market Pro", style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.w900, fontSize: 24)),
       actions: [
         IconButton(
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ProductCreatePage())).then((_) => _loadProducts()), 
@@ -201,7 +202,7 @@ class _MarketplacePageState extends State<MarketplacePage> {
         ),
         IconButton(
           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryPage())), 
-          icon: Icon(Icons.history_toggle_off, color: (widget.isDark || Theme.of(context).brightness == Brightness.dark) ? Colors.orange.shade800 : Colors.black54)
+          icon: Icon(Icons.history_toggle_off, color: isDark ? Colors.orange.shade800 : Colors.black54)
         ),
         IconButton(
           onPressed: () {
@@ -218,8 +219,8 @@ class _MarketplacePageState extends State<MarketplacePage> {
                 )
               )
             );
-          }, 
-          icon: Icon(Icons.account_circle_outlined, color: (widget.isDark || Theme.of(context).brightness == Brightness.dark) ? Colors.orange.shade800 : Colors.black87, size: 26)
+          },
+          icon: Icon(Icons.account_circle_outlined, color: isDark ? Colors.orange.shade800 : Colors.black87, size: 26)
         ),
       ],
       flexibleSpace: FlexibleSpaceBar(
@@ -232,18 +233,21 @@ class _MarketplacePageState extends State<MarketplacePage> {
   }
 
   Widget _buildSearchBar() {
+    final bool isDark = widget.isDark || Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
-        color: widget.isDark ? const Color(0xFF0E2323) : const Color(0xFFF1F3F5),
+        color: isDark ? const Color(0xFF0E2323) : const Color(0xFFF1F3F5),
         borderRadius: BorderRadius.circular(16),
       ),
       child: TextField(
         onChanged: (v) => setState(() => _query = v),
-        decoration: const InputDecoration(
+        style: TextStyle(color: isDark ? Colors.white : Colors.black87),
+        decoration: InputDecoration(
           hintText: "Rechercher...",
-          prefixIcon: Icon(Icons.search_rounded, color: Colors.orange),
+          hintStyle: TextStyle(color: isDark ? Colors.white60 : Colors.black54),
+          prefixIcon: const Icon(Icons.search_rounded, color: Colors.orange),
           border: InputBorder.none,
-          contentPadding: EdgeInsets.symmetric(vertical: 12),
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
         ),
       ),
     );

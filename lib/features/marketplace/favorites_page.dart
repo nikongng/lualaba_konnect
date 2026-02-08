@@ -43,18 +43,23 @@ class _FavoritesPageState extends State<FavoritesPage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color bg = isDark ? const Color(0xFF0F1214) : const Color(0xFFF8F9FB);
+    final Color card = isDark ? const Color(0xFF1B1F23) : Colors.white;
+    final Color text = isDark ? Colors.white : Colors.black87;
+    final Color sub = isDark ? Colors.white70 : Colors.black54;
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FB),
+      backgroundColor: bg,
       appBar: AppBar(
-        title: const Text(
+        title: Text(
           "Mes Favoris",
-          style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900),
+          style: TextStyle(color: text, fontWeight: FontWeight.w900),
         ),
-        backgroundColor: Colors.white,
+        backgroundColor: card,
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new, color: Theme.of(context).brightness == Brightness.dark ? Colors.orange : Colors.black, size: 20),
+          icon: Icon(Icons.arrow_back_ios_new, color: isDark ? Colors.orange : Colors.black, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -69,6 +74,10 @@ class _FavoritesPageState extends State<FavoritesPage> {
   }
 
   Widget _buildFavoriteItem(Map<String, dynamic> p) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color card = isDark ? const Color(0xFF1B1F23) : Colors.white;
+    final Color text = isDark ? Colors.white : Colors.black87;
+    final Color sub = isDark ? Colors.white70 : Colors.black54;
     return Dismissible(
       key: Key(p['id'].toString()),
       direction: DismissDirection.endToStart,
@@ -86,7 +95,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
       child: Container(
         margin: const EdgeInsets.only(bottom: 16),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: card,
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(
@@ -114,8 +123,8 @@ class _FavoritesPageState extends State<FavoritesPage> {
                     height: 80,
                     fit: BoxFit.cover,
                     errorWidget: (c, u, e) => Container(
-                      color: Colors.grey.shade100,
-                      child: const Icon(Icons.broken_image, color: Colors.grey),
+                      color: isDark ? Colors.white10 : Colors.grey.shade100,
+                      child: Icon(Icons.broken_image, color: sub),
                     ),
                   ),
                 ),
@@ -126,7 +135,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
                     children: [
                       Text(
                         p['name'],
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: text),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -160,7 +169,7 @@ class _FavoritesPageState extends State<FavoritesPage> {
                   icon: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: Colors.orange.shade50,
+                      color: isDark ? Colors.orange.withOpacity(0.2) : Colors.orange.shade50,
                       shape: BoxShape.circle,
                     ),
                     child: Icon(Icons.shopping_cart_outlined, color: Colors.orange.shade900, size: 20),
@@ -175,21 +184,24 @@ class _FavoritesPageState extends State<FavoritesPage> {
   }
 
   Widget _buildEmptyState() {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color text = isDark ? Colors.white : Colors.black87;
+    final Color sub = isDark ? Colors.white70 : Colors.black54;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.favorite_border_rounded, size: 100, color: Colors.grey.shade300),
+          Icon(Icons.favorite_border_rounded, size: 100, color: isDark ? Colors.white24 : Colors.grey.shade300),
           const SizedBox(height: 20),
-          const Text(
+          Text(
             "Aucun coup de cœur ?",
-            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18, color: text),
           ),
           const SizedBox(height: 10),
-          const Text(
+          Text(
             "Parcourez la boutique pour ajouter\ndes articles à vos favoris.",
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey),
+            style: TextStyle(color: sub),
           ),
         ],
       ),

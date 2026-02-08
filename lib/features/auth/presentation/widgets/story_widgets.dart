@@ -384,6 +384,13 @@ class _StoryBarState extends State<StoryBar> {
 
   // --- CERCLE POUR L'UTILISATEUR ACTUEL (+) ---
   Widget _buildMyStoryCircle(User? user) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final border = isDark ? Colors.white24 : Colors.black12;
+    final avatarBg = isDark ? (Colors.grey[900] ?? const Color(0xFF111827)) : const Color(0xFFE5E7EB);
+    final icon = isDark ? Colors.white54 : Colors.black45;
+    final label = isDark ? Colors.white70 : Colors.black54;
+    final photoUrl = (user?.photoURL ?? '').trim();
+
     return GestureDetector(
       onTap: widget.onAddStoryTap,
       child: Padding(
@@ -396,16 +403,14 @@ class _StoryBarState extends State<StoryBar> {
                   padding: const EdgeInsets.all(2),
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white24, width: 2),
+                    border: Border.all(color: border, width: 2),
                   ),
                   child: CircleAvatar(
                     radius: 28,
-                    backgroundColor: Colors.grey[900],
-                    backgroundImage: (user?.photoURL != null)
-                      ? CachedNetworkImageProvider(user!.photoURL!)
-                      : null,
-                    child: (user?.photoURL == null)
-                        ? const Icon(Icons.person, color: Colors.white54)
+                    backgroundColor: avatarBg,
+                    backgroundImage: photoUrl.isNotEmpty ? CachedNetworkImageProvider(photoUrl) : null,
+                    child: photoUrl.isEmpty
+                        ? Icon(Icons.person, color: icon)
                         : null,
                   ),
                 ),
@@ -426,7 +431,7 @@ class _StoryBarState extends State<StoryBar> {
             const SizedBox(height: 6),
             Text(
               user != null ? 'Moi' : 'Ma story',
-              style: const TextStyle(color: Colors.white70, fontSize: 11),
+              style: TextStyle(color: label, fontSize: 11),
             ),
           ],
         ),
@@ -443,6 +448,13 @@ class _StoryBarState extends State<StoryBar> {
     List<DocumentSnapshot> userStories,
     String viewerId,
   ) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final avatarBg = isDark ? (Colors.grey[800] ?? const Color(0xFF1F2937)) : const Color(0xFFE5E7EB);
+    final icon = isDark ? Colors.white54 : Colors.black45;
+    final nameColor = isDark ? Colors.white : Colors.black87;
+    final badgeBg = Colors.black.withOpacity(isDark ? 0.45 : 0.55);
+    final photoUrl = (url ?? '').trim();
+
     // Si le nom enregistré est 'Moi' (ou absent) et que ce n'est pas le viewer,
     // on récupère le nom réel depuis la fiche utilisateur.
     final needsLookup = (name == null || name.trim().isEmpty || name == 'Moi') && userId != viewerId;
@@ -477,10 +489,10 @@ class _StoryBarState extends State<StoryBar> {
                   ),
                   child: CircleAvatar(
                     radius: 28,
-                    backgroundColor: Colors.grey[800],
-                    backgroundImage: url != null ? CachedNetworkImageProvider(url) : null,
-                    child: url == null
-                        ? const Icon(Icons.person, color: Colors.white54)
+                    backgroundColor: avatarBg,
+                    backgroundImage: photoUrl.isNotEmpty ? CachedNetworkImageProvider(photoUrl) : null,
+                    child: photoUrl.isEmpty
+                        ? Icon(Icons.person, color: icon)
                         : null,
                   ),
                 ),
@@ -491,7 +503,7 @@ class _StoryBarState extends State<StoryBar> {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
-                        color: Colors.black45,
+                        color: badgeBg,
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Text(
@@ -515,8 +527,8 @@ class _StoryBarState extends State<StoryBar> {
                             ? firstName
                             : 'Utilisateur',
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: nameColor,
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
                         ),
@@ -528,8 +540,8 @@ class _StoryBarState extends State<StoryBar> {
                   : Text(
                       name ?? 'Utilisateur',
                       textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: nameColor,
                         fontSize: 11,
                         fontWeight: FontWeight.w500,
                       ),

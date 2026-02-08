@@ -27,11 +27,21 @@ class _HistoryPageState extends State<HistoryPage> with SingleTickerProviderStat
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color bg = isDark ? const Color(0xFF0F1214) : Colors.white;
+    final Color text = isDark ? Colors.white : Colors.black87;
+    final Color sub = isDark ? Colors.white70 : Colors.black54;
     return Scaffold(
+      backgroundColor: bg,
       appBar: AppBar(
-        title: const Text('Mon Historique'),
+        title: Text('Mon Historique', style: TextStyle(color: text)),
         backgroundColor: Colors.orange.shade800,
-        bottom: TabBar(controller: _tabController, tabs: const [Tab(text: 'Achats'), Tab(text: 'Ventes')]),
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: text,
+          unselectedLabelColor: sub,
+          tabs: const [Tab(text: 'Achats'), Tab(text: 'Ventes')],
+        ),
       ),
       body: TabBarView(controller: _tabController, children: [
         _buildPurchases(),

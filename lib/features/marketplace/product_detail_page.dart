@@ -122,11 +122,12 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   }
 
   void _notify(BuildContext context, String msg) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg), 
         behavior: SnackBarBehavior.floating, 
-        backgroundColor: Colors.black87,
+        backgroundColor: isDark ? Colors.white24 : Colors.black87,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
       )
     );
@@ -173,23 +174,28 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
     final currentUid = FirebaseAuth.instance.currentUser?.uid;
     final images = _getImages(p);
     final isOwner = (p['owner'] != null && p['owner'] == currentUid);
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color bg = isDark ? const Color(0xFF0F1214) : Colors.white;
+    final Color text = isDark ? Colors.white : Colors.black;
+    final Color card = isDark ? const Color(0xFF1B1F23) : Colors.white;
+    final SystemUiOverlayStyle overlay = isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark;
     
     // Récupération intelligente de la date
     final dateValue = p['createdAt'] ?? p['created_at'] ?? p['date'] ?? p['timestamp'] ?? p['publishedAt'];
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: bg,
       extendBodyBehindAppBar: true,
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        systemOverlayStyle: SystemUiOverlayStyle.dark,
+        systemOverlayStyle: overlay,
         leading: Padding(
           padding: const EdgeInsets.only(left: 16, top: 8, bottom: 8),
           child: CircleAvatar(
-            backgroundColor: Colors.white.withOpacity(0.9),
+            backgroundColor: card.withOpacity(0.9),
             child: IconButton(
-              icon: const Icon(Icons.arrow_back, color: Colors.black, size: 20),
+              icon: Icon(Icons.arrow_back, color: text, size: 20),
               onPressed: () => Navigator.pop(context),
             ),
           ),
@@ -198,10 +204,10 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
           Padding(
             padding: const EdgeInsets.only(right: 16, top: 8, bottom: 8),
             child: CircleAvatar(
-              backgroundColor: Colors.white.withOpacity(0.9),
+              backgroundColor: card.withOpacity(0.9),
               child: IconButton(
                 icon: Icon(_isFavorite ? Icons.favorite : Icons.favorite_border, 
-                      color: _isFavorite ? Colors.redAccent : Colors.black, size: 20),
+                      color: _isFavorite ? Colors.redAccent : text, size: 20),
                 onPressed: () => setState(() => _isFavorite = !_isFavorite),
               ),
             ),

@@ -262,6 +262,38 @@
         body.dark .user-card h4 {
             color: #ecf0f1 !important;
         }
+        .price-pill {
+            margin-left: auto;
+            display: inline-flex;
+            align-items: baseline;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 122, 26, 0.35);
+            background: linear-gradient(135deg, rgba(255, 122, 26, 0.16), rgba(255, 122, 26, 0.06));
+            box-shadow: 0 10px 22px rgba(255, 122, 26, 0.18);
+            white-space: nowrap;
+        }
+        body.dark .price-pill {
+            background: linear-gradient(135deg, rgba(255, 122, 26, 0.22), rgba(255, 122, 26, 0.08));
+            box-shadow: 0 12px 26px rgba(0,0,0,0.28);
+        }
+        .price-amount {
+            color: #ff7a1a;
+            font-weight: 900;
+            font-size: 1.05em;
+            letter-spacing: -0.2px;
+            line-height: 1;
+        }
+        .price-suffix {
+            color: #6c757d;
+            font-weight: 700;
+            font-size: 0.82em;
+            line-height: 1;
+        }
+        body.dark .price-suffix {
+            color: #bdc3c7;
+        }
         .badge {
             background: linear-gradient(45deg, #007bff, #0056b3);
             color: white;
@@ -507,6 +539,19 @@
             margin-right: 15px;
             border: 2px solid #00cba9;
         }
+        .cover-thumb {
+            width: 84px;
+            height: 84px;
+            border-radius: 14px;
+            margin-right: 14px;
+            object-fit: cover;
+            border: 1px solid rgba(0,0,0,0.08);
+            box-shadow: 0 10px 22px rgba(0,0,0,0.12);
+        }
+        body.dark .cover-thumb {
+            border: 1px solid rgba(255,255,255,0.10);
+            box-shadow: 0 10px 22px rgba(0,0,0,0.40);
+        }
         .toast {
             position: fixed;
             top: 20px;
@@ -618,6 +663,13 @@
             <button class="tablinks" data-tab="Classic">Classiques</button>
             <button class="tablinks" data-tab="Pro">Professionnels</button>
             <button class="tablinks" data-tab="Enterprise">Entreprises</button>
+            <button class="tablinks" data-tab="Services">Services rapides</button>
+            <button class="tablinks" data-tab="Food">Repas</button>
+            <button class="tablinks" data-tab="Freelance">Freelance & Pros</button>
+            <button class="tablinks" data-tab="Cars">Mobilite</button>
+            <button class="tablinks" data-tab="Training">Formation</button>
+            <button class="tablinks" data-tab="Jobs">Emploi</button>
+            <button class="tablinks" data-tab="Ads">Annonces</button>
         </div>
 
         <div id="Classic" class="tabcontent">
@@ -636,6 +688,48 @@
             <h3>Utilisateurs Entreprises</h3>
             <div id="enterprise-users" class="user-grid"></div>
             <div class="pagination" id="enterprise-pagination"></div>
+        </div>
+
+        <div id="Services" class="tabcontent">
+            <h3>Prestataires - Services rapides</h3>
+            <div id="service-providers" class="user-grid"></div>
+            <div class="pagination" id="service-providers-pagination"></div>
+        </div>
+
+        <div id="Food" class="tabcontent">
+            <h3>Resto & Fast-Food</h3>
+            <div id="food-places" class="user-grid"></div>
+            <div class="pagination" id="food-places-pagination"></div>
+        </div>
+
+        <div id="Freelance" class="tabcontent">
+            <h3>Freelance & Pros</h3>
+            <div id="freelance-pros" class="user-grid"></div>
+            <div class="pagination" id="freelance-pros-pagination"></div>
+        </div>
+
+        <div id="Cars" class="tabcontent">
+            <h3>Mobilite - Location & Reservation</h3>
+            <div id="car-rentals" class="user-grid"></div>
+            <div class="pagination" id="car-rentals-pagination"></div>
+        </div>
+
+        <div id="Training" class="tabcontent">
+            <h3>Formation - Cours & Soutien</h3>
+            <div id="training-offers" class="user-grid"></div>
+            <div class="pagination" id="training-offers-pagination"></div>
+        </div>
+
+        <div id="Jobs" class="tabcontent">
+            <h3>Emploi - Offres</h3>
+            <div id="job-posts" class="user-grid"></div>
+            <div class="pagination" id="job-posts-pagination"></div>
+        </div>
+
+        <div id="Ads" class="tabcontent">
+            <h3>Petites annonces</h3>
+            <div id="classified-ads" class="user-grid"></div>
+            <div class="pagination" id="classified-ads-pagination"></div>
         </div>
 
         <div id="settingsModal" class="modal settings-modal">
@@ -695,7 +789,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
-        import { getFirestore, collection, onSnapshot, updateDoc, doc, deleteDoc, addDoc, serverTimestamp, query, where, orderBy } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+        import { getFirestore, collection, onSnapshot, updateDoc, doc, deleteDoc, addDoc, serverTimestamp, query, where, orderBy, getDoc, getDocs } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, getIdTokenResult, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
         import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
@@ -743,7 +837,8 @@
         }, 1000);
 
         // Collections list (kept for listener initialization)
-        const collections = ['classic_users', 'pro_users', 'enterprise_users'];
+        // NOTE: service providers are certified separately (not classic/pro/enterprise user badges).
+        const collections = ['classic_users', 'pro_users', 'enterprise_users', 'service_providers', 'food_places', 'freelance_pros', 'car_rentals', 'training_offers', 'job_posts', 'classified_ads'];
 
         // Initialize Firestore listeners only after successful auth and admin claim verified
         function initFirestoreListeners() {
@@ -1016,8 +1111,26 @@
             certifyingUsers.add(userId);
             updateUserCardButton(collectionName, userId, true);
             try {
-                await updateDoc(doc(db, collectionName, userId), { isCertified: true });
-                showToast('Utilisateur certifié !');
+                const payload = (collectionName === 'service_providers' || collectionName === 'food_places' || collectionName === 'freelance_pros' || collectionName === 'car_rentals' || collectionName === 'training_offers' || collectionName === 'job_posts' || collectionName === 'classified_ads')
+                    ? { isCertified: true, certified: true, certifiedAt: serverTimestamp() }
+                    : { isCertified: true };
+                await updateDoc(doc(db, collectionName, userId), payload);
+                const msg = (collectionName === 'service_providers')
+                    ? 'Prestataire certifie !'
+                    : (collectionName === 'food_places')
+                        ? 'Etablissement certifie !'
+                        : (collectionName === 'freelance_pros')
+                            ? 'Profil certifie !'
+                            : (collectionName === 'car_rentals')
+                                ? 'Annonce certifiee !'
+                                : (collectionName === 'training_offers')
+                                    ? 'Formation certifiee !'
+                                    : (collectionName === 'job_posts')
+                                        ? 'Offre certifiee !'
+                                        : (collectionName === 'classified_ads')
+                                            ? 'Annonce certifiee !'
+                                            : 'Utilisateur certifié !';
+                showToast(msg);
                 updateStats();
             } catch (error) {
                 showToast('Erreur lors de la certification: ' + error.message, true);
@@ -1030,7 +1143,10 @@
             certifyingUsers.add(userId);
             updateUserCardButton(collectionName, userId, true);
             try {
-                await updateDoc(doc(db, collectionName, userId), { isCertified: false });
+                const payload = (collectionName === 'service_providers' || collectionName === 'food_places' || collectionName === 'freelance_pros' || collectionName === 'car_rentals' || collectionName === 'training_offers' || collectionName === 'job_posts' || collectionName === 'classified_ads')
+                    ? { isCertified: false, certified: false, certifiedAt: null }
+                    : { isCertified: false };
+                await updateDoc(doc(db, collectionName, userId), payload);
                 showToast('Certification retirée !');
                 updateStats();
             } catch (error) {
@@ -1052,10 +1168,11 @@
         };
 
         function updateUserCardButton(collectionName, userId, loading) {
-            const btns = document.querySelectorAll(`button[data-userid="${collectionName}_${userId}"]`);
+            // Buttons are rendered with data-collection + data-userid (not concatenated).
+            const btns = document.querySelectorAll(`button[data-collection="${collectionName}"][data-userid="${userId}"]`);
             btns.forEach(btn => {
                 btn.disabled = loading;
-                btn.textContent = loading ? 'Chargement...' : btn.getAttribute('data-original');
+                btn.textContent = loading ? 'Chargement...' : (btn.getAttribute('data-original') || btn.textContent);
             });
         }
 
@@ -1096,20 +1213,577 @@
             }
         }
 
+        function isServiceProvidersContainer(containerId) {
+            return containerId === 'service-providers';
+        }
+
+        function isFoodPlacesContainer(containerId) {
+            return containerId === 'food-places';
+        }
+
+        function isFreelanceProsContainer(containerId) {
+            return containerId === 'freelance-pros';
+        }
+
+        function isCarRentalsContainer(containerId) {
+            return containerId === 'car-rentals';
+        }
+
+        function isTrainingOffersContainer(containerId) {
+            return containerId === 'training-offers';
+        }
+
+        function isJobPostsContainer(containerId) {
+            return containerId === 'job-posts';
+        }
+
+        function isClassifiedAdsContainer(containerId) {
+            return containerId === 'classified-ads';
+        }
+
+        function collectionNameFromContainerId(containerId) {
+            if (isServiceProvidersContainer(containerId)) return 'service_providers';
+            if (isFoodPlacesContainer(containerId)) return 'food_places';
+            if (isFreelanceProsContainer(containerId)) return 'freelance_pros';
+            if (isCarRentalsContainer(containerId)) return 'car_rentals';
+            if (isTrainingOffersContainer(containerId)) return 'training_offers';
+            if (isJobPostsContainer(containerId)) return 'job_posts';
+            if (isClassifiedAdsContainer(containerId)) return 'classified_ads';
+            // classic-users => classic_users, pro-users => pro_users, enterprise-users => enterprise_users
+            return containerId.replace('-users', '_users');
+        }
+
+        function paginationIdFromContainerId(containerId) {
+            // classic-users => classic-pagination (existing IDs)
+            if (containerId.endsWith('-users')) return containerId.replace('-users', '-pagination');
+            // service-providers => service-providers-pagination
+            return `${containerId}-pagination`;
+        }
+
         function renderUsers(containerId) {
             const container = document.getElementById(containerId);
             container.innerHTML = '';
-            let users = allUsers[containerId] || [];
-            users = filterUsersArray(users);
-            sortUsersArray(users, currentSort);
-            const totalPages = Math.ceil(users.length / usersPerPage);
+            let items = allUsers[containerId] || [];
+            items = filterUsersArray(items, containerId);
+            sortUsersArray(items, currentSort, containerId);
+            const totalPages = Math.ceil(items.length / usersPerPage);
             const start = (currentPage - 1) * usersPerPage;
             const end = start + usersPerPage;
-            const pageUsers = users.slice(start, end);
-            pageUsers.forEach(({ id, data: user }) => {
-                renderUserCard(container, user, containerId.replace('-users', '_users'), id);
+            const pageItems = items.slice(start, end);
+            const collectionName = collectionNameFromContainerId(containerId);
+
+            pageItems.forEach(({ id, data }) => {
+                if (isFoodPlacesContainer(containerId)) {
+                    renderFoodPlaceCard(container, data, collectionName, id);
+                } else if (isCarRentalsContainer(containerId)) {
+                    renderCarRentalCard(container, data, collectionName, id);
+                } else if (isTrainingOffersContainer(containerId)) {
+                    renderTrainingOfferCard(container, data, collectionName, id);
+                } else if (isJobPostsContainer(containerId)) {
+                    renderJobPostCard(container, data, collectionName, id);
+                } else if (isClassifiedAdsContainer(containerId)) {
+                    renderClassifiedAdCard(container, data, collectionName, id);
+                } else if (isServiceProvidersContainer(containerId) || isFreelanceProsContainer(containerId)) {
+                    renderProviderCard(container, data, collectionName, id);
+                } else {
+                    renderUserCard(container, data, collectionName, id);
+                }
             });
-            renderPagination(containerId.replace('-users', '-pagination'), totalPages);
+            renderPagination(paginationIdFromContainerId(containerId), totalPages);
+        }
+
+        function renderFoodPlaceCard(container, place, collectionName, placeId) {
+            const p = place || {};
+            const card = document.createElement('div');
+            card.className = 'user-card';
+
+            const name = String(p.name || 'Etablissement');
+            const type = String(p.type || p.category || '');
+            const city = String(p.cityLabel || p.city || '');
+            const eta = String(p.etaLabel || '');
+            const rating = (p.rating ?? '').toString();
+            const tags = Array.isArray(p.tags) ? p.tags.join(', ') : '';
+            const addedByEmail = String(p.createdByEmail || '');
+            const cover = sanitizeUrl(p.coverUrl || p.imageUrl || p.photoUrl) || 'https://via.placeholder.com/84';
+            const isOpen = (p.isOpen === true);
+            const isCertified = (p.isCertified === true) || (p.certified === true);
+
+            const certifyBtnHtml = isCertified
+                ? `<button class="uncertify-btn" data-collection="${collectionName}" data-userid="${placeId}" data-original="Decertifier">Decertifier</button>`
+                : `<button class="certify-btn" data-collection="${collectionName}" data-userid="${placeId}" data-original="Certifier">Certifier</button>`;
+
+            const deleteBtnHtml = `<button class="delete-btn" data-collection="${collectionName}" data-userid="${placeId}">Supprimer</button>`;
+
+            const encName = encodeURIComponent(name);
+
+            card.innerHTML = `
+                <div style="display:flex;align-items:flex-start;">
+                    <img src="${cover}" alt="Couverture" class="cover-thumb">
+                    <div style="flex:1;">
+                        <h4 style="margin-bottom:8px;">
+                            ${name}
+                            ${isCertified ? '<span class="badge">Certifie</span>' : ''}
+                        </h4>
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;">
+                            <span style="padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;background:${isOpen ? '#28a745' : '#6c757d'};color:#fff;">
+                                ${isOpen ? 'OUVERT' : 'FERME'}
+                            </span>
+                            ${rating ? `<span style="padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;background:#fff3e6;color:#ff7a18;border:1px solid rgba(255,122,24,0.25);">★ ${rating}</span>` : ''}
+                            ${eta ? `<span style="padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;background:#f1f3f5;color:#343a40;border:1px solid rgba(0,0,0,0.06);">${eta}</span>` : ''}
+                        </div>
+                        ${type ? `<p style="margin:6px 0;"><strong>Type:</strong> ${type}</p>` : ''}
+                        ${city ? `<p style="margin:6px 0;"><strong>Ville:</strong> ${city}</p>` : ''}
+                        <p style="margin:6px 0;"><strong>Ajoute par:</strong> ${addedByEmail || 'Inconnu'}</p>
+                        ${tags ? `<p style="margin:6px 0;"><strong>Tags:</strong> ${tags}</p>` : ''}
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+                            ${certifyBtnHtml}
+                            ${deleteBtnHtml}
+                            <button class="view-food-docs-btn" data-collection="${collectionName}" data-userid="${placeId}" data-name="${encName}">Voir details</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const viewBtn = card.querySelector('.view-food-docs-btn');
+            if (viewBtn) {
+                viewBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    try { await viewFoodPlaceDocuments(viewBtn.dataset.collection, viewBtn.dataset.userid, viewBtn.dataset.name); }
+                    catch (err) { console.error('viewFoodPlaceDocuments error', err); showToast('Erreur affichage details', true); }
+                });
+            }
+            const certifyBtn = card.querySelector('.certify-btn');
+            if (certifyBtn) {
+                certifyBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    certifyUser(certifyBtn.dataset.collection, certifyBtn.dataset.userid);
+                });
+            }
+            const uncertifyBtn = card.querySelector('.uncertify-btn');
+            if (uncertifyBtn) {
+                uncertifyBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    uncertifyUser(uncertifyBtn.dataset.collection, uncertifyBtn.dataset.userid);
+                });
+            }
+            const deleteBtn = card.querySelector('.delete-btn');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteUser(deleteBtn.dataset.collection, deleteBtn.dataset.userid);
+                });
+            }
+
+            // Click card => show raw details (reuse provider modal renderer)
+            card.onclick = () => openProviderModal(p);
+            container.appendChild(card);
+        }
+
+        function renderCarRentalCard(container, rental, collectionName, rentalId) {
+            const r = rental || {};
+            const card = document.createElement('div');
+            card.className = 'user-card';
+
+            const name = String(r.name || r.title || r.model || 'Voiture');
+            const city = String(r.cityLabel || r.city || '');
+            const price = String(r.priceLabel || r.price || r.pricePerDay || '');
+            const phone = String(r.phone || r.phoneNumber || '');
+            const email = String(r.email || '');
+            const tags = Array.isArray(r.tags) ? r.tags.map(t => (t === 'van_bus' ? 'Van/Bus' : t)).join(', ') : '';
+            const addedByEmail = String(r.createdByEmail || '');
+            const cover = sanitizeUrl(r.coverUrl || r.imageUrl || r.photoUrl) || 'https://via.placeholder.com/84';
+            const isCertified = (r.isCertified === true) || (r.certified === true);
+
+            const certifyBtnHtml = isCertified
+                ? `<button class="uncertify-btn" data-collection="${collectionName}" data-userid="${rentalId}" data-original="Decertifier">Decertifier</button>`
+                : `<button class="certify-btn" data-collection="${collectionName}" data-userid="${rentalId}" data-original="Certifier">Certifier</button>`;
+            const deleteBtnHtml = `<button class="delete-btn" data-collection="${collectionName}" data-userid="${rentalId}">Supprimer</button>`;
+
+            const formatPrice = (raw) => {
+                const s0 = (raw || '').toString().trim();
+                if (!s0) return { amount: '', suffix: '' };
+                const s = s0.replace(/\s+/g, ' ');
+                const m = s.match(/^(\d+(?:[.,]\d+)?)\s*\$?\s*(.*)$/);
+                if (m) {
+                    const amount = (m[1] || '').trim();
+                    let rest = (m[2] || '').trim();
+                    if (rest.startsWith('/')) rest = '/ ' + rest.substring(1).trim();
+                    return { amount: amount ? `${amount} $` : '', suffix: rest };
+                }
+                return { amount: s, suffix: '' };
+            };
+            const p = formatPrice(price);
+            const priceHtml = p.amount
+                ? `<span class="price-pill"><span class="price-amount">${p.amount}</span>${p.suffix ? `<span class="price-suffix">${p.suffix}</span>` : ''}</span>`
+                : '';
+
+            const encName = encodeURIComponent(name);
+
+            card.innerHTML = `
+                <div style="display:flex;align-items:flex-start;">
+                    <img src="${cover}" alt="Voiture" class="cover-thumb">
+                    <div style="flex:1;">
+                        <h4 style="margin-bottom:8px;">
+                            <span>${name}</span>
+                            ${priceHtml}
+                            ${isCertified ? '<span class="badge">Certifie</span>' : ''}
+                        </h4>
+                        ${city ? `<p style="margin:6px 0;"><strong>Ville:</strong> ${city}</p>` : ''}
+                        ${phone ? `<p style="margin:6px 0;"><strong>Telephone:</strong> ${phone}</p>` : ''}
+                        ${email ? `<p style="margin:6px 0;"><strong>Email:</strong> ${email}</p>` : ''}
+                        <p style="margin:6px 0;"><strong>Ajoute par:</strong> ${addedByEmail || 'Inconnu'}</p>
+                        ${tags ? `<p style="margin:6px 0;"><strong>Tags:</strong> ${tags}</p>` : ''}
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+                            ${certifyBtnHtml}
+                            ${deleteBtnHtml}
+                            <button class="view-car-details-btn" data-name="${encName}" data-collection="${collectionName}" data-userid="${rentalId}">Voir details</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const viewBtn = card.querySelector('.view-car-details-btn');
+            if (viewBtn) {
+                viewBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openProviderModal(r);
+                });
+            }
+            const certifyBtn = card.querySelector('.certify-btn');
+            if (certifyBtn) {
+                certifyBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    certifyUser(certifyBtn.dataset.collection, certifyBtn.dataset.userid);
+                });
+            }
+            const uncertifyBtn = card.querySelector('.uncertify-btn');
+            if (uncertifyBtn) {
+                uncertifyBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    uncertifyUser(uncertifyBtn.dataset.collection, uncertifyBtn.dataset.userid);
+                });
+            }
+            const deleteBtn = card.querySelector('.delete-btn');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteUser(deleteBtn.dataset.collection, deleteBtn.dataset.userid);
+                });
+            }
+
+            card.onclick = () => openProviderModal(r);
+            container.appendChild(card);
+        }
+
+        function renderTrainingOfferCard(container, offer, collectionName, offerId) {
+            const o = offer || {};
+            const card = document.createElement('div');
+            card.className = 'user-card';
+
+            const title = String(o.title || o.name || o.courseTitle || 'Formation');
+            const city = String(o.cityLabel || o.city || '');
+            const duration = String(o.durationLabel || o.duration || '');
+            const price = String(o.priceLabel || o.price || '');
+            const phone = String(o.phone || o.phoneNumber || '');
+            const email = String(o.email || '');
+            const addedByEmail = String(o.createdByEmail || o.createdByUserEmail || '');
+            const tags = Array.isArray(o.tags) ? o.tags.join(', ') : '';
+            const cover = sanitizeUrl(o.coverUrl || o.imageUrl || o.photoUrl) || 'https://via.placeholder.com/84';
+            const isCertified = (o.isCertified === true) || (o.certified === true);
+
+            const certifyBtnHtml = isCertified
+                ? `<button class="uncertify-btn" data-collection="${collectionName}" data-userid="${offerId}" data-original="Decertifier">Decertifier</button>`
+                : `<button class="certify-btn" data-collection="${collectionName}" data-userid="${offerId}" data-original="Certifier">Certifier</button>`;
+            const deleteBtnHtml = `<button class="delete-btn" data-collection="${collectionName}" data-userid="${offerId}">Supprimer</button>`;
+
+            const formatPrice = (raw) => {
+                const s0 = (raw || '').toString().trim();
+                if (!s0) return { amount: '', suffix: '' };
+                const s = s0.replace(/\s+/g, ' ');
+                const m = s.match(/^(\d+(?:[.,]\d+)?)\s*\$?\s*(.*)$/);
+                if (m) {
+                    const amount = (m[1] || '').trim();
+                    let rest = (m[2] || '').trim();
+                    if (rest.startsWith('/')) rest = '/ ' + rest.substring(1).trim();
+                    return { amount: amount ? `${amount} $` : '', suffix: rest };
+                }
+                return { amount: s, suffix: '' };
+            };
+            const p = formatPrice(price);
+            const priceHtml = p.amount
+                ? `<span class="price-pill"><span class="price-amount">${p.amount}</span>${p.suffix ? `<span class="price-suffix">${p.suffix}</span>` : ''}</span>`
+                : '';
+
+            const encName = encodeURIComponent(title);
+
+            card.innerHTML = `
+                <div style="display:flex;align-items:flex-start;">
+                    <img src="${cover}" alt="Couverture" class="cover-thumb">
+                    <div style="flex:1;">
+                        <h4 style="margin-bottom:8px;">
+                            <span>${title}</span>
+                            ${priceHtml}
+                            ${isCertified ? '<span class="badge">Certifie</span>' : ''}
+                        </h4>
+                        ${city ? `<p style="margin:6px 0;"><strong>Ville:</strong> ${city}</p>` : ''}
+                        ${duration ? `<p style="margin:6px 0;"><strong>Duree:</strong> ${duration}</p>` : ''}
+                        ${phone ? `<p style="margin:6px 0;"><strong>Telephone:</strong> ${phone}</p>` : ''}
+                        ${email ? `<p style="margin:6px 0;"><strong>Email:</strong> ${email}</p>` : ''}
+                        <p style="margin:6px 0;"><strong>Ajoute par:</strong> ${addedByEmail || 'Inconnu'}</p>
+                        ${tags ? `<p style="margin:6px 0;"><strong>Tags:</strong> ${tags}</p>` : ''}
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+                            ${certifyBtnHtml}
+                            ${deleteBtnHtml}
+                            <button class="view-training-details-btn" data-name="${encName}" data-collection="${collectionName}" data-userid="${offerId}">Voir details</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const viewBtn = card.querySelector('.view-training-details-btn');
+            if (viewBtn) {
+                viewBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openProviderModal(o);
+                });
+            }
+            const certifyBtn = card.querySelector('.certify-btn');
+            if (certifyBtn) {
+                certifyBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    certifyUser(certifyBtn.dataset.collection, certifyBtn.dataset.userid);
+                });
+            }
+            const uncertifyBtn = card.querySelector('.uncertify-btn');
+            if (uncertifyBtn) {
+                uncertifyBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    uncertifyUser(uncertifyBtn.dataset.collection, uncertifyBtn.dataset.userid);
+                });
+            }
+            const deleteBtn = card.querySelector('.delete-btn');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteUser(deleteBtn.dataset.collection, deleteBtn.dataset.userid);
+                });
+            }
+
+            card.onclick = () => openProviderModal(o);
+            container.appendChild(card);
+        }
+
+        function renderJobPostCard(container, job, collectionName, jobId) {
+            const j = job || {};
+            const card = document.createElement('div');
+            card.className = 'user-card';
+
+            const title = String(j.title || 'Offre');
+            const company = String(j.company || '');
+            const location = String(j.location || '');
+            const salary = String(j.salary || '');
+            const typeKey = String(j.typeKey || '');
+            const urgent = (j.urgent === true);
+            const phone = String(j.phone || j.phoneNumber || '');
+            const email = String(j.email || '');
+            const addedByEmail = String(j.createdByEmail || j.createdByUserEmail || '');
+            const cover = sanitizeUrl(j.coverUrl || j.imageUrl || j.photoUrl) || 'https://via.placeholder.com/84';
+            const isCertified = (j.isCertified === true) || (j.certified === true);
+
+            const typeLabel = (k) => {
+                const m = {
+                    'full_time': 'Temps plein',
+                    'part_time': 'Temps partiel',
+                    'freelance': 'Freelance',
+                    'internship': 'Stage',
+                };
+                return m[k] || (k || '');
+            };
+
+            const formatPrice = (raw) => {
+                const s0 = (raw || '').toString().trim();
+                if (!s0) return { amount: '', suffix: '' };
+                const s = s0.replace(/\s+/g, ' ');
+                const m = s.match(/^(\d+(?:[.,]\d+)?)\s*\$?\s*(.*)$/);
+                if (m) {
+                    const amount = (m[1] || '').trim();
+                    let rest = (m[2] || '').trim();
+                    if (rest.startsWith('/')) rest = '/ ' + rest.substring(1).trim();
+                    return { amount: amount ? `${amount} $` : '', suffix: rest };
+                }
+                return { amount: s, suffix: '' };
+            };
+            const p = formatPrice(salary);
+            const salaryHtml = p.amount
+                ? `<span class="price-pill"><span class="price-amount">${p.amount}</span>${p.suffix ? `<span class="price-suffix">${p.suffix}</span>` : ''}</span>`
+                : '';
+
+            const certifyBtnHtml = isCertified
+                ? `<button class="uncertify-btn" data-collection="${collectionName}" data-userid="${jobId}" data-original="Decertifier">Decertifier</button>`
+                : `<button class="certify-btn" data-collection="${collectionName}" data-userid="${jobId}" data-original="Certifier">Certifier</button>`;
+            const deleteBtnHtml = `<button class="delete-btn" data-collection="${collectionName}" data-userid="${jobId}">Supprimer</button>`;
+
+            card.innerHTML = `
+                <div style="display:flex;align-items:flex-start;">
+                    <img src="${cover}" alt="Couverture" class="cover-thumb">
+                    <div style="flex:1;">
+                        <h4 style="margin-bottom:8px;">
+                            <span>${title}</span>
+                            ${salaryHtml}
+                            ${urgent ? `<span style="margin-left:10px;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:900;background:rgba(220,53,69,0.10);color:#dc3545;border:1px solid rgba(220,53,69,0.25);">URGENT</span>` : ''}
+                            ${isCertified ? '<span class="badge">Certifie</span>' : ''}
+                        </h4>
+                        ${company ? `<p style="margin:6px 0;"><strong>Entreprise:</strong> ${company}</p>` : ''}
+                        ${location ? `<p style="margin:6px 0;"><strong>Lieu:</strong> ${location}</p>` : ''}
+                        ${typeKey ? `<p style="margin:6px 0;"><strong>Type:</strong> ${typeLabel(typeKey)}</p>` : ''}
+                        ${phone ? `<p style="margin:6px 0;"><strong>Telephone:</strong> ${phone}</p>` : ''}
+                        ${email ? `<p style="margin:6px 0;"><strong>Email:</strong> ${email}</p>` : ''}
+                        <p style="margin:6px 0;"><strong>Ajoute par:</strong> ${addedByEmail || 'Inconnu'}</p>
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+                            ${certifyBtnHtml}
+                            ${deleteBtnHtml}
+                            <button class="view-job-details-btn" data-collection="${collectionName}" data-userid="${jobId}">Voir details</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const viewBtn = card.querySelector('.view-job-details-btn');
+            if (viewBtn) {
+                viewBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openProviderModal(j);
+                });
+            }
+            const certifyBtn = card.querySelector('.certify-btn');
+            if (certifyBtn) {
+                certifyBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    certifyUser(certifyBtn.dataset.collection, certifyBtn.dataset.userid);
+                });
+            }
+            const uncertifyBtn = card.querySelector('.uncertify-btn');
+            if (uncertifyBtn) {
+                uncertifyBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    uncertifyUser(uncertifyBtn.dataset.collection, uncertifyBtn.dataset.userid);
+                });
+            }
+            const deleteBtn = card.querySelector('.delete-btn');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteUser(deleteBtn.dataset.collection, deleteBtn.dataset.userid);
+                });
+            }
+
+            card.onclick = () => openProviderModal(j);
+            container.appendChild(card);
+        }
+
+        function renderClassifiedAdCard(container, ad, collectionName, adId) {
+            const a = ad || {};
+            const card = document.createElement('div');
+            card.className = 'user-card';
+
+            const title = String(a.title || 'Annonce');
+            const categoryKey = String(a.categoryKey || '');
+            const location = String(a.location || '');
+            const price = String(a.price || '');
+            const phone = String(a.phone || a.phoneNumber || '');
+            const email = String(a.email || '');
+            const addedByEmail = String(a.createdByEmail || a.createdByUserEmail || '');
+            const cover = sanitizeUrl(a.coverUrl || a.imageUrl || a.photoUrl) || 'https://via.placeholder.com/84';
+            const isCertified = (a.isCertified === true) || (a.certified === true);
+
+            const catLabel = (k) => {
+                const m = {
+                    'sale': 'Vente',
+                    'rent': 'Location',
+                    'service': 'Services',
+                    'vehicle': 'Vehicule',
+                    'other': 'Autre',
+                };
+                return m[k] || (k || '');
+            };
+
+            const formatPrice = (raw) => {
+                const s0 = (raw || '').toString().trim();
+                if (!s0) return { amount: '', suffix: '' };
+                const s = s0.replace(/\s+/g, ' ');
+                const m = s.match(/^(\d+(?:[.,]\d+)?)\s*\$?\s*(.*)$/);
+                if (m) {
+                    const amount = (m[1] || '').trim();
+                    let rest = (m[2] || '').trim();
+                    if (rest.startsWith('/')) rest = '/ ' + rest.substring(1).trim();
+                    return { amount: amount ? `${amount} $` : '', suffix: rest };
+                }
+                return { amount: s, suffix: '' };
+            };
+            const p = formatPrice(price);
+            const priceHtml = p.amount
+                ? `<span class="price-pill"><span class="price-amount">${p.amount}</span>${p.suffix ? `<span class="price-suffix">${p.suffix}</span>` : ''}</span>`
+                : '';
+
+            const certifyBtnHtml = isCertified
+                ? `<button class="uncertify-btn" data-collection="${collectionName}" data-userid="${adId}" data-original="Decertifier">Decertifier</button>`
+                : `<button class="certify-btn" data-collection="${collectionName}" data-userid="${adId}" data-original="Certifier">Certifier</button>`;
+            const deleteBtnHtml = `<button class="delete-btn" data-collection="${collectionName}" data-userid="${adId}">Supprimer</button>`;
+
+            card.innerHTML = `
+                <div style="display:flex;align-items:flex-start;">
+                    <img src="${cover}" alt="Couverture" class="cover-thumb">
+                    <div style="flex:1;">
+                        <h4 style="margin-bottom:8px;">
+                            <span>${title}</span>
+                            ${priceHtml}
+                            ${isCertified ? '<span class="badge">Certifie</span>' : ''}
+                        </h4>
+                        ${categoryKey ? `<p style="margin:6px 0;"><strong>Categorie:</strong> ${catLabel(categoryKey)}</p>` : ''}
+                        ${location ? `<p style="margin:6px 0;"><strong>Lieu:</strong> ${location}</p>` : ''}
+                        ${phone ? `<p style="margin:6px 0;"><strong>Telephone:</strong> ${phone}</p>` : ''}
+                        ${email ? `<p style="margin:6px 0;"><strong>Email:</strong> ${email}</p>` : ''}
+                        <p style="margin:6px 0;"><strong>Ajoute par:</strong> ${addedByEmail || 'Inconnu'}</p>
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+                            ${certifyBtnHtml}
+                            ${deleteBtnHtml}
+                            <button class="view-ad-details-btn" data-collection="${collectionName}" data-userid="${adId}">Voir details</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const viewBtn = card.querySelector('.view-ad-details-btn');
+            if (viewBtn) {
+                viewBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openProviderModal(a);
+                });
+            }
+            const certifyBtn = card.querySelector('.certify-btn');
+            if (certifyBtn) {
+                certifyBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    certifyUser(certifyBtn.dataset.collection, certifyBtn.dataset.userid);
+                });
+            }
+            const uncertifyBtn = card.querySelector('.uncertify-btn');
+            if (uncertifyBtn) {
+                uncertifyBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    uncertifyUser(uncertifyBtn.dataset.collection, uncertifyBtn.dataset.userid);
+                });
+            }
+            const deleteBtn = card.querySelector('.delete-btn');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteUser(deleteBtn.dataset.collection, deleteBtn.dataset.userid);
+                });
+            }
+
+            card.onclick = () => openProviderModal(a);
+            container.appendChild(card);
         }
 
         function renderUserCard(container, user, collectionName, userId) {
@@ -1231,6 +1905,173 @@
             container.appendChild(userCard);
         }
 
+        function sanitizeUrl(u) {
+            if (!u) return '';
+            try { return String(u).trim().replace(/\s+/g, ''); } catch (_) { return ''; }
+        }
+
+        function extractProviderDocsFromData(p) {
+            // Try multiple shapes:
+            // - p.verificationDocs: array of urls or objects {url,label,type}
+            // - p.documents: object map
+            // - direct fields (selfieUrl/identityUrl/...)
+            const out = [];
+            const push = (label, url) => {
+                const clean = sanitizeUrl(url);
+                if (!clean) return;
+                out.push({ label: label || 'Document', url: clean });
+            };
+
+            if (p && Array.isArray(p.verificationDocs)) {
+                p.verificationDocs.forEach((d, i) => {
+                    if (!d) return;
+                    if (typeof d === 'string') return push(`Document ${i + 1}`, d);
+                    if (typeof d === 'object') return push(d.label || d.name || `Document ${i + 1}`, d.url || d.fileUrl || d.downloadUrl);
+                });
+            }
+
+            const docsObj = (p && p.documents && typeof p.documents === 'object') ? p.documents : null;
+            if (docsObj) {
+                Object.entries(docsObj).forEach(([k, v]) => push(k, v));
+            }
+
+            // Common direct keys
+            const keys = [
+                ['Selfie', 'selfieUrl'],
+                ['Selfie', 'selfie'],
+                ['Identite', 'identityUrl'],
+                ['Identite', 'identityPdf'],
+                ['Identite', 'identity'],
+                ['Document', 'documentUrl'],
+                ['Document', 'docUrl'],
+                ['Document', 'proofUrl'],
+            ];
+            keys.forEach(([label, key]) => {
+                if (p && Object.prototype.hasOwnProperty.call(p, key)) push(label, p[key]);
+            });
+
+            // Deduplicate
+            const seen = new Set();
+            return out.filter(d => {
+                if (!d.url) return false;
+                if (seen.has(d.url)) return false;
+                seen.add(d.url);
+                return true;
+            });
+        }
+
+        function renderProviderCard(container, provider, collectionName, providerId) {
+            const p = provider || {};
+            const card = document.createElement('div');
+            card.className = 'user-card';
+
+            const name = (p.name || p.displayName || 'Prestataire').toString();
+            const role = (p.role || p.title || '').toString();
+            const phone = (p.phone || p.phoneNumber || '').toString();
+            const email = (p.email || '').toString();
+            const addedByEmail = (p.createdByEmail || '').toString();
+            const city = (p.cityLabel || p.city || '').toString();
+            const price = (p.priceLabel || p.price || '').toString();
+            const rating = (p.rating ?? '').toString();
+            const reviews = (p.reviews ?? p.reviewsCount ?? '').toString();
+            const tags = Array.isArray(p.tags) ? p.tags.join(', ') : '';
+            const avatar = sanitizeUrl(p.avatarUrl || p.photoUrl || p.imageUrl) || 'https://via.placeholder.com/50';
+            const isCertified = (p.isCertified === true) || (p.certified === true);
+
+            const docs = extractProviderDocsFromData(p);
+            const docsCount = docs.length;
+            const docsHint = docsCount > 0 ? `${docsCount} document(s)` : 'Aucun document';
+            const encName = encodeURIComponent(name);
+
+            const formatPrice = (raw) => {
+                const s0 = (raw || '').toString().trim();
+                if (!s0) return { amount: '', suffix: '' };
+                const s = s0.replace(/\s+/g, ' ');
+                const m = s.match(/^(\d+(?:[.,]\d+)?)\s*\$?\s*(.*)$/);
+                if (m) {
+                    const amount = (m[1] || '').trim();
+                    let rest = (m[2] || '').trim();
+                    if (rest.startsWith('/')) rest = '/ ' + rest.substring(1).trim();
+                    return { amount: amount ? `${amount} $` : '', suffix: rest };
+                }
+                // If we can't parse, show raw as amount and keep suffix empty.
+                return { amount: s, suffix: '' };
+            };
+            const priceParts = formatPrice(price);
+            const priceHtml = priceParts.amount
+                ? `<span class="price-pill"><span class="price-amount">${priceParts.amount}</span>${priceParts.suffix ? `<span class="price-suffix">${priceParts.suffix}</span>` : ''}</span>`
+                : '';
+
+            const certifyBtnHtml = isCertified
+                ? `<button class="uncertify-btn" data-collection="${collectionName}" data-userid="${providerId}" data-original="Decertifier">Decertifier</button>`
+                : `<button class="certify-btn" data-collection="${collectionName}" data-userid="${providerId}" data-original="Certifier">Certifier</button>`;
+
+            const deleteBtnHtml = `<button class="delete-btn" data-collection="${collectionName}" data-userid="${providerId}">Supprimer</button>`;
+
+            card.innerHTML = `
+                <div style="display:flex;align-items:flex-start;">
+                    <img src="${avatar}" alt="Avatar" class="avatar">
+                    <div style="flex:1;">
+                        <h4>
+                            <span>${name}</span>
+                            ${priceHtml}
+                            ${isCertified ? '<span class="badge">Certifie</span>' : ''}
+                        </h4>
+                        ${role ? `<p><strong>Role:</strong> ${role}</p>` : ''}
+                        ${phone ? `<p><strong>Telephone:</strong> ${phone}</p>` : ''}
+                        ${email ? `<p><strong>Email:</strong> ${email}</p>` : ''}
+                        <p><strong>Ajoute par:</strong> ${addedByEmail || 'Inconnu'}</p>
+                        ${city ? `<p><strong>Ville:</strong> ${city}</p>` : ''}
+                        ${(rating || reviews) ? `<p><strong>Note:</strong> ${rating || 'N/A'} ${reviews ? `(${reviews})` : ''}</p>` : ''}
+                        ${tags ? `<p><strong>Tags:</strong> ${tags}</p>` : ''}
+                        <p><strong>Documents:</strong> ${docsHint}</p>
+                        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+                            ${certifyBtnHtml}
+                            ${deleteBtnHtml}
+                            <button class="view-provider-docs-btn" data-collection="${collectionName}" data-userid="${providerId}" data-name="${encName}">Voir documents</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Stop modal opening on button clicks
+            const viewBtn = card.querySelector('.view-provider-docs-btn');
+            if (viewBtn) {
+                viewBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
+                    try { await viewProviderDocuments(viewBtn.dataset.collection, viewBtn.dataset.userid, viewBtn.dataset.name); }
+                    catch (err) { console.error('viewProviderDocuments error', err); showToast('Erreur affichage documents', true); }
+                });
+            }
+
+            const certifyBtn = card.querySelector('.certify-btn');
+            if (certifyBtn) {
+                certifyBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    certifyUser(certifyBtn.dataset.collection, certifyBtn.dataset.userid);
+                });
+            }
+            const uncertifyBtn = card.querySelector('.uncertify-btn');
+            if (uncertifyBtn) {
+                uncertifyBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    uncertifyUser(uncertifyBtn.dataset.collection, uncertifyBtn.dataset.userid);
+                });
+            }
+            const deleteBtn = card.querySelector('.delete-btn');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    deleteUser(deleteBtn.dataset.collection, deleteBtn.dataset.userid);
+                });
+            }
+
+            // Click card => quick details
+            card.onclick = () => openProviderModal(p);
+
+            container.appendChild(card);
+        }
+
         function viewDocuments(encSelfie, encIdentity, encName) {
             const selfie = encSelfie ? decodeURIComponent(encSelfie) : '';
             const identity = encIdentity ? decodeURIComponent(encIdentity) : '';
@@ -1303,9 +2144,151 @@
             }, 50);
         }
 
+        function openProviderModal(provider) {
+            const p = provider || {};
+            const name = (p.name || p.displayName || 'Prestataire').toString();
+            document.getElementById('modal-name').textContent = name;
+            let details = '';
+            for (const [key, value] of Object.entries(p)) {
+                let display = '';
+                if (value === null || value === undefined) display = '<em>vide</em>';
+                else if (typeof value === 'object') display = `<pre style="white-space:pre-wrap;max-height:200px;overflow:auto;">${JSON.stringify(value, null, 2)}</pre>`;
+                else display = String(value);
+                details += `<p><strong>${key}:</strong> ${display}</p>`;
+            }
+            document.getElementById('modal-details').innerHTML = details;
+            const modalEl = document.getElementById('userModal');
+            modalEl.style.display = 'block';
+            setTimeout(() => modalEl.classList.add('open'), 20);
+        }
+
+        async function viewProviderDocuments(collectionName, providerId, encName) {
+            const name = encName ? decodeURIComponent(encName) : providerId;
+            let p = {};
+            try {
+                const snap = await getDoc(doc(db, collectionName, providerId));
+                if (snap.exists()) p = snap.data() || {};
+            } catch (e) {
+                console.error('getDoc provider error', e);
+            }
+
+            let docs = extractProviderDocsFromData(p);
+
+            // Fallback: look for a subcollection with documents (support a few common names)
+            if (!docs || docs.length === 0) {
+                const subNames = ['verification_docs', 'verificationDocs', 'documents', 'provider_docs'];
+                for (const subName of subNames) {
+                    try {
+                        const sub = await getDocs(collection(db, collectionName, providerId, subName));
+                        sub.forEach(d => {
+                            const x = d.data() || {};
+                            const url = sanitizeUrl(x.url || x.fileUrl || x.downloadUrl);
+                            if (!url) return;
+                            docs.push({ label: (x.label || x.name || 'Document').toString(), url });
+                        });
+                        if (docs.length > 0) break;
+                    } catch (e) {
+                        // Ignore if subcollection doesn't exist
+                    }
+                }
+            }
+
+            let html = `<h3>Documents de ${name || 'prestataire'}</h3>`;
+            if (!docs || docs.length === 0) {
+                html += `<p><em>Aucun document disponible</em></p>`;
+            } else {
+                html += `<div style="display:flex;flex-direction:column;gap:12px;margin-top:10px;">`;
+                docs.forEach((d) => {
+                    const url = d.url || '';
+                    const label = (d.label || 'Document').toString();
+                    const lower = url.toLowerCase();
+                    const isImg = /\.(png|jpg|jpeg|webp|gif)(\?|$)/.test(lower);
+                    const isPdf = /\.pdf(\?|$)/.test(lower);
+                    if (isImg) {
+                        html += `
+                            <div style="display:flex;gap:12px;align-items:center;">
+                                <img class="modal-image-preview" src="${url}" data-full="${url}"
+                                     style="width:120px;height:120px;border-radius:10px;object-fit:cover;cursor:zoom-in;"/>
+                                <div style="flex:1;">
+                                    <div style="font-weight:700;margin-bottom:4px;">${label}</div>
+                                    <a href="${url}" target="_blank" rel="noopener">Ouvrir</a>
+                                </div>
+                            </div>
+                        `;
+                    } else if (isPdf) {
+                        html += `
+                            <div>
+                                <div style="font-weight:700;margin-bottom:4px;">${label} (PDF)</div>
+                                <a href="${url}" target="_blank" rel="noopener">Ouvrir le PDF</a>
+                            </div>
+                        `;
+                    } else {
+                        html += `
+                            <div>
+                                <div style="font-weight:700;margin-bottom:4px;">${label}</div>
+                                <a href="${url}" target="_blank" rel="noopener">Ouvrir le fichier</a>
+                            </div>
+                        `;
+                    }
+                });
+                html += `</div>`;
+            }
+
+            document.getElementById('modal-name').textContent = name || 'Documents prestataire';
+            document.getElementById('modal-details').innerHTML = html;
+            const modalEl = document.getElementById('userModal');
+            modalEl.style.display = 'block';
+            setTimeout(() => modalEl.classList.add('open'), 20);
+
+            // Attach zoom to all previews
+            setTimeout(() => {
+                document.querySelectorAll('#userModal .modal-image-preview').forEach(img => {
+                    img.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        openImageZoom(img.dataset.full);
+                    });
+                });
+            }, 30);
+        }
+
+        async function viewFoodPlaceDocuments(collectionName, placeId, encName) {
+            const name = encName ? decodeURIComponent(encName) : placeId;
+            let p = {};
+            try {
+                const snap = await getDoc(doc(db, collectionName, placeId));
+                if (snap.exists()) p = snap.data() || {};
+            } catch (e) {
+                console.error('getDoc food place error', e);
+            }
+
+            const cover = sanitizeUrl(p.coverUrl || p.imageUrl || p.photoUrl);
+            let html = `<h3>${name}</h3>`;
+            if (cover) {
+                html += `<div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;"><img class="modal-image-preview" src="${cover}" data-full="${cover}" style="max-width:420px;border-radius:12px;object-fit:cover;cursor:zoom-in;" alt="cover"/></div>`;
+            }
+            html += `<div style="margin-top:10px;"><pre style="white-space:pre-wrap;max-height:320px;overflow:auto;">${JSON.stringify(p, null, 2)}</pre></div>`;
+
+            document.getElementById('modal-name').textContent = name || 'Details';
+            document.getElementById('modal-details').innerHTML = html;
+            const modalEl = document.getElementById('userModal');
+            modalEl.style.display = 'block';
+            setTimeout(() => modalEl.classList.add('open'), 20);
+
+            setTimeout(() => {
+                const img = document.querySelector('#userModal .modal-image-preview');
+                if (img) {
+                    img.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        openImageZoom(img.dataset.full);
+                    });
+                }
+            }, 30);
+        }
+
         // Expose functions to global scope so inline onclick handlers work
         // (script uses type="module" so functions are module-scoped by default)
         window.viewDocuments = viewDocuments;
+        window.viewProviderDocuments = viewProviderDocuments;
 
         // Image zoom modal functions
         function openImageZoom(url) {
@@ -1356,7 +2339,8 @@
         function exportCSV() {
             try {
                 let rows = [['Prénom','Nom','Email','Téléphone','État upload','Certifié']];
-                Object.values(allUsers).flat().forEach(({ data: u }) => {
+                const userContainers = ['classic-users', 'pro-users', 'enterprise-users'];
+                userContainers.flatMap(k => allUsers[k] || []).forEach(({ data: u }) => {
                     rows.push([
                         u.firstName || '',
                         u.lastName || '',
@@ -1401,10 +2385,13 @@
 
         function updateStats() {
             let total = 0, certified = 0, pending = 0;
-            Object.values(allUsers).forEach(users => {
+            // Stats are for user accounts only (classic/pro/enterprise), not service providers.
+            const userContainers = ['classic-users', 'pro-users', 'enterprise-users'];
+            userContainers.forEach((k) => {
+                const users = allUsers[k] || [];
                 users.forEach(({ data: user }) => {
                     total++;
-                    if (user.isCertified) certified++;
+                    if (user && user.isCertified) certified++;
                     else pending++;
                 });
             });
@@ -1442,33 +2429,96 @@
             }
         }
 
-        function sortUsersArray(users, sortBy) {
-            users.sort((a, b) => {
+        function sortUsersArray(items, sortBy, containerId) {
+            const isProviders = isServiceProvidersContainer(containerId);
+            const isFoods = isFoodPlacesContainer(containerId);
+            const isFreelance = isFreelanceProsContainer(containerId);
+            const isCars = isCarRentalsContainer(containerId);
+            const isTraining = isTrainingOffersContainer(containerId);
+            const isJobs = isJobPostsContainer(containerId);
+            const isAds = isClassifiedAdsContainer(containerId);
+            const isServiceLike = (isProviders || isFoods || isFreelance || isCars || isTraining || isJobs || isAds);
+            items.sort((a, b) => {
                 if (sortBy === 'name') {
-                    const nameA = `${a.data.firstName || ''} ${a.data.lastName || ''}`.toLowerCase();
-                    const nameB = `${b.data.firstName || ''} ${b.data.lastName || ''}`.toLowerCase();
+                    const nameA = isServiceLike
+                        ? String(a.data.title || a.data.name || a.data.displayName || '').toLowerCase()
+                        : `${a.data.firstName || ''} ${a.data.lastName || ''}`.toLowerCase();
+                    const nameB = isServiceLike
+                        ? String(b.data.title || b.data.name || b.data.displayName || '').toLowerCase()
+                        : `${b.data.firstName || ''} ${b.data.lastName || ''}`.toLowerCase();
                     return nameA.localeCompare(nameB);
                 } else if (sortBy === 'date') {
+                    if (isServiceLike) {
+                        const msA = (a.data.createdAtMs ?? (a.data.createdAt ? (a.data.createdAt.seconds * 1000) : 0)) || 0;
+                        const msB = (b.data.createdAtMs ?? (b.data.createdAt ? (b.data.createdAt.seconds * 1000) : 0)) || 0;
+                        return msB - msA;
+                    }
                     const dateA = a.data.lastUpdated ? a.data.lastUpdated.seconds : 0;
                     const dateB = b.data.lastUpdated ? b.data.lastUpdated.seconds : 0;
                     return dateB - dateA;
                 } else if (sortBy === 'status') {
-                    return (a.data.isCertified ? 1 : 0) - (b.data.isCertified ? 1 : 0);
+                    const certA = isServiceLike ? (a.data.isCertified === true || a.data.certified === true) : (a.data.isCertified === true);
+                    const certB = isServiceLike ? (b.data.isCertified === true || b.data.certified === true) : (b.data.isCertified === true);
+                    return (certA ? 1 : 0) - (certB ? 1 : 0);
                 }
                 return 0;
             });
         }
 
-        function filterUsersArray(users) {
+        function filterUsersArray(items, containerId) {
+            const isProviders = isServiceProvidersContainer(containerId);
+            const isFoods = isFoodPlacesContainer(containerId);
+            const isFreelance = isFreelanceProsContainer(containerId);
+            const isCars = isCarRentalsContainer(containerId);
+            const isTraining = isTrainingOffersContainer(containerId);
+            const isJobs = isJobPostsContainer(containerId);
+            const isAds = isClassifiedAdsContainer(containerId);
+            const isServiceLike = (isProviders || isFoods || isFreelance || isCars || isTraining || isJobs || isAds);
+            const q = (document.getElementById('searchInput').value || '').toLowerCase().trim();
             const statusFilter = document.getElementById('statusFilter').value;
             const startDate = document.getElementById('startDate').value;
             const endDate = document.getElementById('endDate').value;
-            return users.filter(({ data: user }) => {
-                if (statusFilter && (statusFilter === 'certified' ? !user.isCertified : user.isCertified)) return false;
-                if (startDate && user.lastUpdated && new Date(user.lastUpdated.seconds * 1000) < new Date(startDate)) return false;
-                if (endDate && user.lastUpdated && new Date(user.lastUpdated.seconds * 1000) > new Date(endDate)) return false;
+
+            const start = startDate ? new Date(startDate).getTime() : null;
+            const end = endDate ? new Date(endDate).getTime() : null;
+
+            return (items || []).filter(({ data }) => {
+                const d = data || {};
+                const certified = isServiceLike ? (d.isCertified === true || d.certified === true) : (d.isCertified === true);
+                if (statusFilter && (statusFilter === 'certified' ? !certified : certified)) return false;
+
+                if (isServiceLike) {
+                    const ms = (d.createdAtMs ?? (d.createdAt ? (d.createdAt.seconds * 1000) : null));
+                    if (start && ms && ms < start) return false;
+                    if (end && ms && ms > end) return false;
+                } else {
+                    const ms = d.lastUpdated ? (d.lastUpdated.seconds * 1000) : null;
+                    if (start && ms && ms < start) return false;
+                    if (end && ms && ms > end) return false;
+                }
+
+                if (q) {
+                    const hay = isServiceLike
+                        ? [
+                            d.title, d.name, d.displayName, d.company, d.location, d.salary, d.price, d.typeKey, d.categoryKey, d.role, d.type, d.category, d.cityLabel, d.city, d.durationLabel, d.priceLabel, d.phone, d.email, d.createdByEmail, d.createdByName,
+                            Array.isArray(d.tags) ? d.tags.join(' ') : ''
+                          ].filter(Boolean).join(' ').toLowerCase()
+                        : [
+                            d.firstName, d.lastName, d.email, d.phone, d.address
+                          ].filter(Boolean).join(' ').toLowerCase();
+                    if (!hay.includes(q)) return false;
+                }
+
                 return true;
             });
+        }
+
+        function filterUsers() {
+            currentPage = 1;
+            const activeTab = document.querySelector('.tabcontent[style*=\"display: block\"]');
+            if (!activeTab) return;
+            const containerId = activeTab.querySelector('.user-grid').id;
+            renderUsers(containerId);
         }
 
         function toggleSelection(userId) {
@@ -1482,9 +2532,13 @@
         async function bulkCertify() {
             const activeTab = document.querySelector('.tabcontent[style*="display: block"]');
             if (!activeTab) return;
-            const collectionName = activeTab.querySelector('.user-grid').id.replace('-users', '_users');
+            const containerId = activeTab.querySelector('.user-grid').id;
+            const collectionName = collectionNameFromContainerId(containerId);
             for (const userId of selectedUsers) {
-                await updateDoc(doc(db, collectionName, userId), { isCertified: true });
+                const payload = (collectionName === 'service_providers' || collectionName === 'food_places' || collectionName === 'freelance_pros' || collectionName === 'car_rentals' || collectionName === 'training_offers' || collectionName === 'job_posts' || collectionName === 'classified_ads')
+                    ? { isCertified: true, certified: true, certifiedAt: serverTimestamp() }
+                    : { isCertified: true };
+                await updateDoc(doc(db, collectionName, userId), payload);
             }
             selectedUsers.clear();
             updateStats();
@@ -1494,9 +2548,13 @@
         async function bulkUncertify() {
             const activeTab = document.querySelector('.tabcontent[style*="display: block"]');
             if (!activeTab) return;
-            const collectionName = activeTab.querySelector('.user-grid').id.replace('-users', '_users');
+            const containerId = activeTab.querySelector('.user-grid').id;
+            const collectionName = collectionNameFromContainerId(containerId);
             for (const userId of selectedUsers) {
-                await updateDoc(doc(db, collectionName, userId), { isCertified: false });
+                const payload = (collectionName === 'service_providers' || collectionName === 'food_places' || collectionName === 'freelance_pros' || collectionName === 'car_rentals' || collectionName === 'training_offers' || collectionName === 'job_posts' || collectionName === 'classified_ads')
+                    ? { isCertified: false, certified: false, certifiedAt: null }
+                    : { isCertified: false };
+                await updateDoc(doc(db, collectionName, userId), payload);
             }
             selectedUsers.clear();
             updateStats();
@@ -1593,6 +2651,7 @@
             document.getElementById(tabName).style.display = "block";
             evt.currentTarget.className += " active";
             currentPage = 1;
+            selectedUsers.clear();
 
             // Load data when tab is opened
             if (tabName === 'Classic') {
@@ -1601,6 +2660,20 @@
                 displayUsers('pro_users', 'pro-users');
             } else if (tabName === 'Enterprise') {
                 displayUsers('enterprise_users', 'enterprise-users');
+            } else if (tabName === 'Services') {
+                displayUsers('service_providers', 'service-providers');
+            } else if (tabName === 'Food') {
+                displayUsers('food_places', 'food-places');
+            } else if (tabName === 'Freelance') {
+                displayUsers('freelance_pros', 'freelance-pros');
+            } else if (tabName === 'Cars') {
+                displayUsers('car_rentals', 'car-rentals');
+            } else if (tabName === 'Training') {
+                displayUsers('training_offers', 'training-offers');
+            } else if (tabName === 'Jobs') {
+                displayUsers('job_posts', 'job-posts');
+            } else if (tabName === 'Ads') {
+                displayUsers('classified_ads', 'classified-ads');
             }
         }
 

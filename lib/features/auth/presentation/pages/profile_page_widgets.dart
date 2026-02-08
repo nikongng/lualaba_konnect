@@ -254,11 +254,16 @@ class ProfilePageWidgets {
 
   // --- DIALOGUE ELITE (Look Dark Premium avec logo.png) ---
   static void _showModernLogoutDialog(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color cardBg = isDark ? const Color(0xFF0F171A) : Colors.white;
+    final Color text = isDark ? Colors.white : Colors.black87;
+    final Color sub = isDark ? Colors.white.withOpacity(0.5) : Colors.black54;
+    final Color border = isDark ? Colors.white.withOpacity(0.1) : Colors.black.withOpacity(0.08);
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
       barrierLabel: '',
-      barrierColor: Colors.black.withOpacity(0.8),
+      barrierColor: Colors.black.withOpacity(isDark ? 0.8 : 0.3),
       transitionDuration: const Duration(milliseconds: 600),
       pageBuilder: (context, anim1, anim2) => const SizedBox(),
       transitionBuilder: (context, anim1, anim2, child) {
@@ -277,9 +282,9 @@ class ProfilePageWidgets {
                   width: MediaQuery.of(context).size.width * 0.85,
                   clipBehavior: Clip.antiAlias,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0F171A).withOpacity(0.95),
+                    color: cardBg.withOpacity(isDark ? 0.95 : 1.0),
                     borderRadius: BorderRadius.circular(40),
-                    border: Border.all(color: Colors.white.withOpacity(0.1), width: 1),
+                    border: Border.all(color: border, width: 1),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -308,9 +313,9 @@ class ProfilePageWidgets {
                       ),
                       
                       const SizedBox(height: 25),
-                      const Text(
+                      Text(
                         "LUALABA KONNECT",
-                        style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w900, letterSpacing: 4),
+                        style: TextStyle(color: text, fontSize: 14, fontWeight: FontWeight.w900, letterSpacing: 4),
                       ),
                       const SizedBox(height: 15),
                       Padding(
@@ -318,7 +323,7 @@ class ProfilePageWidgets {
                         child: Text(
                           "Souhaitez-vous vraiment quitter\nvotre espace sécurisé ?",
                           textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 13, height: 1.6),
+                          style: TextStyle(color: sub, fontSize: 13, height: 1.6),
                         ),
                       ),
                       const SizedBox(height: 40),
@@ -327,7 +332,7 @@ class ProfilePageWidgets {
                       Container(
                         height: 70,
                         decoration: BoxDecoration(
-                          border: Border(top: BorderSide(color: Colors.white.withOpacity(0.05))),
+                          border: Border(top: BorderSide(color: border)),
                         ),
                         child: Row(
                           children: [
@@ -335,11 +340,11 @@ class ProfilePageWidgets {
                               child: InkWell(
                                 onTap: () => Navigator.pop(context),
                                 child: Center(
-                                  child: Text("RESTER", style: TextStyle(color: Colors.white.withOpacity(0.3), fontWeight: FontWeight.bold, fontSize: 12)),
+                                  child: Text("RESTER", style: TextStyle(color: sub, fontWeight: FontWeight.bold, fontSize: 12)),
                                 ),
                               ),
                             ),
-                            VerticalDivider(color: Colors.white.withOpacity(0.05), width: 1),
+                            VerticalDivider(color: border, width: 1),
                             Expanded(
                               child: InkWell(
                                 onTap: () async {

@@ -14,6 +14,10 @@ class MarketMessagesPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color bg = isDark ? const Color(0xFF0F1214) : Colors.white;
+    final Color text = isDark ? Colors.white : Colors.black87;
+    final Color sub = isDark ? Colors.white70 : Colors.black54;
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) {
       return const Scaffold(
@@ -28,7 +32,12 @@ class MarketMessagesPage extends StatelessWidget {
       .orderBy('createdAtLocal', descending: true);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Messages (Market)')),
+      backgroundColor: bg,
+      appBar: AppBar(
+        title: Text('Messages (Market)', style: TextStyle(color: text)),
+        backgroundColor: isDark ? const Color(0xFF14181C) : Colors.white,
+        iconTheme: IconThemeData(color: text),
+      ),
       body: StreamBuilder<QuerySnapshot>(
         stream: q.snapshots(),
         builder: (ctx, snap) {
@@ -87,7 +96,7 @@ class MarketMessagesPage extends StatelessWidget {
 
           final docs = snap.data?.docs ?? [];
           if (docs.isEmpty) {
-            return const Center(child: Text('Aucun message'));
+            return Center(child: Text('Aucun message', style: TextStyle(color: sub)));
           }
 
           return _buildConversationList(context, docs, uid);
@@ -105,6 +114,9 @@ class MarketMessagesPage extends StatelessWidget {
         final data = d.data() as Map<String, dynamic>;
 
         final bool isMe = data['from'] == uid;
+        final bool isDark = Theme.of(context).brightness == Brightness.dark;
+        final Color meBg = isDark ? Colors.orange.withOpacity(0.25) : Colors.orange.shade100;
+        final Color otherBg = isDark ? Colors.white10 : Colors.grey.shade200;
 
         final Timestamp? createdAt =
             (data['createdAt'] ?? data['createdAtLocal']) as Timestamp?;
@@ -115,7 +127,7 @@ class MarketMessagesPage extends StatelessWidget {
             margin: const EdgeInsets.symmetric(vertical: 4),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: isMe ? Colors.orange.shade100 : Colors.grey.shade200,
+              color: isMe ? meBg : otherBg,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Column(
@@ -153,6 +165,9 @@ class MarketMessagesPage extends StatelessWidget {
   }
 
   Widget _buildConversationList(BuildContext context, List<QueryDocumentSnapshot> docs, String uid) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color text = isDark ? Colors.white : Colors.black87;
+    final Color sub = isDark ? Colors.white70 : Colors.black54;
     return ListView.builder(
       itemCount: docs.length,
       itemBuilder: (context, index) {
@@ -172,16 +187,17 @@ class MarketMessagesPage extends StatelessWidget {
 
         return ListTile(
           leading: CircleAvatar(
-            backgroundColor: Colors.orange.shade100,
+            backgroundColor: isDark ? Colors.orange.withOpacity(0.2) : Colors.orange.shade100,
             child: const Icon(Icons.message, color: Colors.orange),
           ),
-          title: Text(data['productName'] ?? 'Produit'),
+          title: Text(data['productName'] ?? 'Produit', style: TextStyle(color: text)),
           subtitle: Text(
             data['content'] ?? '',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+            style: TextStyle(color: sub),
           ),
-          trailing: Text(_formatTime(createdAt)),
+          trailing: Text(_formatTime(createdAt), style: TextStyle(color: sub)),
           onTap: () async {
             if (isUnread) {
               await d.reference.update({'read': true});

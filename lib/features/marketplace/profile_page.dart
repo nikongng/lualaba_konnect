@@ -73,13 +73,17 @@ class _ProfilePageState extends State<ProfilePage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color bg = isDark ? const Color(0xFF0F1214) : const Color(0xFFF8F9FB);
+    final Color card = isDark ? const Color(0xFF1B1F23) : Colors.white;
+    final Color sub = isDark ? Colors.white70 : Colors.grey;
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FB),
+      backgroundColor: bg,
       appBar: AppBar(
         backgroundColor: Colors.orange.shade900,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new, color: Theme.of(context).brightness == Brightness.dark ? Colors.orange : Colors.white),
+          icon: Icon(Icons.arrow_back_ios_new, color: isDark ? Colors.orange : Colors.white),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text("Mon Profil", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
@@ -92,7 +96,7 @@ class _ProfilePageState extends State<ProfilePage> {
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
-                  _buildStatsRow(),
+                  _buildStatsRow(card: card, sub: sub, isDark: isDark),
                   const SizedBox(height: 30),
                   
                   // MENU : MES COMMANDES
@@ -134,9 +138,9 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                   
                   const SizedBox(height: 40),
-                  const Text(
+                  Text(
                     "Market Pro v1.0.2",
-                    style: TextStyle(color: Colors.grey, fontSize: 10),
+                    style: TextStyle(color: sub, fontSize: 10),
                   ),
                 ],
               ),
@@ -188,22 +192,22 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  Widget _buildStatsRow() {
+  Widget _buildStatsRow({required Color card, required Color sub, required bool isDark}) {
     return Row(
       children: [
-        _buildStatCard("Revenus", "${_totalSales.toStringAsFixed(0)} FC", Colors.green),
-        const SizedBox(width: 15),
-        _buildStatCard("Activités", "$_orderCount", Colors.blue),
+            _buildStatCard("Revenus", "${_totalSales.toStringAsFixed(0)} FC", Colors.green, card: card, sub: sub, isDark: isDark),
+            const SizedBox(width: 15),
+            _buildStatCard("Activités", "$_orderCount", Colors.blue, card: card, sub: sub, isDark: isDark),
       ],
     );
   }
 
-  Widget _buildStatCard(String label, String value, Color color) {
+  Widget _buildStatCard(String label, String value, Color color, {required Color card, required Color sub, required bool isDark}) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 20),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: card,
           borderRadius: BorderRadius.circular(20),
           boxShadow: [
             BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4)),
@@ -216,7 +220,7 @@ class _ProfilePageState extends State<ProfilePage> {
             else
               Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: color)),
             const SizedBox(height: 4),
-            Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12, fontWeight: FontWeight.w500)),
+            Text(label, style: TextStyle(color: sub, fontSize: 12, fontWeight: FontWeight.w500)),
           ],
         ),
       ),

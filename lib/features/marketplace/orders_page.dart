@@ -70,19 +70,26 @@ class _OrdersPageState extends State<OrdersPage> with SingleTickerProviderStateM
       return Scaffold(body: Center(child: CircularProgressIndicator(color: Colors.orange)));
     }
 
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color bg = isDark ? const Color(0xFF0F1214) : const Color(0xFFF8F9FB);
+    final Color card = isDark ? const Color(0xFF1B1F23) : Colors.white;
+    final Color text = isDark ? Colors.white : Colors.black87;
+    final Color sub = isDark ? Colors.white70 : Colors.black54;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FB),
+      backgroundColor: bg,
       appBar: AppBar(
-        title: const Text('Mes Commandes', style: TextStyle(fontWeight: FontWeight.w900, color: Colors.black)),
-        backgroundColor: Colors.white,
+        title: Text('Mes Commandes', style: TextStyle(fontWeight: FontWeight.w900, color: text)),
+        backgroundColor: card,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios_new, color: Theme.of(context).brightness == Brightness.dark ? Colors.orange : Colors.black),
+          icon: Icon(Icons.arrow_back_ios_new, color: isDark ? Colors.orange : Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
         bottom: TabBar(
           controller: _tabController,
-          labelColor: Colors.black,
+          labelColor: text,
+          unselectedLabelColor: sub,
           tabs: const [Tab(text: 'Achats'), Tab(text: 'Ventes')],
         ),
       ),
@@ -382,6 +389,9 @@ class _OrdersPageState extends State<OrdersPage> with SingleTickerProviderStateM
 void _showOrderDetails(String orderDocId, Map<String, dynamic> data) {
     final items = List.from(data['items'] ?? []);
     final String currentStatus = data['status'] ?? 'pending';
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color sheetBg = isDark ? const Color(0xFF0F171A) : Colors.white;
+    final Color sheetText = isDark ? Colors.white : Colors.black87;
     
     // On vérifie si l'utilisateur actuel possède au moins un article dans cette commande
     bool isSellerOfAnyItem = items.any((it) => (it['owner'] ?? it['ownerUid']) == _uid);
@@ -394,15 +404,17 @@ void _showOrderDetails(String orderDocId, Map<String, dynamic> data) {
         padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
         child: Container(
           height: MediaQuery.of(context).size.height * 0.75,
-          decoration: const BoxDecoration(
-            color: Colors.white,
+          decoration: BoxDecoration(
+            color: sheetBg,
             borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
           ),
           child: SafeArea(
             top: false,
             child: Padding(
               padding: const EdgeInsets.all(24),
-              child: Column(
+              child: DefaultTextStyle(
+                style: TextStyle(color: sheetText),
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(10)))),
@@ -492,6 +504,7 @@ void _showOrderDetails(String orderDocId, Map<String, dynamic> data) {
                 ],
               ),
             ),
+            ),
           ),
         ),
       ),
@@ -522,14 +535,20 @@ void _showOrderDetails(String orderDocId, Map<String, dynamic> data) {
   Future<void> _confirmDeleteProduct(String docId) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Supprimer la publication'),
-        content: const Text('Confirmer la suppression de cette annonce ?'),
+      builder: (c) {
+        final isDark = Theme.of(c).brightness == Brightness.dark;
+        final text = isDark ? Colors.white : Colors.black87;
+        final sub = isDark ? Colors.white70 : Colors.black54;
+        return AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF0F171A) : Colors.white,
+        title: Text('Supprimer la publication', style: TextStyle(color: text)),
+        content: Text('Confirmer la suppression de cette annonce ?', style: TextStyle(color: sub)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Annuler', style: TextStyle(color: sub))),
           TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Supprimer', style: TextStyle(color: Colors.red))),
         ],
-      ),
+      );
+      },
     );
     if (ok == true) {
       try {
@@ -651,18 +670,24 @@ void _showOrderDetails(String orderDocId, Map<String, dynamic> data) {
 
     final res = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Modifier la publication'),
+      builder: (c) {
+        final isDark = Theme.of(c).brightness == Brightness.dark;
+        final text = isDark ? Colors.white : Colors.black87;
+        final sub = isDark ? Colors.white70 : Colors.black54;
+        return AlertDialog(
+        backgroundColor: isDark ? const Color(0xFF0F171A) : Colors.white,
+        title: Text('Modifier la publication', style: TextStyle(color: text)),
         content: Column(mainAxisSize: MainAxisSize.min, children: [
-          TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Titre')),
-          TextField(controller: priceCtrl, decoration: const InputDecoration(labelText: 'Prix'), keyboardType: TextInputType.number),
-          TextField(controller: stockCtrl, decoration: const InputDecoration(labelText: 'Stock'), keyboardType: TextInputType.number),
+          TextField(controller: nameCtrl, decoration: InputDecoration(labelText: 'Titre', labelStyle: TextStyle(color: sub))),
+          TextField(controller: priceCtrl, decoration: InputDecoration(labelText: 'Prix', labelStyle: TextStyle(color: sub)), keyboardType: TextInputType.number),
+          TextField(controller: stockCtrl, decoration: InputDecoration(labelText: 'Stock', labelStyle: TextStyle(color: sub)), keyboardType: TextInputType.number),
         ]),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Enregistrer')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: Text('Annuler', style: TextStyle(color: sub))),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: Text('Enregistrer', style: TextStyle(color: text))),
         ],
-      ),
+      );
+      },
     );
 
     if (res == true) {

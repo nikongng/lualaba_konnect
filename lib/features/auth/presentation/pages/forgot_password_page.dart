@@ -37,13 +37,17 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     try {
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
       if (!mounted) return;
+      final isDark = Theme.of(context).brightness == Brightness.dark;
+      final text = isDark ? Colors.white : Colors.black87;
+      final sub = isDark ? Colors.white70 : Colors.black54;
       await showDialog<void>(
         context: context,
         barrierDismissible: false,
         builder: (ctx) => AlertDialog(
-          title: Row(children: const [Icon(Icons.check_circle, color: Colors.green), SizedBox(width: 12), Text('Succès')]),
-          content: const Text('Un email de réinitialisation a été envoyé si ce compte existe.'),
-          actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('OK'))],
+          backgroundColor: isDark ? const Color(0xFF0F171A) : Colors.white,
+          title: Row(children: [const Icon(Icons.check_circle, color: Colors.green), const SizedBox(width: 12), Text('Succès', style: TextStyle(color: text))]),
+          content: Text('Un email de réinitialisation a été envoyé si ce compte existe.', style: TextStyle(color: sub)),
+          actions: [TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('OK', style: TextStyle(color: text)))],
         ),
       );
       Navigator.pop(context);
@@ -157,3 +161,5 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
     );
   }
 }
+
+

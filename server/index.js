@@ -21,6 +21,14 @@ const USER_COLLECTIONS = ['classic_users', 'pro_users', 'enterprise_users'];
 // 2. Variables d'environnement (À configurer sur le dashboard Render)
 const ONE_SIGNAL_APP_ID = process.env.ONE_SIGNAL_APP_ID || '';
 const ONE_SIGNAL_REST_KEY = process.env.ONE_SIGNAL_REST_KEY || '';
+// Optional: explicit Android channel UUIDs created in OneSignal dashboard.
+// If not provided, OneSignal will use the default channel.
+const ONESIGNAL_ANDROID_CHANNEL_MESSAGES = process.env.ONESIGNAL_ANDROID_CHANNEL_MESSAGES || '';
+const ONESIGNAL_ANDROID_CHANNEL_CALLS = process.env.ONESIGNAL_ANDROID_CHANNEL_CALLS || '';
+// Optional: custom sounds (names). For Android, the sound must exist in `res/raw` (without extension)
+// or be configured via the OneSignal Android channel. For iOS, the sound file must be in the app bundle.
+const ONESIGNAL_CALL_ANDROID_SOUND = process.env.ONESIGNAL_CALL_ANDROID_SOUND || '';
+const ONESIGNAL_CALL_IOS_SOUND = process.env.ONESIGNAL_CALL_IOS_SOUND || '';
 const METERED_API_KEY = process.env.METERED_API_KEY; // Clé récupérée via .env
 const METALS_API_KEY = process.env.METALS_API_KEY || '';
 
@@ -171,6 +179,10 @@ app.post('/sendNotification', async (req, res) => {
         const { recipients, title, body, data } = req.body;
         if (!recipients || !Array.isArray(recipients)) return res.status(400).json({ error: 'recipients required' });
 
+        // Prefer targeting by external user ids (set via OneSignal.login(uid) in the app)
+        const externalUserIds = Array.from(new Set(recipients.filter(Boolean)));
+
+        // Optional fallback: legacy player ids if external ids are not available
         let allPlayers = [];
         for (const uid of recipients) {
             const p = await getOneSignalPlayersForUid(uid);
@@ -178,26 +190,47 @@ app.post('/sendNotification', async (req, res) => {
         }
         const players = Array.from(new Set(allPlayers));
 
-        if (players.length === 0) return res.status(404).json({ error: 'no_onesignal_ids_found' });
+        if (externalUserIds.length === 0 && players.length === 0) {
+            return res.status(404).json({ error: 'no_onesignal_ids_found' });
+        }
 
         const isCall = data && data.type === 'incoming_call';
 
         const payload = {
             app_id: ONE_SIGNAL_APP_ID,
-            include_player_ids: players,
+            ...(externalUserIds.length > 0 ? { include_external_user_ids: externalUserIds, channel_for_external_user_ids: "push" } : {}),
+            ...(players.length > 0 ? { include_player_ids: players } : {}),
             headings: { fr: title || 'Lualaba Konnect', en: title || 'Lualaba Konnect' },
             contents: { fr: body || '', en: body || '' },
             large_icon: req.body.senderAvatarUrl || '', 
             big_picture: req.body.imageUrl || '',
-            priority: 10, 
-            android_channel_id: isCall ? "94ab1e00-53da-497e-bf3a-4b0936d269df" : "messages_channel",
+            priority: 10,
             android_group: isCall ? "calls_group" : "messages_group",
+            // For calls, keep TTL short so stale "incoming call" notifications don't arrive late.
+            ttl: isCall ? 35 : 86400,
             buttons: isCall ? [
                 { id: "accept", text: "Répondre", icon: "ic_menu_call" },
                 { id: "decline", text: "Refuser", icon: "ic_menu_close" }
             ] : [],
             data: { ...data, sentBy: caller.uid }
         };
+
+        // Only set android_channel_id if you provided real channel UUIDs from OneSignal dashboard.
+        // Passing an unknown value can cause confusing behavior on some devices.
+        const channelId = isCall ? ONESIGNAL_ANDROID_CHANNEL_CALLS : ONESIGNAL_ANDROID_CHANNEL_MESSAGES;
+        if (channelId && typeof channelId === 'string' && channelId.trim().length > 0) {
+            payload.android_channel_id = channelId.trim();
+        }
+
+        // Optional call sounds (recommended to configure on the OneSignal "Calls" channel instead).
+        if (isCall) {
+            if (ONESIGNAL_CALL_ANDROID_SOUND && typeof ONESIGNAL_CALL_ANDROID_SOUND === 'string' && ONESIGNAL_CALL_ANDROID_SOUND.trim().length > 0) {
+                payload.android_sound = ONESIGNAL_CALL_ANDROID_SOUND.trim();
+            }
+            if (ONESIGNAL_CALL_IOS_SOUND && typeof ONESIGNAL_CALL_IOS_SOUND === 'string' && ONESIGNAL_CALL_IOS_SOUND.trim().length > 0) {
+                payload.ios_sound = ONESIGNAL_CALL_IOS_SOUND.trim();
+            }
+        }
 
         const resp = await fetch('https://onesignal.com/api/v1/notifications', {
             method: 'POST',

@@ -24,11 +24,7 @@ import '../widgets/header_widget.dart';
 import '../widgets/masta_card.dart';
 import '../widgets/copper_card.dart';
 import '../../../../core/notification_service.dart';
-
-final List<Map<String, dynamic>> lualabaNewsData = [
-  {'source': 'Lualaba News', 'title': 'Nouveau projet minier à Kolwezi', 'images': ['https://placeholder.com/150']},
-  {'source': 'Info DRC', 'title': 'Météo : Fortes pluies prévues', 'images': ['https://placeholder.com/150']},
-];
+import '../../../../core/theme_controller.dart';
 
 class ModernDashboard extends StatefulWidget {
   const ModernDashboard({super.key});
@@ -44,7 +40,8 @@ class ModernDashboardGlobals {
 class _ModernDashboardState extends State<ModernDashboard> {
   final GlobalKey<ChatListPageState> _chatKey = GlobalKey<ChatListPageState>();
   int _selectedIndex = 0;
-  bool _isDarkMode = true;
+  final ThemeController _themeCtrl = ThemeController.instance;
+  bool _isDarkMode = false;
   bool _notificationsEnabled = true;
   double _dataLanUsedGb = 0;
   double? _dataLanTotalGb;
@@ -61,8 +58,15 @@ class _ModernDashboardState extends State<ModernDashboard> {
   @override
   void initState() {
     super.initState();
+    _isDarkMode = _themeCtrl.isDark;
+    _themeCtrl.addListener(_onThemeChanged);
     _loadNotificationPref();
     _loadDataLanUsage();
+  }
+
+  void _onThemeChanged() {
+    if (!mounted) return;
+    setState(() => _isDarkMode = _themeCtrl.isDark);
   }
 
   Future<void> _loadNotificationPref() async {
@@ -79,6 +83,12 @@ class _ModernDashboardState extends State<ModernDashboard> {
     if (v == null) return null;
     if (v is num) return v.toDouble();
     try { return double.parse(v.toString()); } catch (_) { return null; }
+  }
+
+  @override
+  void dispose() {
+    _themeCtrl.removeListener(_onThemeChanged);
+    super.dispose();
   }
 
   Future<void> _loadDataLanUsage() async {
@@ -537,10 +547,13 @@ class _ModernDashboardState extends State<ModernDashboard> {
   void _openShareAlertMenu() async {
     await _loadContacts();
     await _loadSavedRecipients();
+    final bool isDark = ThemeController.instance.isDark;
+    final Color sheetBg = isDark ? const Color(0xFF0F171A) : Colors.white;
+    final Color sheetText = isDark ? Colors.white : Colors.black87;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
+      backgroundColor: sheetBg,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
       builder: (ctx) {
         return StatefulBuilder(builder: (context, setLocalState) {
@@ -549,8 +562,12 @@ class _ModernDashboardState extends State<ModernDashboard> {
             padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
             child: SizedBox(
               height: MediaQuery.of(context).size.height * 0.75,
-              child: Column(
-                children: [
+              child: DefaultTextStyle(
+                style: TextStyle(color: sheetText),
+                child: IconTheme(
+                  data: IconThemeData(color: sheetText),
+                  child: Column(
+                    children: [
                   // saved recipients chips
                   if (_savedRecipients.isNotEmpty)
                     Padding(
@@ -654,14 +671,16 @@ class _ModernDashboardState extends State<ModernDashboard> {
                             // ouvrir modal de type/message
                             showModalBottomSheet(
                               context: context,
-                              backgroundColor: Colors.white,
+                              backgroundColor: sheetBg,
                               shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
                               builder: (ctx2) {
                                 return Padding(
                                   padding: const EdgeInsets.all(12.0),
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
+                                  child: DefaultTextStyle(
+                                    style: TextStyle(color: sheetText),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
                                       const Text('Type de message', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                                       RadioListTile<String>(
                                         title: const Text("Urgent — Besoin d'aide"),
@@ -697,8 +716,9 @@ class _ModernDashboardState extends State<ModernDashboard> {
                                         },
                                         child: const Text('Signaler à mes proches'),
                                       ),
-                                      TextButton(onPressed: () { Navigator.of(ctx2).pop(); _openShareAlertMenu(); }, child: const Text('Modifier options de partage')),
-                                    ],
+                                      TextButton(onPressed: () { Navigator.of(ctx2).pop(); _openShareAlertMenu(); }, child: Text('Modifier options de partage', style: TextStyle(color: sheetText))),
+                                      ],
+                                    ),
                                   ),
                                 );
                               },
@@ -707,11 +727,13 @@ class _ModernDashboardState extends State<ModernDashboard> {
                           child: const Text('Définir'),
                         ),
                         const SizedBox(height: 8),
-                        TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Annuler')),
+                        TextButton(onPressed: () => Navigator.of(ctx).pop(), child: Text('Annuler', style: TextStyle(color: sheetText))),
                       ],
                     ),
                   ),
-                ],
+                    ],
+                  ),
+                ),
               ),
             ),
           );
@@ -721,13 +743,14 @@ class _ModernDashboardState extends State<ModernDashboard> {
   }
 
   void _showSOSMenu() {
+    final bool isDark = ThemeController.instance.isDark;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (context) => Container(
         padding: const EdgeInsets.all(24),
-        decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.vertical(top: Radius.circular(32))),
+        decoration: BoxDecoration(color: isDark ? const Color(0xFF0F171A) : Colors.white, borderRadius: const BorderRadius.vertical(top: Radius.circular(32))),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -748,7 +771,7 @@ class _ModernDashboardState extends State<ModernDashboard> {
                   children: [
                     const Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.dangerous, color: Colors.red), SizedBox(width: 10), Text("Signaler à mes proches", style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold))]),
                     const SizedBox(height: 6),
-                    const Text('À utiliser seulement si vous vous sentez en danger réel.', style: TextStyle(color: Colors.black54, fontSize: 12), textAlign: TextAlign.center),
+                    Text('À utiliser seulement si vous vous sentez en danger réel.', style: TextStyle(color: isDark ? Colors.white70 : Colors.black54, fontSize: 12), textAlign: TextAlign.center),
                   ],
                 ),
               ),
@@ -807,42 +830,46 @@ class _ModernDashboardState extends State<ModernDashboard> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isDark = _isDarkMode;
-    final Color bgColor = isDark ? const Color(0xFF012E32) : const Color(0xFFF2F4F5);
-    final Color textColor = isDark ? Colors.white : const Color(0xFF012E32);
+    final themeCtrl = ThemeController.instance;
+    return AnimatedBuilder(
+      animation: themeCtrl,
+      builder: (context, _) {
+        final bool isDark = themeCtrl.isDark;
+        final Color bgColor = isDark ? const Color(0xFF012E32) : const Color(0xFFF2F4F5);
+        final Color textColor = isDark ? Colors.white : const Color(0xFF012E32);
 
-    // CACHER LA NAVBAR SUR LIVE (2) ET MARKET (3)
-    bool isNavBarVisible = _selectedIndex != 2 && _selectedIndex != 3;
+        // CACHER LA NAVBAR SUR LIVE (2) ET MARKET (3)
+        bool isNavBarVisible = _selectedIndex != 2 && _selectedIndex != 3;
 
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, result) {
-        if (didPop) return;
-        if (_selectedIndex != 0) {
-          setState(() => _selectedIndex = 0);
-        } else {
-          SystemNavigator.pop();
-        }
-      },
-      child: Scaffold(
-        backgroundColor: bgColor,
-        body: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 414),
-            child: Stack(
-              children: [
-                // TRANSITION DE LUXE (ZOOM + FADE)
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 600),
-                  switchInCurve: Curves.easeInOutQuart,
-                  switchOutCurve: Curves.easeInOutQuart,
-                  transitionBuilder: (Widget child, Animation<double> animation) {
-                    final scaleAnimation = Tween<double>(begin: 0.92, end: 1.0).animate(animation);
-                    final fadeAnimation = CurvedAnimation(parent: animation, curve: const Interval(0.5, 1.0));
-                    return FadeTransition(opacity: fadeAnimation, child: ScaleTransition(scale: scaleAnimation, child: child));
-                  },
-                  child: _buildCurrentPage(isDark, textColor),
-                ),
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, result) {
+            if (didPop) return;
+            if (_selectedIndex != 0) {
+              setState(() => _selectedIndex = 0);
+            } else {
+              SystemNavigator.pop();
+            }
+          },
+          child: Scaffold(
+            backgroundColor: bgColor,
+            body: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 414),
+                child: Stack(
+                  children: [
+                    // TRANSITION DE LUXE (ZOOM + FADE)
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 600),
+                      switchInCurve: Curves.easeInOutQuart,
+                      switchOutCurve: Curves.easeInOutQuart,
+                      transitionBuilder: (Widget child, Animation<double> animation) {
+                        final scaleAnimation = Tween<double>(begin: 0.92, end: 1.0).animate(animation);
+                        final fadeAnimation = CurvedAnimation(parent: animation, curve: const Interval(0.5, 1.0));
+                        return FadeTransition(opacity: fadeAnimation, child: ScaleTransition(scale: scaleAnimation, child: child));
+                      },
+                      child: _buildCurrentPage(isDark, textColor),
+                    ),
 
                 // NAVBAR ANIMÉE
                 ValueListenableBuilder<bool>(
@@ -867,11 +894,13 @@ class _ModernDashboardState extends State<ModernDashboard> {
                     );
                   },
                 ),
-              ],
+                  ],
+                ),
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
@@ -880,7 +909,7 @@ class _ModernDashboardState extends State<ModernDashboard> {
       case 0: return _buildHomePage(isDark, textColor, key: const ValueKey('home_ui'));
       case 1: return ChatListPage(key: _chatKey);
       case 2: return LivePage(key: const ValueKey('live_ui'), onBack: () => setState(() => _selectedIndex = 0));
-      case 3: return MarketplacePage(key: const ValueKey('market_ui'), onBack: () => setState(() => _selectedIndex = 0), isDark: _isDarkMode);
+      case 3: return MarketplacePage(key: const ValueKey('market_ui'), onBack: () => setState(() => _selectedIndex = 0), isDark: isDark);
       case 4: return _buildProfilePage(isDark, textColor, key: const ValueKey('profile_ui'));
       default: return _buildHomePage(isDark, textColor, key: const ValueKey('home_ui'));
     }
@@ -919,56 +948,152 @@ class _ModernDashboardState extends State<ModernDashboard> {
     );
   }
 Widget _buildNewsSection(Color text, bool isDark) {
+  final sub = isDark ? Colors.white70 : Colors.black54;
   return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-      Text("Actu", 
-        style: TextStyle(color: text, fontSize: 18, fontWeight: FontWeight.bold)
+      Text(
+        "Actu",
+        style: TextStyle(color: text, fontSize: 18, fontWeight: FontWeight.bold),
       ),
-      
-      // On rend le "Tout voir" cliquable
       GestureDetector(
         onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => const NewsFeedPage(), // Ouvre ta page existante
-            ),
-          );
+          Navigator.push(context, MaterialPageRoute(builder: (context) => const NewsFeedPage()));
         },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           child: const Text(
-            "Tout voir", 
-            style: TextStyle(
-              color: Colors.orange, 
-              fontSize: 13, 
-              fontWeight: FontWeight.bold
-            )
+            "Tout voir",
+            style: TextStyle(color: Colors.orange, fontSize: 13, fontWeight: FontWeight.bold),
           ),
         ),
       ),
     ]),
     const SizedBox(height: 16),
     SizedBox(
-      height: 250, 
-      child: ListView.builder(
-        scrollDirection: Axis.horizontal, 
-        itemCount: lualabaNewsData.length, 
-        itemBuilder: (context, index) {
-          final item = lualabaNewsData[index];
-          return _newsCard(item['source'], item['title'], isDark, item['images'][0]);
-        }
-      )
+      height: 250,
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('posts').orderBy('createdAt', descending: true).limit(12).snapshots(),
+        builder: (context, snap) {
+          if (snap.hasError) {
+            return Center(child: Text('Erreur chargement actu', style: TextStyle(color: sub, fontWeight: FontWeight.w600)));
+          }
+          if (!snap.hasData) {
+            return Center(child: CircularProgressIndicator(color: Theme.of(context).colorScheme.primary));
+          }
+          final docs = snap.data!.docs;
+          if (docs.isEmpty) {
+            return Center(child: Text('Aucune actu pour le moment', style: TextStyle(color: sub, fontWeight: FontWeight.w600)));
+          }
+
+          return ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: docs.length,
+            itemBuilder: (context, index) {
+              final doc = docs[index];
+              final data = doc.data() as Map<String, dynamic>? ?? {};
+              final source = (data['category'] ?? data['authorName'] ?? 'Actu').toString();
+              final rawTitle = (data['text'] ?? '').toString().trim();
+              final title = rawTitle.isEmpty ? 'Publication' : rawTitle;
+              final images = (data['images'] is List) ? List<String>.from(data['images'] ?? const []) : const <String>[];
+              final imageUrl = images.isNotEmpty ? images.first.toString() : '';
+              final createdAt = data['createdAt'] is Timestamp ? (data['createdAt'] as Timestamp).toDate() : null;
+
+              return TweenAnimationBuilder<double>(
+                tween: Tween(begin: 0, end: 1),
+                duration: Duration(milliseconds: 450 + (index.clamp(0, 10) * 40)),
+                curve: Curves.easeOutCubic,
+                builder: (context, v, child) => Opacity(
+                  opacity: v,
+                  child: Transform.translate(offset: Offset(16 * (1 - v), 0), child: child),
+                ),
+                child: _newsCard(source, title, isDark, imageUrl, createdAt: createdAt),
+              );
+            },
+          );
+        },
+      ),
     ),
   ]);
 }
 
-  Widget _newsCard(String source, String title, bool isDark, String imageUrl) {
-    return Container(width: 220, margin: const EdgeInsets.only(right: 16), decoration: BoxDecoration(color: isDark ? const Color(0xFF1E1E1E) : Colors.white, borderRadius: BorderRadius.circular(20)),
-      child: Column(children: [
-        ClipRRect(borderRadius: const BorderRadius.vertical(top: Radius.circular(20)), child: CachedNetworkImage(imageUrl: imageUrl, height: 130, width: double.infinity, fit: BoxFit.cover, placeholder: (c, s) => Container(height: 130, color: Colors.grey.shade200, child: Center(child: CircularProgressIndicator(color: Theme.of(c).colorScheme.primary))), errorWidget: (c, s, e) => Container(height: 130, color: Colors.grey.shade200, child: const Icon(Icons.broken_image)))),
-        Padding(padding: const EdgeInsets.all(12), child: Text(title, maxLines: 2, style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontWeight: FontWeight.bold))),
-      ]),
+  Widget _newsCard(String source, String title, bool isDark, String imageUrl, {DateTime? createdAt}) {
+    final cardColor = isDark ? const Color(0xFF111B21) : Colors.white;
+    final text = isDark ? Colors.white : Colors.black87;
+    final sub = isDark ? Colors.white70 : Colors.black54;
+    final when = createdAt == null ? '' : DateFormat('HH:mm').format(createdAt);
+
+    return Container(
+      width: 240,
+      margin: const EdgeInsets.only(right: 16),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.30 : 0.06), blurRadius: 18, offset: const Offset(0, 10))],
+        border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            child: SizedBox(
+              height: 130,
+              width: double.infinity,
+              child: imageUrl.isEmpty
+                  ? Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: isDark ? const [Color(0xFF202C33), Color(0xFF111B21)] : const [Color(0xFFFFF3E0), Color(0xFFF6F7F9)],
+                        ),
+                      ),
+                      child: Center(child: Icon(Icons.article_outlined, color: sub)),
+                    )
+                  : CachedNetworkImage(
+                      imageUrl: imageUrl,
+                      fit: BoxFit.cover,
+                      placeholder: (c, s) => Container(
+                        color: isDark ? const Color(0xFF202C33) : Colors.grey.shade200,
+                        child: Center(child: CircularProgressIndicator(color: Theme.of(c).colorScheme.primary)),
+                      ),
+                      errorWidget: (c, s, e) => Container(
+                        color: isDark ? const Color(0xFF202C33) : Colors.grey.shade200,
+                        child: Center(child: Icon(Icons.broken_image, color: sub)),
+                      ),
+                    ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        source,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: sub, fontWeight: FontWeight.w700, fontSize: 12),
+                      ),
+                    ),
+                    if (when.isNotEmpty) Text(when, style: TextStyle(color: sub, fontWeight: FontWeight.w600, fontSize: 12)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  title,
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: text, fontWeight: FontWeight.w800, height: 1.15),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1042,10 +1167,13 @@ Widget _buildProfilePage(bool isDark, Color textColor, {Key? key}) {
           ProfilePageWidgets.settingsSwitchTile(
             Icons.dark_mode_outlined,
             "Mode Sombre",
-            _isDarkMode,
+            isDark,
             isDark ? Colors.white.withOpacity(0.05) : Colors.white,
             textColor,
-            (val) => setState(() => _isDarkMode = val)
+            (val) async {
+              await ThemeController.instance.toggle(val);
+              if (mounted) setState(() {});
+            }
           ),
 
           const SizedBox(height: 15),
@@ -1073,3 +1201,4 @@ Widget _buildProfilePage(bool isDark, Color textColor, {Key? key}) {
   );
 }
 }
+

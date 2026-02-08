@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,6 +10,8 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:lualaba_konnect/shared/widgets/account_badge.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 
 /// --- CONFIGURATION DU CACHE DES IMAGES (30 JOURS) ---
@@ -59,9 +62,8 @@ class _HeaderWidgetState extends State<HeaderWidget>
   late AnimationController _pulseController;
   final ImagePicker _picker = ImagePicker();
 
-  // Nouveaux : timer de revalidation et flag pour éviter multiples updates
+  // Nouveaux : timer de revalidation
   Timer? _userRefreshTimer;
-  bool _hasUpdatedFromFirestore = false;
 
   @override
   void initState() {
@@ -103,11 +105,14 @@ class _HeaderWidgetState extends State<HeaderWidget>
     }
   }
 
-  Future<void> _updateLocalCache(String name, String? photoUrl, bool certified) async {
+  Future<void> _updateLocalCache(String name, String? photoUrl, bool certified, {String? collection}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('user_display_name', name);
       await prefs.setBool('user_is_certified', certified);
+      if (collection != null && collection.isNotEmpty) {
+        await prefs.setString('user_collection', collection);
+      }
       if (photoUrl != null && photoUrl.isNotEmpty) await prefs.setString('user_photoUrl', photoUrl);
     } catch (e) {
       // ignore les erreurs de sauvegarde silencieusement, mais log pour debug
@@ -134,7 +139,7 @@ class _HeaderWidgetState extends State<HeaderWidget>
                 _userName = first;
               });
               // mettre à jour cache local pour la prochaine fois
-              await _updateLocalCache(first, null, _isCertified);
+              await _updateLocalCache(first, null, _isCertified, collection: _collection);
             }
           }
         } catch (e) {
@@ -147,9 +152,8 @@ class _HeaderWidgetState extends State<HeaderWidget>
         // 3) Met en place une revalidation légère toutes les 10s si Firestore tarde
         _userRefreshTimer?.cancel();
         _userRefreshTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
-          // Si nous n'avons pas encore mis à jour depuis Firestore, réessaye de charger cache/stream
-          if (!_hasUpdatedFromFirestore && mounted) {
-            // Tenter de recharger le cache local (au cas où _fetchAndCache a écrit)
+          // Tenter de recharger le cache local (au cas où _fetchAndCache a écrit)
+          if (mounted) {
             try {
               final prefs = await SharedPreferences.getInstance();
               final cachedName = prefs.getString('user_display_name');
@@ -171,20 +175,21 @@ class _HeaderWidgetState extends State<HeaderWidget>
   Future<void> _setupUserStream(String uid) async {
     final prefs = await SharedPreferences.getInstance();
 
-    // Si on n'a pas la collection en cache, on la cherche
-    if (_collection == null || _collection!.isEmpty) {
-      final collections = ['classic_users', 'pro_users', 'enterprise_users'];
-      for (String col in collections) {
-        try {
-          final doc = await FirebaseFirestore.instance.collection(col).doc(uid).get();
-          if (doc.exists) {
+    // Rechercher la collection active (priorité: enterprise > pro > classic > users)
+    // Même si un cache existe, on vérifie pour éviter les collections obsolètes.
+    final collections = ['enterprise_users', 'pro_users', 'classic_users', 'users'];
+    for (String col in collections) {
+      try {
+        final doc = await FirebaseFirestore.instance.collection(col).doc(uid).get();
+        if (doc.exists) {
+          if (_collection != col) {
             _collection = col;
             await prefs.setString('user_collection', col);
-            break;
           }
-        } catch (e) {
-          debugPrint('[DEBUG] chercher collection $col erreur: $e');
+          break;
         }
+      } catch (e) {
+        debugPrint('[DEBUG] chercher collection $col erreur: $e');
       }
     }
 
@@ -192,13 +197,174 @@ class _HeaderWidgetState extends State<HeaderWidget>
     if (_collection != null && mounted) {
       setState(() {
         _userStream = FirebaseFirestore.instance.collection(_collection!).doc(uid).snapshots();
-        // reset flag pour accepter la prochaine update Firestore
-        _hasUpdatedFromFirestore = false;
       });
     }
   }
 
   // ================== ACTIONS IMAGES ==================
+  String _appendUrlVersion(String url, int version) {
+    if (url.isEmpty) return url;
+    return url.contains('?') ? '$url&v=$version' : '$url?v=$version';
+  }
+
+  void _showPhotoUpdatedToast() {
+    if (!mounted) return;
+    final overlay = Overlay.of(context);
+    if (overlay == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(content: Text('Photo de profil mise à jour')),
+      );
+      return;
+    }
+
+    late OverlayEntry entry;
+    final controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 380),
+      reverseDuration: const Duration(milliseconds: 300),
+    );
+    final animation = CurvedAnimation(parent: controller, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInOutCubic);
+    final scaleAnimation = Tween<double>(begin: 0.955, end: 1.0).animate(
+      CurvedAnimation(parent: controller, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInOutCubic),
+    );
+
+    entry = OverlayEntry(
+      builder: (ctx) {
+        return Positioned(
+          left: 16,
+          right: 16,
+          bottom: 18,
+          child: FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero).animate(animation),
+              child: ScaleTransition(
+                scale: scaleAnimation,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF8A00),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFFFB14D)),
+                        boxShadow: const [
+                          BoxShadow(color: Color(0x66FF8A00), blurRadius: 18, offset: Offset(0, 10)),
+                        ],
+                      ),
+                      child: Center(
+                        child: Text(
+                          'Photo de profil mise à jour',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                            decoration: TextDecoration.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    overlay.insert(entry);
+    controller.forward();
+    Future.delayed(const Duration(milliseconds: 2000), () async {
+      if (!mounted) return;
+      await controller.reverse();
+      entry.remove();
+      controller.dispose();
+    });
+  }
+
+  void _showCustomToast(String message) {
+    if (!mounted) return;
+    final overlay = Overlay.of(context);
+    if (overlay == null) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+      return;
+    }
+
+    late OverlayEntry entry;
+    final controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 380),
+      reverseDuration: const Duration(milliseconds: 300),
+    );
+    final animation = CurvedAnimation(parent: controller, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInOutCubic);
+    final scaleAnimation = Tween<double>(begin: 0.955, end: 1.0).animate(
+      CurvedAnimation(parent: controller, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInOutCubic),
+    );
+
+    entry = OverlayEntry(
+      builder: (ctx) {
+        return Positioned(
+          left: 16,
+          right: 16,
+          bottom: 18,
+          child: FadeTransition(
+            opacity: animation,
+            child: SlideTransition(
+              position: Tween<Offset>(begin: const Offset(0, 0.2), end: Offset.zero).animate(animation),
+              child: ScaleTransition(
+                scale: scaleAnimation,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(18),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF8A00),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFFFB14D)),
+                        boxShadow: const [
+                          BoxShadow(color: Color(0x66FF8A00), blurRadius: 18, offset: Offset(0, 10)),
+                        ],
+                      ),
+                      child: Center(
+                        child: Text(
+                          message,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                            decoration: TextDecoration.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    overlay.insert(entry);
+    controller.forward();
+    Future.delayed(const Duration(milliseconds: 2000), () async {
+      if (!mounted) return;
+      await controller.reverse();
+      entry.remove();
+      controller.dispose();
+    });
+  }
+
 Future<void> _handleImageUpload(ImageSource source) async {
   final XFile? image = await _picker.pickImage(
     source: source,
@@ -231,14 +397,22 @@ Future<void> _handleImageUpload(ImageSource source) async {
     final publicUrl = Supabase.instance.client.storage
         .from('profiles')
         .getPublicUrl(filePath);
+    final versionedUrl = _appendUrlVersion(publicUrl, DateTime.now().millisecondsSinceEpoch);
 
     // 📝 UPDATE FIRESTORE AVEC L’URL SUPABASE
     await FirebaseFirestore.instance
         .collection(_collection!)
         .doc(user.uid)
         .update({
-          'photoUrl': publicUrl,
+          'photoUrl': versionedUrl,
         });
+
+    if (mounted) {
+      setState(() => _cachedPhotoUrl = versionedUrl);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _showCustomToast('Photo de profil mise a jour');
+      });
+    }
 
     // UI mise à jour automatiquement via StreamBuilder
   } catch (e) {
@@ -248,6 +422,60 @@ Future<void> _handleImageUpload(ImageSource source) async {
   }
 }
 
+  Future<void> _viewPhoto() async {
+    if (_cachedPhotoUrl == null || _cachedPhotoUrl!.isEmpty) {
+      _showCustomToast('Aucune photo de profil');
+      return;
+    }
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.85),
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(24),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: CachedNetworkImage(
+            imageUrl: _cachedPhotoUrl!,
+            cacheManager: ProfileCacheManager.instance,
+            fit: BoxFit.contain,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _downloadPhoto() async {
+    if (_cachedPhotoUrl == null || _cachedPhotoUrl!.isEmpty) {
+      _showCustomToast('Aucune photo de profil');
+      return;
+    }
+    final uri = Uri.tryParse(_cachedPhotoUrl!);
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  Future<void> _deletePhoto() async {
+    if (_collection == null) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    setState(() => _isUploading = true);
+    try {
+      final filePath = 'users/${user.uid}.jpg';
+      await Supabase.instance.client.storage.from('profiles').remove([filePath]);
+      await FirebaseFirestore.instance.collection(_collection!).doc(user.uid).update({'photoUrl': ''});
+      if (mounted) {
+        setState(() => _cachedPhotoUrl = '');
+        _showCustomToast('Photo supprimee');
+      }
+    } catch (e) {
+      debugPrint('❌ Erreur suppression photo: $e');
+      if (mounted) _showCustomToast('Erreur suppression photo');
+    } finally {
+      if (mounted) setState(() => _isUploading = false);
+    }
+  }
+
 
   // ================== INTERFACE (BUILD) ==================
 
@@ -256,8 +484,8 @@ Future<void> _handleImageUpload(ImageSource source) async {
     return StreamBuilder<DocumentSnapshot>(
       stream: _userStream,
       builder: (context, snapshot) {
-        // Si Firestore a envoyé des données et qu'on ne les a pas encore appliquées
-        if (snapshot.hasData && snapshot.data!.exists && !_hasUpdatedFromFirestore) {
+        // Appliquer chaque mise à jour Firestore (temps réel)
+        if (snapshot.hasData && snapshot.data!.exists) {
           try {
             final data = snapshot.data!.data() as Map<String, dynamic>;
 
@@ -277,21 +505,28 @@ Future<void> _handleImageUpload(ImageSource source) async {
                 : null;
             final bool fetchedCert = data['isCertified'] == true;
 
-            // Marquer qu'on a bien appliqué la mise à jour Firestore (évite boucles)
-            _hasUpdatedFromFirestore = true;
-
             // Appliquer la mise à jour hors-build pour éviter setState pendant le build
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
-              setState(() {
-                _userName = fetchedName.isNotEmpty ? fetchedName : _userName;
-                _cachedPhotoUrl = fetchedPhoto ?? _cachedPhotoUrl;
-                _isCertified = fetchedCert;
-              });
+              final nextName = fetchedName.isNotEmpty ? fetchedName : _userName;
+              final nextPhoto = fetchedPhoto ?? _cachedPhotoUrl;
+              final needsUpdate = nextName != _userName || nextPhoto != _cachedPhotoUrl || fetchedCert != _isCertified;
+              if (needsUpdate) {
+                setState(() {
+                  _userName = nextName;
+                  _cachedPhotoUrl = nextPhoto;
+                  _isCertified = fetchedCert;
+                });
+              }
             });
 
             // Mettre à jour le cache local de façon asynchrone (sans bloquer)
-            _updateLocalCache(fetchedName.isNotEmpty ? fetchedName : _userName, fetchedPhoto, fetchedCert);
+            _updateLocalCache(
+              fetchedName.isNotEmpty ? fetchedName : _userName,
+              fetchedPhoto,
+              fetchedCert,
+              collection: _collection,
+            );
           } catch (e) {
             debugPrint('[DEBUG] erreur traitement snapshot: $e');
           }
@@ -303,6 +538,7 @@ Future<void> _handleImageUpload(ImageSource source) async {
   }
 
   Widget _buildHeaderContent() {
+    debugPrint('[HeaderWidget] render name=$_userName cert=$_isCertified collection=$_collection');
     return Row(
       children: [
         _buildAvatar(),
@@ -322,9 +558,9 @@ Future<void> _handleImageUpload(ImageSource source) async {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  if (_isCertified) ...[
+                  if (_isCertified || _collection == 'pro_users' || _collection == 'enterprise_users') ...[
                     const SizedBox(width: 4),
-                    const Icon(Icons.verified, color: Colors.blue, size: 16),
+                    AccountBadges(isCertified: _isCertified, accountType: _collection, fontSize: 11),
                   ],
                 ],
               ),
@@ -420,13 +656,42 @@ Widget _buildSOS() {
   }
 
   void _showPickerMenu() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sheetBg = isDark ? const Color(0xFF0F171A) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final sub = isDark ? Colors.white70 : Colors.black54;
+    final hasPhoto = _cachedPhotoUrl != null && _cachedPhotoUrl!.isNotEmpty;
     showModalBottomSheet(
       context: context,
+      backgroundColor: sheetBg,
       builder: (_) => SafeArea(
         child: Wrap(
           children: [
-            ListTile(leading: const Icon(Icons.photo_library), title: const Text('Galerie'), onTap: () => {Navigator.pop(context), _handleImageUpload(ImageSource.gallery)}),
-            ListTile(leading: const Icon(Icons.camera_alt), title: const Text('Appareil Photo'), onTap: () => {Navigator.pop(context), _handleImageUpload(ImageSource.camera)}),
+            ListTile(
+              leading: Icon(Icons.remove_red_eye_outlined, color: sub),
+              title: Text('Voir la photo', style: TextStyle(color: textColor)),
+              onTap: hasPhoto ? () => {Navigator.pop(context), _viewPhoto()} : null,
+            ),
+            ListTile(
+              leading: Icon(Icons.download, color: sub),
+              title: Text('Telecharger la photo', style: TextStyle(color: textColor)),
+              onTap: hasPhoto ? () => {Navigator.pop(context), _downloadPhoto()} : null,
+            ),
+            ListTile(
+              leading: Icon(Icons.photo_library, color: sub),
+              title: Text('Galerie', style: TextStyle(color: textColor)),
+              onTap: () => {Navigator.pop(context), _handleImageUpload(ImageSource.gallery)},
+            ),
+            ListTile(
+              leading: Icon(Icons.camera_alt, color: sub),
+              title: Text('Appareil Photo', style: TextStyle(color: textColor)),
+              onTap: () => {Navigator.pop(context), _handleImageUpload(ImageSource.camera)},
+            ),
+            ListTile(
+              leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+              title: Text('Supprimer la photo', style: TextStyle(color: textColor)),
+              onTap: hasPhoto ? () => {Navigator.pop(context), _deletePhoto()} : null,
+            ),
           ],
         ),
       ),

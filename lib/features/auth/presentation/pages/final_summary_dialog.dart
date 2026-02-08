@@ -61,17 +61,21 @@ class _FinalSummaryDialogState extends State<FinalSummaryDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color cardBg = isDark ? const Color(0xFF0F171A) : Colors.white;
+    final Color text = isDark ? Colors.white : Colors.black87;
+    final Color sub = isDark ? Colors.white70 : Colors.black54;
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(35)),
       backgroundColor: Colors.transparent,
       child: Container(
         padding: const EdgeInsets.all(30),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: cardBg,
           borderRadius: BorderRadius.circular(35),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.15),
+              color: Colors.black.withOpacity(isDark ? 0.35 : 0.15),
               blurRadius: 30,
               offset: const Offset(0, -10),
             )
@@ -110,7 +114,7 @@ class _FinalSummaryDialogState extends State<FinalSummaryDialog> {
                   ? "Check terminé ! Tes documents sont validés. Nous finalisons ta certification maintenant."
                   : "Tes documents ont été envoyés avec succès. Nous vérifions tout ça tout de suite.",
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 15, color: Colors.grey.shade600, height: 1.4, fontWeight: FontWeight.w500),
+                style: TextStyle(fontSize: 15, color: sub, height: 1.4, fontWeight: FontWeight.w500),
               )
             else const SizedBox.shrink(),
             const SizedBox(height: 20),
@@ -297,3 +301,4 @@ Future<void> showFinalSummaryDialog(
     ),
   );
 }
+

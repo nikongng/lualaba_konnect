@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 import 'dart:math';
@@ -37,6 +37,7 @@ import 'package:lualaba_konnect/core/config.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:lualaba_konnect/shared/widgets/account_badge.dart';
 
 
 const Color tgBg = Color(0xFF0B1418);
@@ -54,7 +55,7 @@ class ChatDetailPage extends StatefulWidget {
   State<ChatDetailPage> createState() => _ChatState();
 }
 
-class _ChatState extends State<ChatDetailPage> {
+class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMixin {
   final TextEditingController _msgController = TextEditingController();
   final currentUser = FirebaseAuth.instance.currentUser;
   fs.FlutterSoundRecorder? _recorder;
@@ -67,6 +68,9 @@ class _ChatState extends State<ChatDetailPage> {
   bool _recordLocked = false;
   bool _recordCanceled = false;
   bool _hasText = false;
+  double? _recordStartDx;
+  double? _recordStartDy;
+  late final AnimationController _lockHintCtrl;
   Timer? _recordTimer;
   final ValueNotifier<int> _recordSecondsNotifier = ValueNotifier<int>(0);
   Timer? _bgTimer;
@@ -88,11 +92,22 @@ class _ChatState extends State<ChatDetailPage> {
   // --- MULTI-SELECT STATE ---
   final Set<String> _selectedMessageIds = {};
   bool _selectionMode = false;
+  bool _isGroupChat = false;
   final ScrollController _listController = ScrollController();
   final Map<String, GlobalKey> _messageKeys = {};
   String? _pendingJumpMessageId;
   String? _highlightMessageId;
   final Set<String> _downloadingMedia = {};
+
+  // --- REPLY (WhatsApp-style swipe-to-reply) ---
+  Map<String, dynamic>? _replyTo; // persisted into Firestore as `replyTo`
+
+  bool _isDark(BuildContext context) => Theme.of(context).brightness == Brightness.dark;
+  Color _modalBg(BuildContext context) => _isDark(context) ? tgBar : Colors.white;
+  Color _modalText(BuildContext context) => _isDark(context) ? Colors.white : Colors.black87;
+  Color _modalSub(BuildContext context) => _isDark(context) ? Colors.white70 : Colors.black54;
+  Color _modalMuted(BuildContext context) => _isDark(context) ? Colors.white54 : Colors.black45;
+  Color _modalTileBg(BuildContext context) => _isDark(context) ? Colors.white10 : Colors.black12;
   
   // --- UPLOAD & SAVE HELPERS ---
   Future<void> _uploadAndSend(dynamic fileSource, String type, String folder, String text, {Map<String, dynamic>? extraData}) async {
@@ -210,6 +225,66 @@ class _ChatState extends State<ChatDetailPage> {
       final chatSnap = await chatRef.get();
       if (!chatSnap.exists) return;
       final data = chatSnap.data() ?? {};
+      final isGroup = data['isGroup'] == true;
+
+      if (isGroup) {
+        final groupName = (data['groupName'] ?? data['name'] ?? widget.chatName ?? 'Groupe').toString();
+        final groupPhoto = (data['groupPhoto'] ?? '').toString();
+        final description = (data['description'] ?? '').toString();
+        final creatorId = (data['creatorId'] ?? data['createdBy'] ?? data['ownerId'] ?? '').toString();
+        final groupParticipants = (data['participants'] is List)
+            ? (data['participants'] as List).map((e) => e.toString()).toList()
+            : <String>[];
+
+        if (v == 'group_info') {
+          _showGroupInfoSheet(
+            groupName: groupName,
+            groupPhotoUrl: groupPhoto,
+            participantIds: groupParticipants,
+            creatorId: creatorId,
+            description: description,
+          );
+          return;
+        }
+        if (v == 'group_media') {
+          _showGroupMediaGridSheet();
+          return;
+        }
+        if (v == 'search') {
+          _showGroupSearchSheet();
+          return;
+        }
+        if (v == 'mute') {
+          await _toggleMuteChat(widget.chatId);
+          return;
+        }
+        if (v == 'ephemeral') {
+          await _toggleEphemeralMode(widget.chatId);
+          return;
+        }
+        if (v == 'theme') {
+          await _showChatThemeMenu();
+          return;
+        }
+        if (v == 'clear') {
+          final ok = await showDialog<bool>(
+            context: context,
+            builder: (c) => AlertDialog(
+              backgroundColor: _modalBg(c),
+              title: Text('Effacer le contenu ?', style: TextStyle(color: _modalText(c))),
+              actions: [
+                TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: _modalSub(c)))),
+                TextButton(onPressed: () => Navigator.pop(c, true), child: Text('Effacer', style: TextStyle(color: _modalText(c)))),
+              ],
+            ),
+          );
+          if (ok == true && mounted) {
+            await _clearChatMessages();
+          }
+          return;
+        }
+      }
+
       List participants = (data['participants'] is List) ? List.from(data['participants']) : [];
       String otherId = participants.firstWhere((id) => id != FirebaseAuth.instance.currentUser?.uid, orElse: () => "");
       if (otherId == "") return;
@@ -225,32 +300,110 @@ class _ChatState extends State<ChatDetailPage> {
       }
 
       if (v == 'audio' || v == 'video') {
-        final callRef = await FirebaseFirestore.instance.collection('calls').add({
-          'caller': FirebaseAuth.instance.currentUser?.uid,
-          'callerName': FirebaseAuth.instance.currentUser?.displayName ?? '',
-          'callee': otherId,
-          'status': 'ringing',
-          'type': v == 'video' ? 'video' : 'audio',
-          'createdAt': FieldValue.serverTimestamp(),
-        });
-        Navigator.push(
-  context,
-  MaterialPageRoute(
-    builder: (_) => CallWebRTCPage(
-      callId: callRef.id,
-      otherId: otherId,
-      isCaller: true,
-      name: widget.chatName,
-      avatarLetter: widget.chatName.isNotEmpty ? widget.chatName[0].toUpperCase() : '?',
-    ),
-  ),
-);
-
+        await _startCall(otherId, v == 'video');
         return;
       }
     } catch (e) {
       debugPrint('Menu action error: $e');
     }
+  }
+
+  Future<void> _toggleMuteChat(String chatId) async {
+    if (currentUser == null) return;
+    try {
+      final ref = FirebaseFirestore.instance.collection('chats').doc(chatId);
+      final snap = await ref.get();
+      final data = snap.exists ? (snap.data() ?? {}) : {};
+      Map<String, dynamic> muted = (data['muted'] is Map) ? Map<String, dynamic>.from(data['muted']) : {};
+      final cur = muted[currentUser!.uid] == true;
+      muted[currentUser!.uid] = !cur;
+      await ref.set({'muted': muted}, SetOptions(merge: true));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(!cur ? 'Discussion mise en silencieux' : 'Mode silencieux desactive')),
+        );
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+    }
+  }
+
+  Future<void> _toggleEphemeralMode(String chatId) async {
+    if (currentUser == null) return;
+    try {
+      final ref = FirebaseFirestore.instance.collection('chats').doc(chatId);
+      final snap = await ref.get();
+      final data = snap.exists ? (snap.data() ?? {}) : {};
+      Map<String, dynamic> eph = (data['ephemeral'] is Map) ? Map<String, dynamic>.from(data['ephemeral']) : {};
+      final cur = eph[currentUser!.uid] == true;
+      eph[currentUser!.uid] = !cur;
+      await ref.set({'ephemeral': eph}, SetOptions(merge: true));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(!cur ? 'Messages ephemeres actives' : 'Messages ephemeres desactives')),
+        );
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+    }
+  }
+
+  Future<void> _showChatThemeMenu() async {
+    final prefs = await SharedPreferences.getInstance();
+    String theme = prefs.getString('chat_theme') ?? 'system';
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: _modalBg(context),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (mCtx, setStateModal) {
+            return Container(
+              padding: const EdgeInsets.all(12),
+              child: Wrap(
+                children: [
+                  ListTile(
+                    title: Text('Theme discussion', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold)),
+                  ),
+                  RadioListTile<String>(
+                    value: 'system',
+                    groupValue: theme,
+                    onChanged: (v) async {
+                      if (v != null) {
+                        setStateModal(() => theme = v);
+                        await prefs.setString('chat_theme', v);
+                      }
+                    },
+                    title: Text('Systeme', style: TextStyle(color: _modalText(ctx))),
+                  ),
+                  RadioListTile<String>(
+                    value: 'light',
+                    groupValue: theme,
+                    onChanged: (v) async {
+                      if (v != null) {
+                        setStateModal(() => theme = v);
+                        await prefs.setString('chat_theme', v);
+                      }
+                    },
+                    title: Text('Clair', style: TextStyle(color: _modalText(ctx))),
+                  ),
+                  RadioListTile<String>(
+                    value: 'dark',
+                    groupValue: theme,
+                    onChanged: (v) async {
+                      if (v != null) {
+                        setStateModal(() => theme = v);
+                        await prefs.setString('chat_theme', v);
+                      }
+                    },
+                    title: Text('Sombre', style: TextStyle(color: _modalText(ctx))),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   // ---- Multi-select helpers ----
@@ -262,11 +415,20 @@ class _ChatState extends State<ChatDetailPage> {
     });
   }
 
-  void _onMessageLongPress(QueryDocumentSnapshot doc, Map m) {
+  Future<void> _onMessageLongPress(QueryDocumentSnapshot doc, Map m) async {
+    bool isAdmin = false;
+    try {
+      final chatSnap = await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).get();
+      if (chatSnap.exists) {
+        final data = chatSnap.data() ?? {};
+        final admins = (data['admins'] as List?)?.map((e) => e.toString()).toList() ?? <String>[];
+        isAdmin = admins.contains(currentUser?.uid ?? '');
+      }
+    } catch (_) {}
     // Show options modal: allow saving, selecting, deleting
     showModalBottomSheet(
       context: context,
-      backgroundColor: tgBar,
+      backgroundColor: _modalBg(context),
       builder: (c) {
         final isMe = m['senderId'] == currentUser?.uid;
         return SafeArea(
@@ -284,7 +446,7 @@ class _ChatState extends State<ChatDetailPage> {
                     child: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: Colors.white10,
+                        color: _modalTileBg(c),
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: Text(e, style: const TextStyle(fontSize: 20)),
@@ -293,14 +455,71 @@ class _ChatState extends State<ChatDetailPage> {
                 }).toList(),
               ),
             ),
-            ListTile(leading: const Icon(Icons.bookmark, color: Colors.white), title: const Text('Enregistrer', style: TextStyle(color: Colors.white)), onTap: () async { Navigator.pop(c); await _saveMessageForUser(m, chatId: widget.chatId); }),
-            ListTile(leading: const Icon(Icons.check_box, color: Colors.white), title: const Text('Sélectionner', style: TextStyle(color: Colors.white)), onTap: () { Navigator.pop(c); setState(() { _selectionMode = true; _selectedMessageIds.add(doc.id); }); }),
-            if (isMe) ListTile(leading: const Icon(Icons.delete, color: Colors.white), title: const Text('Supprimer pour tout le monde', style: TextStyle(color: Colors.white)), onTap: () async { Navigator.pop(c); try { await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').doc(doc.id).delete(); if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Message supprimé'))); } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'))); } }),
-            ListTile(leading: const Icon(Icons.close, color: Colors.white54), title: const Text('Annuler', style: TextStyle(color: Colors.white54)), onTap: () => Navigator.pop(c)),
+            ListTile(leading: Icon(Icons.bookmark, color: _modalText(c)), title: Text('Enregistrer', style: TextStyle(color: _modalText(c))), onTap: () async { Navigator.pop(c); await _saveMessageForUser(m, chatId: widget.chatId); }),
+            ListTile(leading: Icon(Icons.check_box, color: _modalText(c)), title: Text('Sélectionner', style: TextStyle(color: _modalText(c))), onTap: () { Navigator.pop(c); setState(() { _selectionMode = true; _selectedMessageIds.add(doc.id); }); }),
+            if (isMe || isAdmin) ListTile(leading: Icon(Icons.delete, color: _modalText(c)), title: Text('Supprimer pour tout le monde', style: TextStyle(color: _modalText(c))), onTap: () async { Navigator.pop(c); await _deleteMessageForAll(doc.id); }),
+            ListTile(leading: Icon(Icons.close, color: _modalMuted(c)), title: Text('Annuler', style: TextStyle(color: _modalMuted(c))), onTap: () => Navigator.pop(c)),
           ]),
         );
       }
     );
+  }
+
+  String _messagePreviewText(Map<String, dynamic> m) {
+    final raw = (m['text'] ?? '').toString();
+    if (raw.trim().isNotEmpty) return raw;
+    final type = (m['type'] ?? 'text').toString();
+    switch (type) {
+      case 'image':
+        return '📸 Photo';
+      case 'video':
+        return '🎬 Vidéo';
+      case 'audio':
+      case 'voice':
+        return '🎤 Audio';
+      case 'file':
+        return '📄 Fichier';
+      case 'location':
+        return '📍 Position';
+      case 'contact':
+        return '👤 Contact';
+      case 'poll':
+        return '📊 Sondage';
+      default:
+        return 'Nouveau message';
+    }
+  }
+
+  Future<void> _deleteMessageForAll(String messageId) async {
+    try {
+      final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+      await chatRef.collection('messages').doc(messageId).delete();
+
+      // Recompute lastMessage/lastMessageTime after deletion
+      final lastSnap = await chatRef
+          .collection('messages')
+          .orderBy('timestamp', descending: true)
+          .limit(1)
+          .get();
+
+      if (lastSnap.docs.isNotEmpty) {
+        final last = lastSnap.docs.first.data() as Map<String, dynamic>;
+        final preview = _messagePreviewText(last);
+        await chatRef.update({
+          'lastMessage': preview,
+          'lastMessageTime': last['timestamp'] ?? FieldValue.serverTimestamp(),
+        });
+      } else {
+        await chatRef.update({
+          'lastMessage': '',
+          'lastMessageTime': FieldValue.serverTimestamp(),
+        });
+      }
+
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Message supprimé')));
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+    }
   }
 
   Future<void> _toggleReaction(DocumentReference msgRef, String emoji) async {
@@ -382,7 +601,7 @@ class _ChatState extends State<ChatDetailPage> {
         return Container(
           height: 320,
           decoration: BoxDecoration(
-            color: tgBar,
+            color: _modalBg(ctx),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
           ),
           padding: const EdgeInsets.all(10),
@@ -390,9 +609,9 @@ class _ChatState extends State<ChatDetailPage> {
             children: [
               Row(
                 children: [
-                  const Text('Réagir', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  Text('Réagir', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold)),
                   const Spacer(),
-                  IconButton(icon: const Icon(Icons.close, color: Colors.white70), onPressed: () => Navigator.pop(ctx)),
+                  IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
                 ],
               ),
               Expanded(
@@ -402,9 +621,9 @@ class _ChatState extends State<ChatDetailPage> {
                     await _toggleReaction(msgRef, emoji.emoji);
                   },
                   config: Config(
-                    emojiViewConfig: EmojiViewConfig(backgroundColor: tgBar),
+                    emojiViewConfig: EmojiViewConfig(backgroundColor: _modalBg(ctx)),
                     categoryViewConfig: CategoryViewConfig(
-                      backgroundColor: tgBar,
+                      backgroundColor: _modalBg(ctx),
                       indicatorColor: tgAccent,
                       iconColorSelected: tgAccent,
                     ),
@@ -433,7 +652,7 @@ class _ChatState extends State<ChatDetailPage> {
           builder: (_, controller) {
             return Container(
               decoration: BoxDecoration(
-                color: tgBar,
+                color: _modalBg(ctx),
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -442,9 +661,9 @@ class _ChatState extends State<ChatDetailPage> {
                 children: [
                   Row(
                     children: [
-                      Text('Réactions $emoji', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text('Réactions $emoji', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold, fontSize: 16)),
                       const Spacer(),
-                      IconButton(icon: const Icon(Icons.close, color: Colors.white70), onPressed: () => Navigator.pop(ctx)),
+                      IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -567,13 +786,13 @@ class _ChatState extends State<ChatDetailPage> {
     final res = await showDialog<String>(
       context: context,
       builder: (c) => AlertDialog(
-        backgroundColor: tgBar,
-        title: const Text('Télécharger ce média ?', style: TextStyle(color: Colors.white)),
-        content: const Text('Pour éviter de recharger ce média à chaque ouverture, veux-tu le sauvegarder sur ce téléphone ?', style: TextStyle(color: Colors.white70)),
+        backgroundColor: _modalBg(c),
+        title: Text('Télécharger ce média ?', style: TextStyle(color: _modalText(c))),
+        content: Text('Pour éviter de recharger ce média à chaque ouverture, veux-tu le sauvegarder sur ce téléphone ?', style: TextStyle(color: _modalSub(c))),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c, 'no'), child: const Text('Non')),
-          TextButton(onPressed: () => Navigator.pop(c, 'always'), child: const Text('Oui, toujours')),
-          TextButton(onPressed: () => Navigator.pop(c, 'yes'), child: const Text('Oui')),
+          TextButton(onPressed: () => Navigator.pop(c, 'no'), child: Text('Non', style: TextStyle(color: _modalSub(c)))),
+          TextButton(onPressed: () => Navigator.pop(c, 'always'), child: Text('Oui, toujours', style: TextStyle(color: _modalText(c)))),
+          TextButton(onPressed: () => Navigator.pop(c, 'yes'), child: Text('Oui', style: TextStyle(color: _modalText(c)))),
         ],
       ),
     );
@@ -631,7 +850,7 @@ class _ChatState extends State<ChatDetailPage> {
           builder: (mCtx, setModal) {
             return Container(
               decoration: BoxDecoration(
-                color: tgBar,
+                color: _modalBg(ctx),
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -640,16 +859,16 @@ class _ChatState extends State<ChatDetailPage> {
                 children: [
                   Row(
                     children: [
-                      const Text('Cache médias', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text('Cache médias', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold, fontSize: 16)),
                       const Spacer(),
-                      IconButton(icon: const Icon(Icons.close, color: Colors.white70), onPressed: () => Navigator.pop(ctx)),
+                      IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
                     ],
                   ),
                   const SizedBox(height: 8),
                   ListTile(
-                    leading: const Icon(Icons.storage, color: Colors.white70),
-                    title: const Text('Taille du cache', style: TextStyle(color: Colors.white)),
-                    trailing: Text(_fmtBytes(size), style: const TextStyle(color: Colors.white70)),
+                    leading: Icon(Icons.storage, color: _modalSub(ctx)),
+                    title: Text('Taille du cache', style: TextStyle(color: _modalText(ctx))),
+                    trailing: Text(_fmtBytes(size), style: TextStyle(color: _modalSub(ctx))),
                   ),
                   const SizedBox(height: 6),
                   Row(
@@ -664,7 +883,7 @@ class _ChatState extends State<ChatDetailPage> {
                               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cache vidé')));
                             }
                           },
-                          child: const Text('Vider le cache', style: TextStyle(color: Colors.white)),
+                          child: Text('Vider le cache', style: TextStyle(color: _modalText(ctx))),
                         ),
                       ),
                     ],
@@ -722,9 +941,10 @@ class _ChatState extends State<ChatDetailPage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Supprimer $cnt message(s) ?'),
+        backgroundColor: _modalBg(ctx),
+        title: Text('Supprimer $cnt message(s) ?', style: TextStyle(color: _modalText(ctx))),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Annuler')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('Annuler', style: TextStyle(color: _modalSub(ctx)))),
           TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Supprimer', style: TextStyle(color: Colors.red))),
         ],
       ),
@@ -786,7 +1006,7 @@ class _ChatState extends State<ChatDetailPage> {
             builder: (_, controller) {
               return Container(
                 decoration: BoxDecoration(
-                  color: tgBar,
+                  color: _modalBg(ctx),
                   borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -804,19 +1024,19 @@ class _ChatState extends State<ChatDetailPage> {
                         radius: 34,
                         backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null,
                         backgroundColor: Colors.transparent,
-                        child: photo.isEmpty ? Text(displayName.isNotEmpty ? displayName[0] : '?', style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold)) : null,
+                        child: photo.isEmpty ? Text(displayName.isNotEmpty ? displayName[0] : '?', style: TextStyle(color: _modalText(ctx), fontSize: 28, fontWeight: FontWeight.bold)) : null,
                       ),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
                       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(displayName, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800)),
+                        Text(displayName, style: TextStyle(color: _modalText(ctx), fontSize: 18, fontWeight: FontWeight.w800)),
                         const SizedBox(height: 6),
-                        Text(lastSeen != null ? 'Dernière connexion • ${DateFormat.yMd().add_Hm().format(lastSeen)}' : 'Dernière connexion • N/A', style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                        if (phone.isNotEmpty) Padding(padding: const EdgeInsets.only(top:6.0), child: Text('📞 $phone', style: const TextStyle(color: Colors.white70, fontSize: 13))),
+                        Text(lastSeen != null ? 'Dernière connexion • ${DateFormat.yMd().add_Hm().format(lastSeen)}' : 'Dernière connexion • N/A', style: TextStyle(color: _modalSub(ctx), fontSize: 13)),
+                        if (phone.isNotEmpty) Padding(padding: const EdgeInsets.only(top:6.0), child: Text('📞 $phone', style: TextStyle(color: _modalSub(ctx), fontSize: 13))),
                       ]),
                     ),
-                    IconButton(icon: const Icon(Icons.close, color: Colors.white70), onPressed: () => Navigator.pop(ctx)),
+                    IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
                   ]),
                   const SizedBox(height: 16),
 
@@ -851,6 +1071,12 @@ class _ChatState extends State<ChatDetailPage> {
                           'type': 'audio',
                           'createdAt': FieldValue.serverTimestamp(),
                         });
+
+                        await _sendIncomingCallPush(
+                          calleeId: otherId,
+                          callId: callRef.id,
+                          isVideo: false,
+                        );
                        Navigator.push(
   context,
   MaterialPageRoute(
@@ -871,11 +1097,11 @@ class _ChatState extends State<ChatDetailPage> {
                     _actionTile(icon: Icons.delete, label: 'Supprimer', color: Colors.red, onTap: () async { Navigator.pop(ctx); await _confirmDeleteContact(otherId); }),
                   ]),
                   const SizedBox(height: 14),
-                  const Divider(color: Colors.white10),
+                  Divider(color: _modalTileBg(ctx)),
                   const SizedBox(height: 8),
-                  Text('Plus d’informations', style: TextStyle(color: Colors.white.withOpacity(0.9), fontWeight: FontWeight.w600)),
+                  Text('Plus d’informations', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.w600)),
                   const SizedBox(height: 8),
-                  Text('Ce panneau permet de bloquer ou supprimer un contact. Les actions modifient uniquement vos données dans l’application.', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                  Text('Ce panneau permet de bloquer ou supprimer un contact. Les actions modifient uniquement vos données dans l’application.', style: TextStyle(color: _modalSub(ctx), fontSize: 13)),
                   const SizedBox(height: 18),
                 ]),
               );
@@ -903,7 +1129,7 @@ class _ChatState extends State<ChatDetailPage> {
           builder: (_, controller) {
             return Container(
               decoration: BoxDecoration(
-                color: tgBar,
+                color: _modalBg(ctx),
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -912,9 +1138,9 @@ class _ChatState extends State<ChatDetailPage> {
                 children: [
                   Row(
                     children: [
-                      Text('Participants', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text('Participants', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold, fontSize: 16)),
                       const Spacer(),
-                      IconButton(icon: const Icon(Icons.close, color: Colors.white70), onPressed: () => Navigator.pop(ctx)),
+                      IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -937,12 +1163,12 @@ class _ChatState extends State<ChatDetailPage> {
                             }
                             return ListTile(
                               leading: CircleAvatar(
-                                backgroundColor: Colors.white10,
+                                backgroundColor: _modalTileBg(ctx),
                                 backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null,
-                                child: photo.isEmpty ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: const TextStyle(color: Colors.white)) : null,
+                                child: photo.isEmpty ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: TextStyle(color: _modalText(ctx))) : null,
                               ),
-                              title: Text(name.isNotEmpty ? name : 'Utilisateur', style: const TextStyle(color: Colors.white)),
-                              subtitle: uid == currentUser?.uid ? const Text('Vous', style: TextStyle(color: Colors.white54)) : null,
+                              title: Text(name.isNotEmpty ? name : 'Utilisateur', style: TextStyle(color: _modalText(ctx))),
+                              subtitle: uid == currentUser?.uid ? Text('Vous', style: TextStyle(color: _modalMuted(ctx))) : null,
                             );
                           },
                         );
@@ -978,7 +1204,7 @@ class _ChatState extends State<ChatDetailPage> {
             final total = participantIds.length;
             return Container(
               decoration: BoxDecoration(
-                color: tgBar,
+                color: _modalBg(ctx),
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -988,7 +1214,7 @@ class _ChatState extends State<ChatDetailPage> {
                   Row(
                     children: [
                       const Spacer(),
-                      Container(width: 44, height: 5, decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(6))),
+                      Container(width: 44, height: 5, decoration: BoxDecoration(color: _modalTileBg(ctx), borderRadius: BorderRadius.circular(6))),
                       const Spacer(),
                     ],
                   ),
@@ -1030,7 +1256,7 @@ class _ChatState extends State<ChatDetailPage> {
                             radius: 34,
                             backgroundColor: Colors.transparent,
                             backgroundImage: groupPhotoUrl.isNotEmpty ? CachedNetworkImageProvider(groupPhotoUrl) as ImageProvider : null,
-                            child: groupPhotoUrl.isEmpty ? const Icon(Icons.group, color: Colors.white70, size: 34) : null,
+                            child: groupPhotoUrl.isEmpty ? Icon(Icons.group, color: _modalSub(ctx), size: 34) : null,
                           ),
                         ),
                       ),
@@ -1039,12 +1265,12 @@ class _ChatState extends State<ChatDetailPage> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(groupName.isNotEmpty ? groupName : 'Groupe', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800)),
+                            Text(groupName.isNotEmpty ? groupName : 'Groupe', style: TextStyle(color: _modalText(ctx), fontSize: 18, fontWeight: FontWeight.w800)),
                             const SizedBox(height: 6),
-                            Text('$total membres', style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                            Text('$total membres', style: TextStyle(color: _modalSub(ctx), fontSize: 13)),
                             const SizedBox(height: 6),
                             if (description.isNotEmpty)
-                              Text(description, style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                              Text(description, style: TextStyle(color: _modalSub(ctx), fontSize: 12)),
                             if (description.isNotEmpty) const SizedBox(height: 6),
                             if (creatorId.isNotEmpty)
                               FutureBuilder<DocumentSnapshot?>(
@@ -1056,13 +1282,13 @@ class _ChatState extends State<ChatDetailPage> {
                                     final ud = raw is Map ? Map<String, dynamic>.from(raw as Map<String, dynamic>) : <String, dynamic>{};
                                     creatorName = UserUtils.formatName(ud);
                                   }
-                                  return Text('Créé par $creatorName', style: const TextStyle(color: Colors.white54, fontSize: 12));
+                                  return Text('Créé par $creatorName', style: TextStyle(color: _modalMuted(ctx), fontSize: 12));
                                 },
                               ),
                           ],
                         ),
                       ),
-                      IconButton(icon: const Icon(Icons.close, color: Colors.white70), onPressed: () => Navigator.pop(ctx)),
+                      IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -1074,8 +1300,8 @@ class _ChatState extends State<ChatDetailPage> {
                             Navigator.pop(ctx);
                             _showAddMembersSheet(participantIds);
                           },
-                          icon: const Icon(Icons.person_add, color: Colors.white),
-                          label: const Text('Ajouter', style: TextStyle(color: Colors.white)),
+                          icon: Icon(Icons.person_add, color: _modalText(ctx)),
+                          label: Text('Ajouter', style: TextStyle(color: _modalText(ctx))),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -1085,8 +1311,8 @@ class _ChatState extends State<ChatDetailPage> {
                             Navigator.pop(ctx);
                             _showGroupSearchSheet();
                           },
-                          icon: const Icon(Icons.search, color: Colors.white),
-                          label: const Text('Rechercher', style: TextStyle(color: Colors.white)),
+                          icon: Icon(Icons.search, color: _modalText(ctx)),
+                          label: Text('Rechercher', style: TextStyle(color: _modalText(ctx))),
                         ),
                       ),
                     ],
@@ -1094,11 +1320,11 @@ class _ChatState extends State<ChatDetailPage> {
                   const SizedBox(height: 16),
                   Row(
                     children: [
-                      const Text('Médias du groupe', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      Text('Médias du groupe', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold)),
                       const Spacer(),
                       TextButton(
                         onPressed: () => _showGroupMediaGridSheet(),
-                        child: const Text('Voir tout'),
+                        child: Text('Voir tout', style: TextStyle(color: _modalText(ctx))),
                       ),
                     ],
                   ),
@@ -1116,7 +1342,7 @@ class _ChatState extends State<ChatDetailPage> {
                           .snapshots(),
                       builder: (context, mediaSnap) {
                         if (!mediaSnap.hasData || mediaSnap.data!.docs.isEmpty) {
-                          return const Center(child: Text('Aucun média', style: TextStyle(color: Colors.white54)));
+                          return Center(child: Text('Aucun média', style: TextStyle(color: _modalMuted(ctx))));
                         }
                         return ListView.separated(
                           scrollDirection: Axis.horizontal,
@@ -1131,7 +1357,7 @@ class _ChatState extends State<ChatDetailPage> {
                             return Container(
                               width: 92,
                               height: 92,
-                              decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(10)),
+                              decoration: BoxDecoration(color: _modalTileBg(ctx), borderRadius: BorderRadius.circular(10)),
                               child: url.isNotEmpty
                                   ? GestureDetector(
                                       onTap: () => _openMediaViewer(url, type, messageId: msgId, senderId: senderId),
@@ -1144,13 +1370,13 @@ class _ChatState extends State<ChatDetailPage> {
                                             if (type == 'video')
                                               Container(
                                                 color: Colors.black26,
-                                                child: const Icon(Icons.play_circle_filled, color: Colors.white70, size: 32),
+                                                child: Icon(Icons.play_circle_filled, color: _modalSub(ctx), size: 32),
                                               ),
                                           ],
                                         ),
                                       ),
                                     )
-                                  : const Icon(Icons.image, color: Colors.white54),
+                                  : Icon(Icons.image, color: _modalMuted(ctx)),
                             );
                           },
                         );
@@ -1158,7 +1384,7 @@ class _ChatState extends State<ChatDetailPage> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  const Text('Membres', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  Text('Membres', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
                   StreamBuilder<DocumentSnapshot>(
                     stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).snapshots(),
@@ -1184,16 +1410,16 @@ class _ChatState extends State<ChatDetailPage> {
                               return ListTile(
                                 contentPadding: EdgeInsets.zero,
                                 leading: CircleAvatar(
-                                  backgroundColor: Colors.white10,
+                                  backgroundColor: _modalTileBg(ctx),
                                   backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null,
-                                  child: photo.isEmpty ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: const TextStyle(color: Colors.white)) : null,
+                                  child: photo.isEmpty ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: TextStyle(color: _modalText(ctx))) : null,
                                 ),
-                                title: Text(name.isNotEmpty ? name : 'Utilisateur', style: const TextStyle(color: Colors.white)),
+                                title: Text(name.isNotEmpty ? name : 'Utilisateur', style: TextStyle(color: _modalText(ctx))),
                                 subtitle: Row(
                                   children: [
-                                    if (uid == currentUser?.uid) const Text('Vous', style: TextStyle(color: Colors.white54)),
-                                    if (uid == currentUser?.uid && isMemberAdmin) const Text(' • ', style: TextStyle(color: Colors.white24)),
-                                    if (isMemberAdmin) const Text('Admin', style: TextStyle(color: Colors.white54)),
+                                    if (uid == currentUser?.uid) Text('Vous', style: TextStyle(color: _modalMuted(ctx))),
+                                    if (uid == currentUser?.uid && isMemberAdmin) Text(' • ', style: TextStyle(color: _modalTileBg(ctx))),
+                                    if (isMemberAdmin) Text('Admin', style: TextStyle(color: _modalMuted(ctx))),
                                   ],
                                 ),
                                 trailing: isAdmin && uid != currentUser?.uid
@@ -1223,7 +1449,7 @@ class _ChatState extends State<ChatDetailPage> {
                     },
                   ),
                   const SizedBox(height: 8),
-                  const Divider(color: Colors.white12),
+                  Divider(color: _modalTileBg(ctx)),
                   ListTile(
                     leading: const Icon(Icons.exit_to_app, color: Colors.orangeAccent),
                     title: const Text('Quitter le groupe', style: TextStyle(color: Colors.orangeAccent)),
@@ -1232,10 +1458,10 @@ class _ChatState extends State<ChatDetailPage> {
                       final ok = await showDialog<bool>(
                         context: context,
                         builder: (c) => AlertDialog(
-                          backgroundColor: tgBar,
-                          title: const Text('Quitter le groupe ?', style: TextStyle(color: Colors.white)),
+                          backgroundColor: _modalBg(c),
+                          title: Text('Quitter le groupe ?', style: TextStyle(color: _modalText(c))),
                           actions: [
-                            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Annuler')),
+                            TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: _modalSub(c)))),
                             TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Quitter', style: TextStyle(color: Colors.orangeAccent))),
                           ],
                         ),
@@ -1246,8 +1472,8 @@ class _ChatState extends State<ChatDetailPage> {
                     },
                   ),
                   ListTile(
-                    leading: const Icon(Icons.settings, color: Colors.white70),
-                    title: const Text('Paramètres du groupe', style: TextStyle(color: Colors.white)),
+                    leading: Icon(Icons.settings, color: _modalSub(ctx)),
+                    title: Text('Paramètres du groupe', style: TextStyle(color: _modalText(ctx))),
                     onTap: () {
                       Navigator.pop(ctx);
                       () async {
@@ -1277,10 +1503,10 @@ class _ChatState extends State<ChatDetailPage> {
                       final ok = await showDialog<bool>(
                         context: context,
                         builder: (c) => AlertDialog(
-                          backgroundColor: tgBar,
-                          title: const Text('Supprimer le groupe ?', style: TextStyle(color: Colors.white)),
+                          backgroundColor: _modalBg(c),
+                          title: Text('Supprimer le groupe ?', style: TextStyle(color: _modalText(c))),
                           actions: [
-                            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Annuler')),
+                            TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: _modalSub(c)))),
                             TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Supprimer', style: TextStyle(color: Colors.redAccent))),
                           ],
                         ),
@@ -1291,18 +1517,18 @@ class _ChatState extends State<ChatDetailPage> {
                     },
                   ),
                   ListTile(
-                    leading: const Icon(Icons.cleaning_services, color: Colors.white70),
-                    title: const Text('Effacer la discussion', style: TextStyle(color: Colors.white)),
+                    leading: Icon(Icons.cleaning_services, color: _modalSub(ctx)),
+                    title: Text('Effacer la discussion', style: TextStyle(color: _modalText(ctx))),
                     onTap: () async {
                       Navigator.pop(ctx);
                       final ok = await showDialog<bool>(
                         context: context,
                         builder: (c) => AlertDialog(
-                          backgroundColor: tgBar,
-                          title: const Text('Effacer la discussion ?', style: TextStyle(color: Colors.white)),
+                          backgroundColor: _modalBg(c),
+                          title: Text('Effacer la discussion ?', style: TextStyle(color: _modalText(c))),
                           actions: [
-                            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Annuler')),
-                            TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Effacer')),
+                            TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: _modalSub(c)))),
+                            TextButton(onPressed: () => Navigator.pop(c, true), child: Text('Effacer', style: TextStyle(color: _modalText(c)))),
                           ],
                         ),
                       );
@@ -1435,7 +1661,7 @@ class _ChatState extends State<ChatDetailPage> {
               builder: (_, controller) {
                 return Container(
                   decoration: BoxDecoration(
-                    color: tgBar,
+                    color: _modalBg(ctx),
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
                   ),
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -1443,21 +1669,21 @@ class _ChatState extends State<ChatDetailPage> {
                     children: [
                       Row(
                         children: [
-                          const Text('Ajouter des membres', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                          Text('Ajouter des membres', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold, fontSize: 16)),
                           const Spacer(),
-                          IconButton(icon: const Icon(Icons.close, color: Colors.white70), onPressed: () => Navigator.pop(ctx)),
+                          IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
                         ],
                       ),
                       const SizedBox(height: 8),
                       TextField(
                         controller: searchCtrl,
-                        style: const TextStyle(color: Colors.white),
+                        style: TextStyle(color: _modalText(ctx)),
                         decoration: InputDecoration(
-                          prefixIcon: const Icon(Icons.search, color: Colors.white54),
+                          prefixIcon: Icon(Icons.search, color: _modalSub(ctx)),
                           hintText: 'Rechercher un contact',
-                          hintStyle: const TextStyle(color: Colors.white38),
+                          hintStyle: TextStyle(color: _modalMuted(ctx)),
                           filled: true,
-                          fillColor: Colors.white10,
+                          fillColor: _modalTileBg(ctx),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                         ),
                         onChanged: (_) => setModal(() {}),
@@ -1468,12 +1694,12 @@ class _ChatState extends State<ChatDetailPage> {
                           Expanded(
                             child: TextField(
                               controller: addCtrl,
-                              style: const TextStyle(color: Colors.white),
+                              style: TextStyle(color: _modalText(ctx)),
                               decoration: InputDecoration(
                                 hintText: 'Ajouter via email ou UID',
-                                hintStyle: const TextStyle(color: Colors.white38),
+                                hintStyle: TextStyle(color: _modalMuted(ctx)),
                                 filled: true,
-                                fillColor: Colors.white10,
+                                fillColor: _modalTileBg(ctx),
                                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                               ),
                             ),
@@ -1483,7 +1709,7 @@ class _ChatState extends State<ChatDetailPage> {
                             width: 44,
                             height: 44,
                             child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(backgroundColor: Colors.white10, padding: EdgeInsets.zero),
+                              style: ElevatedButton.styleFrom(backgroundColor: _modalTileBg(ctx), padding: EdgeInsets.zero),
                               onPressed: () async {
                                 final query = addCtrl.text.trim();
                                 if (query.isEmpty) return;
@@ -1506,7 +1732,7 @@ class _ChatState extends State<ChatDetailPage> {
                                 }
                                 addCtrl.clear();
                               },
-                              child: const Icon(Icons.add, color: Colors.white),
+                              child: Icon(Icons.add, color: _modalText(ctx)),
                             ),
                           ),
                         ],
@@ -1514,7 +1740,7 @@ class _ChatState extends State<ChatDetailPage> {
                       const SizedBox(height: 12),
                       Expanded(
                         child: visible.isEmpty
-                            ? const Center(child: Text('Aucun contact', style: TextStyle(color: Colors.white38)))
+                            ? Center(child: Text('Aucun contact', style: TextStyle(color: _modalMuted(ctx))))
                             : ListView.builder(
                                 controller: controller,
                                 itemCount: visible.length,
@@ -1528,14 +1754,14 @@ class _ChatState extends State<ChatDetailPage> {
                                   final selected = uid.isNotEmpty && selectedUids.contains(uid);
                                   return ListTile(
                                     leading: CircleAvatar(
-                                      backgroundColor: Colors.white10,
+                                      backgroundColor: _modalTileBg(ctx),
                                       backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null,
-                                      child: photo.isEmpty ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: const TextStyle(color: Colors.white)) : null,
+                                      child: photo.isEmpty ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: TextStyle(color: _modalText(ctx))) : null,
                                     ),
-                                    title: Text(name.isNotEmpty ? name : email, style: const TextStyle(color: Colors.white)),
-                                    subtitle: email.isNotEmpty ? Text(email, style: const TextStyle(color: Colors.white60)) : null,
+                                    title: Text(name.isNotEmpty ? name : email, style: TextStyle(color: _modalText(ctx))),
+                                    subtitle: email.isNotEmpty ? Text(email, style: TextStyle(color: _modalSub(ctx))) : null,
                                     trailing: isMember
-                                        ? const Text('Membre', style: TextStyle(color: Colors.white54))
+                                        ? Text('Membre', style: TextStyle(color: _modalMuted(ctx)))
                                         : Checkbox(
                                             value: selected,
                                             onChanged: uid.isEmpty
@@ -1567,7 +1793,7 @@ class _ChatState extends State<ChatDetailPage> {
                           Expanded(
                             child: OutlinedButton(
                               onPressed: () => Navigator.pop(ctx),
-                              child: const Text('Annuler', style: TextStyle(color: Colors.white70)),
+                              child: Text('Annuler', style: TextStyle(color: _modalSub(ctx))),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -1693,7 +1919,7 @@ class _ChatState extends State<ChatDetailPage> {
               builder: (_, controller) {
                 return Container(
                   decoration: BoxDecoration(
-                    color: tgBar,
+                    color: _modalBg(ctx),
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
                   ),
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -1701,21 +1927,21 @@ class _ChatState extends State<ChatDetailPage> {
                     children: [
                       Row(
                         children: [
-                          const Text('Rechercher', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                          Text('Rechercher', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold, fontSize: 16)),
                           const Spacer(),
-                          IconButton(icon: const Icon(Icons.close, color: Colors.white70), onPressed: () => Navigator.pop(ctx)),
+                          IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
                         ],
                       ),
                       const SizedBox(height: 8),
                       TextField(
                         controller: queryCtrl,
-                        style: const TextStyle(color: Colors.white),
+                        style: TextStyle(color: _modalText(ctx)),
                         decoration: InputDecoration(
-                          prefixIcon: const Icon(Icons.search, color: Colors.white54),
+                          prefixIcon: Icon(Icons.search, color: _modalSub(ctx)),
                           hintText: 'Rechercher dans le groupe',
-                          hintStyle: const TextStyle(color: Colors.white38),
+                          hintStyle: TextStyle(color: _modalMuted(ctx)),
                           filled: true,
-                          fillColor: Colors.white10,
+                          fillColor: _modalTileBg(ctx),
                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                         ),
                         onChanged: (_) => setModal(() {}),
@@ -1723,7 +1949,7 @@ class _ChatState extends State<ChatDetailPage> {
                       const SizedBox(height: 10),
                       Expanded(
                         child: filtered.isEmpty
-                            ? const Center(child: Text('Aucun résultat', style: TextStyle(color: Colors.white38)))
+                            ? Center(child: Text('Aucun résultat', style: TextStyle(color: _modalMuted(ctx))))
                             : ListView.builder(
                                 controller: controller,
                                 itemCount: filtered.length,
@@ -1734,8 +1960,8 @@ class _ChatState extends State<ChatDetailPage> {
                                   final ts = m['timestamp'] is Timestamp ? (m['timestamp'] as Timestamp).toDate() : null;
                                   final time = ts != null ? DateFormat('dd/MM HH:mm').format(ts) : '';
                                   return ListTile(
-                                    title: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white)),
-                                    subtitle: Text([sender, time].where((e) => e.isNotEmpty).join(' • '), style: const TextStyle(color: Colors.white54)),
+                                    title: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: _modalText(ctx))),
+                                    subtitle: Text([sender, time].where((e) => e.isNotEmpty).join(' • '), style: TextStyle(color: _modalMuted(ctx))),
                                     onTap: () {
                                       Navigator.pop(ctx);
                                       setState(() => _pendingJumpMessageId = filtered[i].id);
@@ -1768,7 +1994,7 @@ class _ChatState extends State<ChatDetailPage> {
           builder: (_, controller) {
             return Container(
               decoration: BoxDecoration(
-                color: tgBar,
+                color: _modalBg(ctx),
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -1776,9 +2002,9 @@ class _ChatState extends State<ChatDetailPage> {
                 children: [
                   Row(
                     children: [
-                      const Text('Médias du groupe', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text('Médias du groupe', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold, fontSize: 16)),
                       const Spacer(),
-                      IconButton(icon: const Icon(Icons.close, color: Colors.white70), onPressed: () => Navigator.pop(ctx)),
+                      IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -1793,7 +2019,7 @@ class _ChatState extends State<ChatDetailPage> {
                           .snapshots(),
                       builder: (context, snap) {
                         if (!snap.hasData || snap.data!.docs.isEmpty) {
-                          return const Center(child: Text('Aucun média', style: TextStyle(color: Colors.white54)));
+                          return Center(child: Text('Aucun média', style: TextStyle(color: _modalMuted(ctx))));
                         }
                         return GridView.builder(
                           controller: controller,
@@ -1820,7 +2046,7 @@ class _ChatState extends State<ChatDetailPage> {
                                     if (type == 'video')
                                       Container(
                                         color: Colors.black26,
-                                        child: const Icon(Icons.play_circle_filled, color: Colors.white70, size: 32),
+                                        child: Icon(Icons.play_circle_filled, color: _modalSub(ctx), size: 32),
                                       ),
                                   ],
                                 ),
@@ -2032,7 +2258,7 @@ class _ChatState extends State<ChatDetailPage> {
                         duration: const Duration(milliseconds: 180),
                         transform: Matrix4.translationValues(0, (opening && !closing) ? 0 : 24, 0),
                         decoration: BoxDecoration(
-                          color: tgBar,
+                          color: _modalBg(ctx),
                           borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
                           boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 24, offset: const Offset(0, -6))],
                         ),
@@ -2053,9 +2279,9 @@ class _ChatState extends State<ChatDetailPage> {
                           child: const Icon(Icons.settings, color: Colors.white, size: 18),
                         ),
                         const SizedBox(width: 10),
-                        const Text('Paramètres du groupe', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                        Text('Paramètres du groupe', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold, fontSize: 16)),
                         const Spacer(),
-                        IconButton(icon: const Icon(Icons.close, color: Colors.white70), onPressed: () => closeSheet(ctx, setModal)),
+                        IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => closeSheet(ctx, setModal)),
                       ],
                     ),
                     const SizedBox(height: 8),
@@ -2071,21 +2297,21 @@ class _ChatState extends State<ChatDetailPage> {
                           },
                           child: CircleAvatar(
                             radius: 34,
-                            backgroundColor: Colors.white10,
+                            backgroundColor: _modalTileBg(ctx),
                             backgroundImage: avatar,
-                            child: (newPhoto == null && groupPhoto.isEmpty) ? const Icon(Icons.camera_alt, color: Colors.white70) : null,
+                            child: (newPhoto == null && groupPhoto.isEmpty) ? Icon(Icons.camera_alt, color: _modalSub(ctx)) : null,
                           ),
                         ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: TextField(
                             controller: nameCtrl,
-                            style: const TextStyle(color: Colors.white),
+                            style: TextStyle(color: _modalText(ctx)),
                             decoration: InputDecoration(
                               hintText: 'Nom du groupe',
-                              hintStyle: const TextStyle(color: Colors.white38),
+                              hintStyle: TextStyle(color: _modalMuted(ctx)),
                               filled: true,
-                              fillColor: Colors.white10,
+                              fillColor: _modalTileBg(ctx),
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                             ),
                           ),
@@ -2095,13 +2321,13 @@ class _ChatState extends State<ChatDetailPage> {
                     const SizedBox(height: 8),
                     TextField(
                       controller: descCtrl,
-                      style: const TextStyle(color: Colors.white),
+                      style: TextStyle(color: _modalText(ctx)),
                       maxLines: 2,
                       decoration: InputDecoration(
                         hintText: 'Description',
-                        hintStyle: const TextStyle(color: Colors.white38),
+                        hintStyle: TextStyle(color: _modalMuted(ctx)),
                         filled: true,
-                        fillColor: Colors.white10,
+                        fillColor: _modalTileBg(ctx),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                       ),
                     ),
@@ -2109,16 +2335,16 @@ class _ChatState extends State<ChatDetailPage> {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: Colors.white10,
+                        color: _modalTileBg(ctx),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white12),
+                        border: Border.all(color: _modalTileBg(ctx)),
                       ),
                       child: Row(
                         children: [
                           const Icon(Icons.block, color: Colors.orangeAccent),
                           const SizedBox(width: 10),
-                          const Expanded(
-                            child: Text('Désactiver l’envoi des messages', style: TextStyle(color: Colors.white)),
+                          Expanded(
+                            child: Text('Désactiver l’envoi des messages', style: TextStyle(color: _modalText(ctx))),
                           ),
                           Switch(
                             value: sendDisabled,
@@ -2129,7 +2355,7 @@ class _ChatState extends State<ChatDetailPage> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    const Text('Permissions', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+                    Text('Permissions', style: TextStyle(color: _modalSub(ctx), fontWeight: FontWeight.bold)),
                     const SizedBox(height: 6),
                     Row(
                       children: [
@@ -2137,7 +2363,7 @@ class _ChatState extends State<ChatDetailPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('Ajouter membres', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                              Text('Ajouter membres', style: TextStyle(color: _modalMuted(ctx), fontSize: 12)),
                               DropdownButton<String>(
                                 value: canAddMembers,
                                 isExpanded: true,
@@ -2155,7 +2381,7 @@ class _ChatState extends State<ChatDetailPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('Changer infos', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                              Text('Changer infos', style: TextStyle(color: _modalMuted(ctx), fontSize: 12)),
                               DropdownButton<String>(
                                 value: canChangeInfo,
                                 isExpanded: true,
@@ -2176,7 +2402,7 @@ class _ChatState extends State<ChatDetailPage> {
                         Expanded(
                           child: OutlinedButton(
                             onPressed: () => closeSheet(ctx, setModal),
-                            child: const Text('Annuler', style: TextStyle(color: Colors.white70)),
+                            child: Text('Annuler', style: TextStyle(color: _modalSub(ctx))),
                           ),
                         ),
                         const SizedBox(width: 12),
@@ -2207,12 +2433,12 @@ class _ChatState extends State<ChatDetailPage> {
                       ],
                     ),
                     const SizedBox(height: 10),
-                    const Divider(color: Colors.white12),
+                    Divider(color: _modalTileBg(ctx)),
                     const SizedBox(height: 6),
                     ListTile(
-                      leading: const Icon(Icons.cloud_download, color: Colors.white70),
-                      title: const Text('Téléchargement médias', style: TextStyle(color: Colors.white)),
-                      subtitle: const Text('Gérer le cache et le Wi‑Fi', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      leading: Icon(Icons.cloud_download, color: _modalSub(ctx)),
+                      title: Text('Téléchargement médias', style: TextStyle(color: _modalText(ctx))),
+                      subtitle: Text('Gérer le cache et le Wi‑Fi', style: TextStyle(color: _modalMuted(ctx), fontSize: 12)),
                       onTap: () async {
                         final prefs = await SharedPreferences.getInstance();
                         bool wifiOnlyLocal = prefs.getBool('media_download_wifi_only') ?? false;
@@ -2224,7 +2450,7 @@ class _ChatState extends State<ChatDetailPage> {
                               builder: (cc, setPref) {
                                 return Container(
                                   decoration: BoxDecoration(
-                                    color: tgBar,
+                                    color: _modalBg(c),
                                     borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
                                   ),
                                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -2233,9 +2459,9 @@ class _ChatState extends State<ChatDetailPage> {
                                     children: [
                                       Row(
                                         children: [
-                                          const Text('Téléchargements', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                          Text('Téléchargements', style: TextStyle(color: _modalText(c), fontWeight: FontWeight.bold)),
                                           const Spacer(),
-                                          IconButton(icon: const Icon(Icons.close, color: Colors.white70), onPressed: () => Navigator.pop(c)),
+                                          IconButton(icon: Icon(Icons.close, color: _modalSub(c)), onPressed: () => Navigator.pop(c)),
                                         ],
                                       ),
                                       SwitchListTile(
@@ -2244,11 +2470,11 @@ class _ChatState extends State<ChatDetailPage> {
                                           await prefs.setBool('media_download_wifi_only', v);
                                           setPref(() => wifiOnlyLocal = v);
                                         },
-                                        title: const Text('Télécharger uniquement en Wi‑Fi', style: TextStyle(color: Colors.white)),
+                                        title: Text('Télécharger uniquement en Wi‑Fi', style: TextStyle(color: _modalText(c))),
                                       ),
                                       ListTile(
-                                        leading: const Icon(Icons.storage, color: Colors.white70),
-                                        title: const Text('Gérer le cache', style: TextStyle(color: Colors.white)),
+                                        leading: Icon(Icons.storage, color: _modalSub(c)),
+                                        title: Text('Gérer le cache', style: TextStyle(color: _modalText(c))),
                                         onTap: () {
                                           Navigator.pop(c);
                                           _showCacheManagerSheet();
@@ -2363,11 +2589,11 @@ class _ChatState extends State<ChatDetailPage> {
     if (currentUser == null) return;
     final ok = await showDialog<bool>(context: context, builder: (c) {
       return AlertDialog(
-        backgroundColor: tgBar,
-        title: const Text('Bloquer ce contact?', style: TextStyle(color: Colors.white)),
-        content: const Text('Vous ne recevrez plus de messages de ce contact. Vous pouvez débloquer plus tard depuis vos paramètres.', style: TextStyle(color: Colors.white70)),
+        backgroundColor: _modalBg(c),
+        title: Text('Bloquer ce contact?', style: TextStyle(color: _modalText(c))),
+        content: Text('Vous ne recevrez plus de messages de ce contact. Vous pouvez débloquer plus tard depuis vos paramètres.', style: TextStyle(color: _modalSub(c))),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Annuler')),
+          TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: _modalSub(c)))),
           TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Bloquer', style: TextStyle(color: Colors.red))),
         ],
       );
@@ -2411,11 +2637,11 @@ Future<void> _blockContact(String otherId) async {
     if (currentUser == null) return;
     final ok = await showDialog<bool>(context: context, builder: (c) {
       return AlertDialog(
-        backgroundColor: tgBar,
-        title: const Text('Supprimer le contact?', style: TextStyle(color: Colors.white)),
-        content: const Text('Cette action supprimera le contact de votre liste. Les messages historiques restent inchangés.', style: TextStyle(color: Colors.white70)),
+        backgroundColor: _modalBg(c),
+        title: Text('Supprimer le contact?', style: TextStyle(color: _modalText(c))),
+        content: Text('Cette action supprimera le contact de votre liste. Les messages historiques restent inchangés.', style: TextStyle(color: _modalSub(c))),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Annuler')),
+          TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: _modalSub(c)))),
           TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Supprimer', style: TextStyle(color: Colors.red))),
         ],
       );
@@ -2423,7 +2649,7 @@ Future<void> _blockContact(String otherId) async {
     if (ok == true) await _deleteContact(otherId);
   }
 
-Future<void> _deleteContact(String otherId) async {
+  Future<void> _deleteContact(String otherId) async {
   if (currentUser == null) return;
 
   final collections = ['classic_users', 'enterprise_users', 'pro_users'];
@@ -2445,15 +2671,199 @@ Future<void> _deleteContact(String otherId) async {
 }
 
 
+  String _replyPreviewText(Map<String, dynamic> m) {
+    final type = (m['type'] ?? 'text').toString();
+    final rawText = (m['text'] ?? '').toString().trim();
+    switch (type) {
+      case 'text':
+        return rawText.isNotEmpty ? rawText : 'Message';
+      case 'image':
+        return 'Photo';
+      case 'video':
+        return 'Vidéo';
+      case 'audio':
+      case 'voice':
+        return 'Message vocal';
+      case 'file':
+        return 'Fichier';
+      case 'alert':
+        return rawText.isNotEmpty ? rawText : 'Alerte';
+      default:
+        return rawText.isNotEmpty ? rawText : 'Message';
+    }
+  }
+
+  void _setReplyTarget(String messageId, Map<String, dynamic> m) {
+    if (_selectionMode) return;
+    final senderId = (m['senderId'] ?? '').toString();
+    final isMe = senderId == (currentUser?.uid ?? '');
+    final senderNameRaw = (m['senderName'] ?? m['senderDisplayName'] ?? '').toString().trim();
+    final senderLabel = isMe ? 'Vous' : (senderNameRaw.isNotEmpty ? senderNameRaw : 'Utilisateur');
+    final type = (m['type'] ?? 'text').toString();
+    final mediaUrl = (m['url'] ?? m['imageUrl'] ?? m['fileUrl'] ?? '').toString();
+
+    final preview = _replyPreviewText(m);
+    final clipped = preview.length > 120 ? '${preview.substring(0, 117)}...' : preview;
+
+    setState(() {
+      _replyTo = {
+        'messageId': messageId,
+        'senderId': senderId,
+        'senderName': senderLabel,
+        'type': type,
+        'text': clipped,
+        if (mediaUrl.isNotEmpty) 'mediaUrl': mediaUrl,
+      };
+    });
+  }
+
+  Widget _buildReplyComposerBar(BuildContext context) {
+    final r = _replyTo;
+    if (r == null) return const SizedBox.shrink();
+    final isDark = _isDark(context);
+    final bg = isDark ? Colors.white10 : Colors.black.withOpacity(0.05);
+    final border = isDark ? Colors.white12 : Colors.black12;
+    final title = (r['senderName'] ?? 'Utilisateur').toString();
+    final txt = (r['text'] ?? '').toString();
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 4,
+            height: 44,
+            decoration: BoxDecoration(
+              color: tgAccent,
+              borderRadius: BorderRadius.circular(6),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Répondre à $title',
+                  style: TextStyle(
+                    color: isDark ? Colors.white70 : Colors.black87,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  txt,
+                  style: TextStyle(
+                    color: isDark ? Colors.white60 : Colors.black54,
+                    fontSize: 12,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            splashRadius: 18,
+            icon: Icon(Icons.close, size: 18, color: isDark ? Colors.white54 : Colors.black54),
+            onPressed: () => setState(() => _replyTo = null),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildReplyInBubble(BuildContext context, Map<String, dynamic> m, {required bool isMe}) {
+    final raw = m['replyTo'];
+    if (raw is! Map) return const SizedBox.shrink();
+    final r = Map<String, dynamic>.from(raw as Map);
+    final isDark = _isDark(context);
+    final barColor = isMe ? Colors.white70 : tgAccent;
+    final titleColor = isDark ? Colors.white70 : Colors.black87;
+    final subColor = isDark ? Colors.white54 : Colors.black54;
+    final senderName = (r['senderName'] ?? 'Utilisateur').toString();
+    final txt = (r['text'] ?? '').toString();
+    final replyId = (r['messageId'] ?? '').toString();
+
+    return InkWell(
+      onTap: replyId.isEmpty
+          ? null
+          : () {
+              setState(() => _pendingJumpMessageId = replyId);
+            },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: isDark ? Colors.black.withOpacity(0.15) : Colors.white.withOpacity(0.6),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 3,
+              height: 36,
+              decoration: BoxDecoration(color: barColor, borderRadius: BorderRadius.circular(6)),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    senderName,
+                    style: TextStyle(color: titleColor, fontWeight: FontWeight.w700, fontSize: 11),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    txt,
+                    style: TextStyle(color: subColor, fontSize: 11),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            if (replyId.isNotEmpty)
+              Icon(Icons.chevron_right, size: 16, color: isDark ? Colors.white38 : Colors.black38),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _saveToFirestore(Map<String, dynamic> data) async {
+    final payload = <String, dynamic>{...data};
+    if (_replyTo != null) {
+      payload['replyTo'] = _replyTo;
+    }
+
     await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').add({
       'senderId': currentUser?.uid,
       'timestamp': FieldValue.serverTimestamp(),
       'isRead': false,
       'delivered': false,
       'deliveredAt': null,
-      ...data,
+      ...payload,
     });
+
+    if (_replyTo != null && mounted) {
+      setState(() => _replyTo = null);
+    }
 
     // Update chat doc: lastMessage, lastMessageTime and increment unreadCounts for other participants
     final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
@@ -2486,7 +2896,7 @@ Future<void> _deleteContact(String otherId) async {
           final parts = (chatData['participants'] is List) ? List.from(chatData['participants']) : [];
           final recipients = parts.where((p) => p != user.uid).toList();
 
-            if (recipients.isNotEmpty) {
+          if (recipients.isNotEmpty) {
             final url = Uri.parse(kNotifierUrl);
             
             // On prépare le Nom et l'Avatar de l'utilisateur actuel
@@ -2500,6 +2910,37 @@ Future<void> _deleteContact(String otherId) async {
               ? user.photoURL! 
               : 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
 
+            // Message preview per type (avoid sending raw URLs / empty strings)
+            final String msgType = (payload['type'] ?? 'text').toString();
+            final String rawText = (payload['text'] ?? '').toString().trim();
+            String preview;
+            switch (msgType) {
+              case 'text':
+                preview = rawText.isNotEmpty ? rawText : 'Nouveau message';
+                break;
+              case 'image':
+                preview = rawText.isNotEmpty ? rawText : 'Photo';
+                break;
+              case 'video':
+                preview = rawText.isNotEmpty ? rawText : 'Video';
+                break;
+              case 'voice':
+              case 'audio':
+                preview = rawText.isNotEmpty ? rawText : 'Message vocal';
+                break;
+              case 'file':
+                preview = rawText.isNotEmpty ? rawText : 'Fichier';
+                break;
+              default:
+                preview = rawText.isNotEmpty ? rawText : 'Nouveau message';
+                break;
+            }
+            if (preview.length > 120) preview = '${preview.substring(0, 117)}...';
+
+            // Only send imageUrl when message is an image/video and a URL exists
+            final String mediaUrl = (payload['url'] ?? payload['imageUrl'] ?? payload['fileUrl'] ?? '').toString();
+            final String imageUrl = (msgType == 'image' || msgType == 'video') ? mediaUrl : '';
+
             await http.post(
               url,
               headers: {
@@ -2509,10 +2950,13 @@ Future<void> _deleteContact(String otherId) async {
               body: jsonEncode({
                 'recipients': recipients,
                 'title': senderName,         // IRA DANS HEADINGS (NOM EN GRAS)
-                'body': data['text'] ?? '',  // IRA DANS CONTENTS (LE MESSAGE)
+                'body': preview,             // IRA DANS CONTENTS (APERÇU)
                 'senderAvatarUrl': senderPhoto, // IRA DANS LARGE_ICON (L'AVATAR)
+                'imageUrl': imageUrl,        // large image for media notifications when supported
                 'data': { 
                   'chatId': widget.chatId,
+                  'chatName': widget.chatName,
+                  'senderId': user.uid,
                   'type': 'chat_message'
                 }
               }),
@@ -2592,19 +3036,19 @@ Future<void> _deleteContact(String otherId) async {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: tgBar,
-        title: const Text("Nouveau sondage", style: TextStyle(color: Colors.white)),
+        backgroundColor: _modalBg(context),
+        title: Text("Nouveau sondage", style: TextStyle(color: _modalText(context))),
         content: TextField(
           autofocus: true,
-          style: const TextStyle(color: Colors.white),
-          decoration: const InputDecoration(
+          style: TextStyle(color: _modalText(context)),
+          decoration: InputDecoration(
             hintText: "Posez votre question...",
-            hintStyle: TextStyle(color: Colors.white24),
+            hintStyle: TextStyle(color: _modalMuted(context)),
           ),
           onChanged: (v) => question = v,
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Annuler")),
+          TextButton(onPressed: () => Navigator.pop(context), child: Text("Annuler", style: TextStyle(color: _modalSub(context)))),
           TextButton(
             onPressed: () {
               if (question.trim().isNotEmpty) {
@@ -2734,33 +3178,33 @@ Future<void> _editContactLocal(String otherId) async {
     context: context,
     builder: (c) {
       return AlertDialog(
-        backgroundColor: tgBar,
-        title: const Text('Modifier contact', style: TextStyle(color: Colors.white)),
+        backgroundColor: _modalBg(c),
+        title: Text('Modifier contact', style: TextStyle(color: _modalText(c))),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: nCtrl,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
+              style: TextStyle(color: _modalText(c)),
+              decoration: InputDecoration(
                 hintText: 'Nom',
-                hintStyle: TextStyle(color: Colors.white38),
+                hintStyle: TextStyle(color: _modalMuted(c)),
               ),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: pCtrl,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
+              style: TextStyle(color: _modalText(c)),
+              decoration: InputDecoration(
                 hintText: 'Téléphone',
-                hintStyle: TextStyle(color: Colors.white38),
+                hintStyle: TextStyle(color: _modalMuted(c)),
               ),
             ),
           ],
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Annuler')),
-          TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Enregistrer')),
+          TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: _modalSub(c)))),
+          TextButton(onPressed: () => Navigator.pop(c, true), child: Text('Enregistrer', style: TextStyle(color: _modalText(c)))),
         ],
       );
     },
@@ -2814,15 +3258,16 @@ Future<void> _editContactLocal(String otherId) async {
         context: context,
         backgroundColor: Colors.transparent,
         builder: (ctx) {
+          final isDark = _isDark(ctx);
           return Container(
-            decoration: BoxDecoration(color: tgBar, borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
+            decoration: BoxDecoration(color: _modalBg(ctx), borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
             padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Container(width: 48, height: 6, decoration: BoxDecoration(color: Colors.white12, borderRadius: BorderRadius.circular(6))),
+                Container(width: 48, height: 6, decoration: BoxDecoration(color: isDark ? Colors.white12 : Colors.black12, borderRadius: BorderRadius.circular(6))),
               ]),
               const SizedBox(height: 12),
-              Text('Options d\'appel', style: TextStyle(color: Colors.white.withOpacity(0.95), fontSize: 16, fontWeight: FontWeight.w700)),
+              Text('Options d\'appel', style: TextStyle(color: _modalText(ctx), fontSize: 16, fontWeight: FontWeight.w700)),
               const SizedBox(height: 12),
               Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
                 _actionTile(icon: Icons.call, label: 'Audio', color: Colors.green, onTap: () { Navigator.pop(ctx); _startCall(otherId, false); }),
@@ -2849,6 +3294,13 @@ Future<void> _editContactLocal(String otherId) async {
         'type': video ? 'video' : 'audio',
         'createdAt': FieldValue.serverTimestamp(),
       });
+
+      // Push "incoming call" so the callee gets notified even if the app is closed.
+      await _sendIncomingCallPush(
+        calleeId: otherId,
+        callId: callRef.id,
+        isVideo: video,
+      );
      Navigator.push(
   context,
   MaterialPageRoute(
@@ -2865,18 +3317,71 @@ Future<void> _editContactLocal(String otherId) async {
     } catch (e) { debugPrint('Start call error: $e'); }
   }
 
+  Future<void> _sendIncomingCallPush({
+    required String calleeId,
+    required String callId,
+    required bool isVideo,
+  }) async {
+    try {
+      if (calleeId.trim().isEmpty) return;
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final idToken = await user.getIdToken();
+      final url = Uri.parse(kNotifierUrl);
+
+      final String callerName = (user.displayName != null && user.displayName!.trim().isNotEmpty)
+          ? user.displayName!.trim()
+          : 'Appel entrant';
+
+      final String callerPhoto = (user.photoURL != null && user.photoURL!.trim().isNotEmpty)
+          ? user.photoURL!.trim()
+          : 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+
+      await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $idToken',
+        },
+        body: jsonEncode({
+          'recipients': [calleeId],
+          'title': callerName,
+          'body': isVideo ? 'Appel vidéo entrant' : 'Appel audio entrant',
+          'senderAvatarUrl': callerPhoto,
+          'data': {
+            'type': 'incoming_call',
+            'callId': callId,
+            'isVideo': isVideo,
+            // Useful for navigation/UX
+            'chatId': widget.chatId,
+            'chatName': widget.chatName,
+          },
+        }),
+      );
+    } catch (e) {
+      debugPrint('Send incoming call push error: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color bg = isDark ? tgBg : const Color(0xFFF5F6F8);
+    final Color bar = isDark ? tgBar : Colors.white;
+    final Color text = isDark ? Colors.white : Colors.black87;
+    final Color sub = isDark ? Colors.white70 : Colors.black54;
+    final Color icon = isDark ? Colors.white : Colors.black87;
     return Scaffold(
       resizeToAvoidBottomInset: false,
-      backgroundColor: tgBg,
+      backgroundColor: bg,
       appBar: AppBar(
-        backgroundColor: tgBar,
+        backgroundColor: bar,
         elevation: 1,
-        iconTheme: const IconThemeData(color: Colors.white),
-        leading: _selectionMode ? IconButton(icon: const Icon(Icons.close, color: Colors.white), onPressed: () => _clearSelection()) : null,
+        iconTheme: IconThemeData(color: icon),
+        leading: _selectionMode ? IconButton(icon: Icon(Icons.close, color: icon), onPressed: () => _clearSelection()) : null,
         title: _selectionMode
-            ? Text('${_selectedMessageIds.length} sélectionné(s)', style: const TextStyle(color: Colors.white))
+            ? Text('${_selectedMessageIds.length} sélectionné(s)', style: TextStyle(color: text))
             : StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).snapshots(),
           builder: (context, snap) {
@@ -2894,6 +3399,11 @@ Future<void> _editContactLocal(String otherId) async {
               final rawChat = snap.data!.data();
               var data = rawChat is Map ? Map<String, dynamic>.from((rawChat as Map<String, dynamic>?) ?? {}) : <String, dynamic>{};
               isGroup = data['isGroup'] == true;
+              if (_isGroupChat != isGroup) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (mounted) setState(() => _isGroupChat = isGroup);
+                });
+              }
               if (isGroup) {
                 groupPhoto = (data['groupPhoto'] as String?) ?? '';
                 if (data['groupName'] is String && (data['groupName'] as String).trim().isNotEmpty) {
@@ -2962,7 +3472,7 @@ Future<void> _editContactLocal(String otherId) async {
               String displayNameLocal = name;
               final avatarLetter = displayNameLocal.isNotEmpty ? displayNameLocal[0].toUpperCase() : '?';
 
-              Widget nameAndBadge(bool isCert) {
+              Widget nameAndBadge(bool isCert, String? accountType) {
                 return Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -2970,26 +3480,30 @@ Future<void> _editContactLocal(String otherId) async {
                     children: [
                       Row(
                         children: [
-                          Flexible(child: Text(name.isNotEmpty ? name : 'Utilisateur', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis)),
-                          if (isCert) const Padding(padding: EdgeInsets.only(left: 5), child: Icon(Icons.verified, color: Colors.blue, size: 16)),
+                          Flexible(child: Text(name.isNotEmpty ? name : 'Utilisateur', style: TextStyle(color: text, fontSize: 16, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                          if (isCert || (accountType != null && accountType.isNotEmpty)) ...[
+                            const SizedBox(width: 6),
+                            AccountBadges(isCertified: isCert, accountType: accountType, fontSize: 10),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 2),
-                      if (status.isNotEmpty) Text(status, style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.1)),
+                      if (status.isNotEmpty) Text(status, style: TextStyle(color: sub, fontSize: 12, height: 1.1)),
                     ],
                   ),
                 );
               }
 
               if (otherId != null && otherId.isNotEmpty) {
-                return FutureBuilder<DocumentSnapshot?>(
-                  future: _getUserDoc(otherId),
+                return FutureBuilder<Map<String, dynamic>?>(
+                  future: _getUserProfile(otherId),
                   builder: (ctx, userSnap) {
                     String photo = '';
                     bool isCert = false;
-                    if (userSnap.hasData && userSnap.data != null && userSnap.data!.exists) {
-                      final rawUd = userSnap.data!.data();
-                      final ud = rawUd is Map ? Map<String, dynamic>.from(rawUd as Map<String, dynamic>) : <String, dynamic>{};
+                    String? accountType;
+                    if (userSnap.hasData && userSnap.data != null) {
+                      final ud = userSnap.data!['data'] as Map<String, dynamic>? ?? <String, dynamic>{};
+                      accountType = userSnap.data!['collection'] as String?;
                       photo = (ud['photoUrl'] ?? ud['photo'] ?? ud['avatar'] ?? '') as String;
                       if (ud['displayName'] is String && (ud['displayName'] as String).trim().isNotEmpty) {
                         displayNameLocal = (ud['displayName'] as String).trim();
@@ -3024,7 +3538,7 @@ Future<void> _editContactLocal(String otherId) async {
                         const SizedBox(width: 12),
                         // use resolvedNameTemp for display if available
                         Builder(builder: (_) {
-                          return nameAndBadge(isCert);
+                          return nameAndBadge(isCert, accountType);
                         }),
                       ],
                     );
@@ -3045,7 +3559,7 @@ Future<void> _editContactLocal(String otherId) async {
                     child: CircleAvatar(radius: 18, backgroundColor: Colors.transparent, child: Text(avatarLetter, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
                   ),
                   const SizedBox(width: 12),
-                  nameAndBadge(false),
+                  nameAndBadge(false, null),
                 ],
               );
             }
@@ -3139,18 +3653,48 @@ Future<void> _editContactLocal(String otherId) async {
             return buildRow(displayName, otherId: otherId);
           },
         ),
-          actions: [
+        actions: [
           _selectionMode ? IconButton(icon: const Icon(Icons.delete, color: Colors.redAccent), onPressed: () => _confirmDeleteSelected()) : const SizedBox.shrink(),
-          !_selectionMode ? IconButton(icon: const Icon(Icons.call, color: Colors.white), onPressed: () => _showCallOptions()) : const SizedBox.shrink(),
-          !_selectionMode ? PopupMenuButton<String>(
-            onSelected: (v) => _onMenuSelected(v),
-            itemBuilder: (ctx) => [
-              const PopupMenuItem(value: 'audio', child: Text('Appel audio')),
-              const PopupMenuItem(value: 'video', child: Text('Appel vidéo')),
-              const PopupMenuItem(value: 'info', child: Text('Info contact')),
-              const PopupMenuItem(value: 'delete', child: Text('Supprimer la conversation')),
-            ],
-          ) : const SizedBox.shrink(),
+          StreamBuilder<DocumentSnapshot>(
+            stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).snapshots(),
+            builder: (context, snap) {
+              bool isGroup = false;
+              if (snap.hasData && snap.data!.exists) {
+                final rawChat = snap.data!.data();
+                final data = rawChat is Map ? Map<String, dynamic>.from((rawChat as Map<String, dynamic>?) ?? {}) : <String, dynamic>{};
+                isGroup = data['isGroup'] == true;
+              }
+              return Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!_selectionMode && !isGroup)
+                    IconButton(icon: Icon(Icons.call, color: icon), onPressed: () => _showCallOptions()),
+                  if (!_selectionMode)
+                    PopupMenuButton<String>(
+                      onSelected: (v) => _onMenuSelected(v),
+                      itemBuilder: (ctx) => isGroup
+                          ? [
+                              const PopupMenuItem(value: 'group_info', child: Text('Info du groupe')),
+                              const PopupMenuItem(value: 'group_media', child: Text('Media du groupe')),
+                              const PopupMenuItem(value: 'search', child: Text('Rechercher')),
+                              const PopupMenuItem(value: 'mute', child: Text('Mode silencieux')),
+                              const PopupMenuItem(value: 'ephemeral', child: Text('Message ephemere')),
+                              const PopupMenuItem(value: 'theme', child: Text('Theme de la discussion')),
+                              const PopupMenuItem(value: 'clear', child: Text('Effacer le contenu')),
+                            ]
+                          : [
+                              const PopupMenuItem(value: 'audio', child: Text('Appel audio')),
+                              const PopupMenuItem(value: 'video', child: Text('Appel vidéo')),
+                              const PopupMenuItem(value: 'info', child: Text('Info contact')),
+                              const PopupMenuItem(value: 'delete', child: Text('Supprimer la conversation')),
+                            ],
+                    )
+                  else
+                    const SizedBox.shrink(),
+                ],
+              );
+            },
+          ),
         ],
       ),
       body: Stack(
@@ -3184,7 +3728,10 @@ Future<void> _editContactLocal(String otherId) async {
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [tgBg.withOpacity(0.25), const Color(0xFF071011).withOpacity(0.35)],
+                  colors: [
+                    isDark ? tgBg.withOpacity(0.25) : Colors.white.withOpacity(0.9),
+                    isDark ? const Color(0xFF071011).withOpacity(0.35) : const Color(0xFFE8ECF1).withOpacity(0.9),
+                  ],
                 ),
               ),
               child: Stack(
@@ -3192,7 +3739,7 @@ Future<void> _editContactLocal(String otherId) async {
                   Column(
                 children: [
                   Expanded(child: _buildMessageList()),
-                  if (_isLoading) const LinearProgressIndicator(color: tgAccent, backgroundColor: tgBar),
+                  if (_isLoading) LinearProgressIndicator(color: tgAccent, backgroundColor: isDark ? tgBar : Colors.black12),
                   _buildInputArea(),
                 ],
                   ),
@@ -3207,6 +3754,10 @@ Future<void> _editContactLocal(String otherId) async {
   }
 
   Widget _buildMessageList() {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color cardBg = isDark ? Colors.white10 : Colors.black.withOpacity(0.05);
+    final Color text = isDark ? Colors.white : Colors.black87;
+    final Color sub = isDark ? Colors.white70 : Colors.black54;
     return StreamBuilder<QuerySnapshot>(
       stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').orderBy('timestamp', descending: true).snapshots(),
       builder: (context, snapshot) {
@@ -3216,13 +3767,13 @@ Future<void> _editContactLocal(String otherId) async {
             child: Container(
               width: MediaQuery.of(context).size.width * 0.86,
               padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(14)),
+              decoration: BoxDecoration(color: cardBg, borderRadius: BorderRadius.circular(14)),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text("Aucun message ici pour l'instant...", style: TextStyle(color: Colors.white.withOpacity(0.95), fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text("Aucun message ici pour l'instant...", style: TextStyle(color: text, fontSize: 16, fontWeight: FontWeight.bold)),
                   const SizedBox(height: 8),
-                  Text("Envoyez un message ou touchez la salutation ci‑dessous.", style: TextStyle(color: Colors.white70), textAlign: TextAlign.center),
+                  Text("Envoyez un message ou touchez la salutation ci‑dessous.", style: TextStyle(color: sub), textAlign: TextAlign.center),
                   const SizedBox(height: 16),
                   SizedBox(
                     height: 150,
@@ -3292,26 +3843,115 @@ Future<void> _editContactLocal(String otherId) async {
     String type = m['type'] ?? 'text';
     String time = m['timestamp'] != null ? DateFormat('HH:mm').format((m['timestamp'] as Timestamp).toDate()) : "";
     final bool isHighlighted = _highlightMessageId == doc.id;
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color pendingColor = isDark ? Colors.white30 : Colors.black38;
+    final Color systemTimeColor = isDark ? Colors.white38 : Colors.black38;
+    final Color systemBg = isDark ? Colors.white10 : Colors.black.withOpacity(0.06);
     Widget statusIcon = const SizedBox.shrink();
     if (isMe) {
       if ((m['isRead'] ?? false)) {
         statusIcon = Icon(Icons.done_all, size: 14, color: tgAccent);
-      } else if ((m['delivered'] ?? false)) statusIcon = Icon(Icons.done_all, size: 14, color: Colors.white30);
-      else statusIcon = Icon(Icons.done, size: 14, color: Colors.white30);
+      } else if ((m['delivered'] ?? false)) statusIcon = Icon(Icons.done_all, size: 14, color: pendingColor);
+      else statusIcon = Icon(Icons.done, size: 14, color: pendingColor);
     }
-    
+
+    // Render system messages as centered labels (WhatsApp-style)
+    if (type == 'system') {
+      final text = (m['text'] ?? '').toString();
+      final lower = text.toLowerCase();
+      Color labelColor = isDark ? Colors.white70 : Colors.black54;
+      Color borderColor = isDark ? Colors.white12 : Colors.black12;
+      IconData? icon;
+      if (lower.contains('ajout')) {
+        labelColor = Colors.greenAccent;
+        borderColor = Colors.greenAccent.withOpacity(0.35);
+        icon = Icons.person_add_alt_1;
+      } else if (lower.contains('quitt') || lower.contains('retir')) {
+        labelColor = Colors.orangeAccent;
+        borderColor = Colors.orangeAccent.withOpacity(0.35);
+        icon = Icons.exit_to_app;
+      } else if (lower.contains('supprim') || lower.contains('effac')) {
+        labelColor = Colors.redAccent;
+        borderColor = Colors.redAccent.withOpacity(0.35);
+        icon = Icons.delete_forever;
+      }
+
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: systemBg,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: borderColor),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (icon != null) ...[
+                      Icon(icon, size: 14, color: labelColor),
+                      const SizedBox(width: 6),
+                    ],
+                    Flexible(
+                      child: Text(
+                        text,
+                        style: TextStyle(color: labelColor, fontSize: 12),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (time.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(time, style: TextStyle(color: systemTimeColor, fontSize: 10)),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    final bool isMedia = type == 'image' || type == 'video' || type == 'file';
+    final bool isAudio = type == 'audio' || type == 'voice';
+    final double meBlend = isMedia ? 0.35 : (isAudio ? 0.28 : 0.25);
+    final double otherBlend = isMedia ? 0.18 : (isAudio ? 0.14 : 0.06);
+    final Color myBase = isDark ? tgMyBubble : const Color(0xFF4F8DF5);
+    final Color otherBase = isDark ? tgOtherBubble : const Color(0xFFEFF2F7);
+    final Color borderColor = isDark ? Colors.white.withOpacity(isMe ? 0.18 : 0.12) : Colors.black.withOpacity(isMe ? 0.08 : 0.06);
+    final Color shadowBase = isDark ? Colors.black.withOpacity(0.35) : Colors.black.withOpacity(0.08);
+    final Color accentShadowBase = (isMe ? tgAccent : otherBase).withOpacity(isDark ? 0.18 : 0.12);
+    final Color timeColor = isDark ? Colors.white70 : Colors.black54;
+    final Color statusBg = isDark ? Colors.black26 : Colors.black12;
+    final meColors = [
+      Color.lerp(myBase, tgAccent, meBlend)!,
+      Color.lerp(myBase, Colors.white, isMedia ? 0.12 : 0.08)!,
+    ];
+    final otherColors = [
+      Color.lerp(otherBase, isDark ? Colors.black : Colors.white, isMedia ? 0.04 : 0.08)!,
+      Color.lerp(otherBase, tgAccent, otherBlend)!,
+    ];
+
     BoxDecoration bubbleDecoration = BoxDecoration(
-      gradient: isMe
-          ? LinearGradient(colors: [tgMyBubble, Color.lerp(tgMyBubble, Colors.white, 0.06)!], begin: Alignment.topLeft, end: Alignment.bottomRight)
-          : LinearGradient(colors: [tgOtherBubble, Color.lerp(tgOtherBubble, Colors.black, 0.12)!], begin: Alignment.topLeft, end: Alignment.bottomRight),
-      borderRadius: BorderRadius.only(
-        topLeft: const Radius.circular(16),
-        topRight: const Radius.circular(16),
-        bottomLeft: Radius.circular(isMe ? 16 : 4),
-        bottomRight: Radius.circular(isMe ? 4 : 16),
+      gradient: LinearGradient(
+        colors: isMe ? meColors : otherColors,
+        begin: Alignment.topLeft,
+        end: Alignment.bottomRight,
       ),
+      borderRadius: BorderRadius.only(
+        topLeft: const Radius.circular(18),
+        topRight: const Radius.circular(18),
+        bottomLeft: Radius.circular(isMe ? 18 : 6),
+        bottomRight: Radius.circular(isMe ? 6 : 18),
+      ),
+      border: Border.all(color: borderColor),
       boxShadow: [
-        BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 10, offset: const Offset(0, 4)),
+        BoxShadow(color: shadowBase, blurRadius: isDark ? 14 : 8, offset: const Offset(0, 6)),
+        BoxShadow(color: accentShadowBase, blurRadius: isDark ? 22 : 14, offset: const Offset(0, 10)),
       ],
     );
 
@@ -3328,7 +3968,7 @@ Future<void> _editContactLocal(String otherId) async {
     }
 
     // Create the bubble widget (animation + content)
-    final bubbleWidget = TweenAnimationBuilder<double>(
+    Widget bubbleWidget = TweenAnimationBuilder<double>(
       key: ValueKey(doc.id),
       tween: Tween(begin: 18.0, end: 0.0),
       duration: const Duration(milliseconds: 380),
@@ -3346,7 +3986,6 @@ Future<void> _editContactLocal(String otherId) async {
           duration: const Duration(milliseconds: 420),
           curve: Curves.easeOutCubic,
           margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
-          padding: const EdgeInsets.all(12),
           constraints: BoxConstraints(
             maxWidth: MediaQuery.of(context).size.width * 0.78,
           ),
@@ -3361,50 +4000,155 @@ Future<void> _editContactLocal(String otherId) async {
               : bubbleDecoration,
           child: Material(
             color: Colors.transparent,
-            child: InkWell(
+            child: ClipRRect(
               borderRadius: bubbleDecoration.borderRadius as BorderRadius,
-              onLongPress: () => _onMessageLongPress(doc, m),
-              onDoubleTap: () => _toggleReaction(doc.reference, '❤️'),
-              onTap: () {
-                if (_selectionMode) _toggleSelection(doc.id);
-                else _onMessageOpen(doc, m);
-              },
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _buildContent(m, type),
-                  const SizedBox(height: 6),
-                  _buildReactions(m, doc.reference),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Spacer(),
-                      Text(
-                        time,
-                        style: const TextStyle(color: Colors.white70, fontSize: 11),
-                      ),
-                      if (isMe) const SizedBox(width: 8),
-                      if (isMe)
-                        AnimatedContainer(
-                          duration: const Duration(milliseconds: 300),
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: Colors.black26,
-                            shape: BoxShape.circle,
+              child: InkWell(
+                onLongPress: () => _onMessageLongPress(doc, m),
+                onDoubleTap: () => _toggleReaction(doc.reference, '❤️'),
+                onTap: () {
+                  if (_selectionMode) _toggleSelection(doc.id);
+                  else _onMessageOpen(doc, m);
+                },
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: Opacity(
+                          opacity: 0.35,
+                          child: Container(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                colors: [Colors.white.withOpacity(0.18), Colors.transparent],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                            ),
                           ),
-                          child: statusIcon,
                         ),
-                    ],
-                  ),
-                ],
+                      ),
+                    ),
+                    Positioned(
+                      bottom: 6,
+                      left: isMe ? null : -6,
+                      right: isMe ? -6 : null,
+                      child: Transform.rotate(
+                        angle: isMe ? 0.3 : -0.3,
+                        child: CustomPaint(
+                          painter: _BubbleTailPainter(
+                            color: (isMe ? meColors.first : otherColors.first).withOpacity(0.95),
+                          ),
+                          size: const Size(14, 10),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_isGroupChat && !isMe) ...[
+                            Builder(builder: (ctx) {
+                              final bool isDark = Theme.of(ctx).brightness == Brightness.dark;
+                              final Color nameColor = (isDark || isMe) ? Colors.white70 : Colors.black54;
+                              final senderId = (m['senderId'] ?? '').toString();
+                              final fallbackName = (m['senderName'] ?? 'Utilisateur').toString();
+                              return FutureBuilder<Map<String, dynamic>?>(
+                                future: senderId.isNotEmpty ? _getUserProfile(senderId) : Future.value(null),
+                                builder: (c, snap) {
+                                  final data = snap.data?['data'] as Map<String, dynamic>? ?? <String, dynamic>{};
+                                  final accountType = snap.data?['collection'] as String?;
+                                  final name = UserUtils.formatName(data);
+                                  final displayName = name.isNotEmpty ? name : fallbackName;
+                                  final isCert = data['isCertified'] == true;
+                                  return Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          displayName,
+                                          style: TextStyle(color: nameColor, fontWeight: FontWeight.w700, fontSize: 12),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      if (isCert || (accountType != null && accountType.isNotEmpty)) ...[
+                                        const SizedBox(width: 6),
+                                        AccountBadges(isCertified: isCert, accountType: accountType, fontSize: 9),
+                                      ],
+                                    ],
+                                  );
+                                },
+                              );
+                            }),
+                            const SizedBox(height: 4),
+                          ],
+                          _buildReplyInBubble(context, m, isMe: isMe),
+                          _buildContent(m, type, isMe: isMe),
+                          const SizedBox(height: 6),
+                          _buildReactions(m, doc.reference),
+                          const SizedBox(height: 8),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Spacer(),
+                              Text(
+                                time,
+                                style: TextStyle(color: timeColor, fontSize: 11),
+                              ),
+                              if (isMe) const SizedBox(width: 8),
+                              if (isMe)
+                                AnimatedContainer(
+                                  duration: const Duration(milliseconds: 300),
+                                  padding: const EdgeInsets.all(4),
+                                  decoration: BoxDecoration(
+                                    color: statusBg,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: statusIcon,
+                                ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ),
       ),
     );
+
+    // Swipe to reply (WhatsApp style): swipe right on any message bubble.
+    // We never dismiss; we just set the reply target and let it snap back.
+    if (!_selectionMode && type != 'system') {
+      bubbleWidget = Dismissible(
+        key: ValueKey('reply_${doc.id}'),
+        direction: DismissDirection.startToEnd,
+        dismissThresholds: const {DismissDirection.startToEnd: 0.22},
+        confirmDismiss: (direction) async {
+          _setReplyTarget(doc.id, m);
+          return false;
+        },
+        background: Container(
+          alignment: Alignment.centerLeft,
+          padding: const EdgeInsets.only(left: 22),
+          child: Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: tgAccent.withOpacity(0.18),
+              shape: BoxShape.circle,
+              border: Border.all(color: tgAccent.withOpacity(0.35)),
+            ),
+            child: const Icon(Icons.reply, color: tgAccent, size: 18),
+          ),
+        ),
+        child: bubbleWidget,
+      );
+    }
 
     // If the message is from the current user, show the bubble on the right as before
     if (isMe) return bubbleWidget;
@@ -3415,7 +4159,7 @@ Future<void> _editContactLocal(String otherId) async {
       future: senderId.isNotEmpty ? _getUserDoc(senderId) : Future.value(null),
       builder: (ctx, snap) {
         String photo = '';
-        String avatarLetterLocal = '?';
+        String avatarLetterLocal = '';
         if (snap.hasData && snap.data != null && snap.data!.exists) {
           final raw = snap.data!.data();
           final ud = raw is Map ? Map<String, dynamic>.from(raw as Map<String, dynamic>) : <String, dynamic>{};
@@ -3423,7 +4167,7 @@ Future<void> _editContactLocal(String otherId) async {
           final nm = ud['displayName'] ?? ud['name'] ?? '';
           if (nm is String && nm.isNotEmpty) avatarLetterLocal = nm[0].toUpperCase();
         } else {
-          // fallback to message senderName or id
+          // fallback to message senderName
           final maybeName = (m['senderName'] ?? '') as String? ?? '';
           if (maybeName.isNotEmpty) avatarLetterLocal = maybeName[0].toUpperCase();
         }
@@ -3439,7 +4183,11 @@ Future<void> _editContactLocal(String otherId) async {
               radius: 18,
               backgroundColor: Colors.transparent,
               backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null,
-              child: photo.isEmpty ? Text(avatarLetterLocal, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)) : null,
+              child: photo.isEmpty
+                  ? (avatarLetterLocal.isNotEmpty
+                      ? Text(avatarLetterLocal, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
+                      : const Icon(Icons.person, color: Colors.white70, size: 18))
+                  : null,
             ),
           ),
         );
@@ -3456,6 +4204,19 @@ Future<void> _editContactLocal(String otherId) async {
   }
 
   
+Future<Map<String, dynamic>?> _getUserProfile(String userId) async {
+  final firestore = FirebaseFirestore.instance;
+  for (final col in ['classic_users', 'enterprise_users', 'pro_users']) {
+    final snap = await firestore.collection(col).doc(userId).get();
+    if (snap.exists) {
+      final raw = snap.data();
+      final data = raw is Map ? Map<String, dynamic>.from(raw as Map<String, dynamic>) : <String, dynamic>{};
+      return {'data': data, 'collection': col};
+    }
+  }
+  return null;
+}
+
 Future<DocumentSnapshot?> _getUserDoc(String userId) async {
   final firestore = FirebaseFirestore.instance;
 
@@ -3509,7 +4270,7 @@ Future<void> _showAvatarActions(
       return SafeArea(
         child: Container(
           decoration: BoxDecoration(
-            color: tgBar,
+            color: _modalBg(ctx),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
           ),
           child: Wrap(
@@ -3519,10 +4280,10 @@ Future<void> _showAvatarActions(
               // =======================
               if (photo.isNotEmpty)
                 ListTile(
-                  leading: const Icon(Icons.visibility, color: Colors.white70),
-                  title: const Text(
+                  leading: Icon(Icons.visibility, color: _modalSub(ctx)),
+                  title: Text(
                     'Voir la photo',
-                    style: TextStyle(color: Colors.white),
+                    style: TextStyle(color: _modalText(ctx)),
                   ),
                   onTap: () {
                     Navigator.pop(ctx);
@@ -3542,11 +4303,10 @@ Future<void> _showAvatarActions(
               // =======================
               if (canEdit)
                 ListTile(
-                  leading:
-                      const Icon(Icons.photo_camera, color: Colors.white70),
-                  title: const Text(
+                  leading: Icon(Icons.photo_camera, color: _modalSub(ctx)),
+                  title: Text(
                     'Changer la photo',
-                    style: TextStyle(color: Colors.white),
+                    style: TextStyle(color: _modalText(ctx)),
                   ),
                   onTap: () async {
                     Navigator.pop(ctx);
@@ -3641,10 +4401,10 @@ Future<void> _showAvatarActions(
               // =======================
               if (canEdit && photo.isNotEmpty)
                 ListTile(
-                  leading: const Icon(Icons.delete, color: Colors.white70),
-                  title: const Text(
+                  leading: Icon(Icons.delete, color: _modalSub(ctx)),
+                  title: Text(
                     'Supprimer la photo',
-                    style: TextStyle(color: Colors.white),
+                    style: TextStyle(color: _modalText(ctx)),
                   ),
                   onTap: () async {
                     Navigator.pop(ctx);
@@ -3652,18 +4412,17 @@ Future<void> _showAvatarActions(
                     final ok = await showDialog<bool>(
                       context: context,
                       builder: (d) => AlertDialog(
-                        title: const Text('Confirmer'),
-                        content: const Text(
-                          'Supprimer la photo de profil ?',
-                        ),
+                        backgroundColor: _modalBg(d),
+                        title: Text('Confirmer', style: TextStyle(color: _modalText(d))),
+                        content: Text('Supprimer la photo de profil ?', style: TextStyle(color: _modalSub(d))),
                         actions: [
                           TextButton(
                             onPressed: () => Navigator.pop(d, false),
-                            child: const Text('Annuler'),
+                            child: Text('Annuler', style: TextStyle(color: _modalSub(d))),
                           ),
                           TextButton(
                             onPressed: () => Navigator.pop(d, true),
-                            child: const Text('Supprimer'),
+                            child: Text('Supprimer', style: TextStyle(color: _modalText(d))),
                           ),
                         ],
                       ),
@@ -3747,13 +4506,19 @@ Future<void> _showAvatarActions(
 
   
 
-  Widget _buildContent(Map m, String type) {
+  Widget _buildContent(Map m, String type, {required bool isMe}) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color textColor = (isDark || isMe) ? Colors.white : Colors.black87;
+    final Color subText = (isDark || isMe) ? Colors.white70 : Colors.black54;
+    final Color mutedText = (isDark || isMe) ? Colors.white54 : Colors.black45;
+    final Color iconMuted = (isDark || isMe) ? Colors.white24 : Colors.black26;
+    final Color iconColor = (isDark || isMe) ? Colors.white : Colors.black87;
     // Afficher message supprimé pour l'utilisateur courant
     try {
       if (currentUser != null && m['deletedFor'] is Map) {
         final df = Map<String, dynamic>.from((m['deletedFor'] as Map<String, dynamic>?) ?? {});
         if (df[currentUser!.uid] == true) {
-          return const Text('Message supprimé', style: TextStyle(color: Colors.white54, fontStyle: FontStyle.italic));
+          return Text('Message supprimé', style: TextStyle(color: mutedText, fontStyle: FontStyle.italic));
         }
       }
     } catch (_) {}
@@ -3782,7 +4547,7 @@ Future<void> _showAvatarActions(
                           width: 220,
                           fit: BoxFit.contain,
                           placeholder: (c, s) => Center(child: CircularProgressIndicator(color: Theme.of(c).colorScheme.primary)),
-                          errorWidget: (c, s, e) => const Icon(Icons.broken_image, color: Colors.white24, size: 50),
+                          errorWidget: (c, s, e) => Icon(Icons.broken_image, color: iconMuted, size: 50),
                         ),
                         Positioned(
                           right: 6,
@@ -3791,8 +4556,8 @@ Future<void> _showAvatarActions(
                             padding: const EdgeInsets.all(4),
                             decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(12)),
                             child: downloading
-                                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                : const Icon(Icons.download, size: 14, color: Colors.white),
+                                ? SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: iconColor))
+                                : Icon(Icons.download, size: 14, color: iconColor),
                           ),
                         ),
                       ],
@@ -3800,7 +4565,7 @@ Future<void> _showAvatarActions(
                   );
                 },
               )
-            : const Icon(Icons.image, color: Colors.white24, size: 50);
+            : Icon(Icons.image, color: iconMuted, size: 50);
 
       case 'video':
         return m['url'] != null
@@ -3820,9 +4585,9 @@ Future<void> _showAvatarActions(
                         alignment: Alignment.center,
                         children: [
                           if (local != null && local.existsSync())
-                            const Icon(Icons.play_circle_fill, color: Colors.white70, size: 48)
+                            Icon(Icons.play_circle_fill, color: subText, size: 48)
                           else
-                            const Icon(Icons.play_circle_fill, color: Colors.white54, size: 48),
+                            Icon(Icons.play_circle_fill, color: mutedText, size: 48),
                           Positioned(
                             right: 6,
                             bottom: 6,
@@ -3830,8 +4595,8 @@ Future<void> _showAvatarActions(
                               padding: const EdgeInsets.all(4),
                               decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(12)),
                               child: downloading
-                                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                  : const Icon(Icons.download, size: 14, color: Colors.white),
+                                  ? SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: iconColor))
+                                  : Icon(Icons.download, size: 14, color: iconColor),
                             ),
                           ),
                         ],
@@ -3866,13 +4631,13 @@ Future<void> _showAvatarActions(
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.insert_drive_file, color: Colors.white),
+                  Icon(Icons.insert_drive_file, color: iconColor),
                   const SizedBox(width: 8),
-                  Flexible(child: Text(m['fileName'] ?? "Fichier", style: const TextStyle(color: Colors.white))),
+                  Flexible(child: Text(m['fileName'] ?? "Fichier", style: TextStyle(color: textColor))),
                   const SizedBox(width: 8),
                   downloading
-                      ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.download, color: Colors.white70, size: 16),
+                      ? SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: iconColor))
+                      : Icon(Icons.download, color: subText, size: 16),
                 ],
               ),
             );
@@ -3898,8 +4663,8 @@ Future<void> _showAvatarActions(
                 if (url.isNotEmpty && (local == null || !local.existsSync()))
                   IconButton(
                     icon: downloading
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Icon(Icons.download, color: Colors.white70, size: 18),
+                        ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: iconColor))
+                        : Icon(Icons.download, color: subText, size: 18),
                     onPressed: downloading
                         ? null
                         : () async {
@@ -3921,8 +4686,8 @@ Future<void> _showAvatarActions(
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(m['contactName'] ?? "Contact", style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                Text(m['phone'] ?? "", style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                Text(m['contactName'] ?? "Contact", style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
+                Text(m['phone'] ?? "", style: TextStyle(color: subText, fontSize: 12)),
               ],
             ),
           ],
@@ -3933,15 +4698,15 @@ Future<void> _showAvatarActions(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text("📊 SONDAGE", style: TextStyle(color: Color(0xFF64B5F6), fontSize: 10, fontWeight: FontWeight.bold)),
-            Text(m['question'] ?? "", style: const TextStyle(color: Colors.white, fontSize: 16)),
+            Text(m['question'] ?? "", style: TextStyle(color: textColor, fontSize: 16)),
           ],
         );
 
       case 'location':
-        return const Column(
+        return Column(
           children: [
-            Icon(Icons.map, color: Color(0xFF64B5F6), size: 40),
-            Text("Position partagée", style: TextStyle(color: Colors.white)),
+            const Icon(Icons.map, color: Color(0xFF64B5F6), size: 40),
+            Text("Position partagée", style: TextStyle(color: textColor)),
           ],
         );
 
@@ -3955,7 +4720,7 @@ Future<void> _showAvatarActions(
               Row(children: [
                 const Icon(Icons.warning_amber_rounded, color: Color(0xFFFFE082), size: 28),
                 const SizedBox(width: 10),
-                Expanded(child: Text(m['text'] ?? 'Je me sens en insécurité.', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800))),
+                Expanded(child: Text(m['text'] ?? 'Je me sens en insécurité.', style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.w800))),
               ]),
               if (hasLoc) ...[
                 const SizedBox(height: 8),
@@ -3969,17 +4734,17 @@ Future<void> _showAvatarActions(
                       try { await launchUrl(uri); } catch (_) {}
                     }
                   },
-                  child: Text('Voir la position', style: TextStyle(color: Colors.white70, decoration: TextDecoration.underline)),
+                  child: Text('Voir la position', style: TextStyle(color: subText, decoration: TextDecoration.underline)),
                 ),
               ],
             ],
           );
         } catch (_) {
-          return Text(m['text'] ?? 'Je me sens en insécurité.', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w800));
+          return Text(m['text'] ?? 'Je me sens en insécurité.', style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.w800));
         }
 
       default:
-        return Text(m['text'] ?? "", style: const TextStyle(color: Colors.white, fontSize: 16));
+        return Text(m['text'] ?? "", style: TextStyle(color: textColor, fontSize: 16));
     }
   }
 
@@ -3987,11 +4752,11 @@ Future<void> _showAvatarActions(
     final ok = await showDialog<bool>(
       context: context,
       builder: (c) => AlertDialog(
-        backgroundColor: tgBar,
-        title: const Text('Supprimer la conversation', style: TextStyle(color: Colors.white)),
-        content: const Text('Voulez-vous vraiment supprimer cette conversation pour tout le monde ?', style: TextStyle(color: Colors.white70)),
+        backgroundColor: _modalBg(c),
+        title: Text('Supprimer la conversation', style: TextStyle(color: _modalText(c))),
+        content: Text('Voulez-vous supprimer cette conversation pour vous uniquement ?', style: TextStyle(color: _modalSub(c))),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Annuler')),
+          TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: _modalSub(c)))),
           TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Supprimer', style: TextStyle(color: tgAccent))),
         ],
       ),
@@ -4002,23 +4767,13 @@ Future<void> _showAvatarActions(
 
   Future<void> _deleteConversation() async {
     try {
+      if (currentUser == null) return;
       final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
-      final msgsCol = chatRef.collection('messages');
-      final snap = await msgsCol.get();
-      WriteBatch batch = FirebaseFirestore.instance.batch();
-      int count = 0;
-      for (var d in snap.docs) {
-        batch.delete(d.reference);
-        count++;
-        if (count % 400 == 0) {
-          await batch.commit();
-          batch = FirebaseFirestore.instance.batch();
-        }
-      }
-      await batch.commit();
-      // delete chat doc
-      await chatRef.delete();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Conversation supprimée')));
+      await chatRef.set({
+        'hiddenFor': {currentUser!.uid: true},
+        'unreadCounts': {currentUser!.uid: 0},
+      }, SetOptions(merge: true));
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Conversation supprimée pour vous')));
       if (mounted) Navigator.pop(context);
     } catch (e) {
       debugPrint('Delete conversation error: $e');
@@ -4028,6 +4783,13 @@ Future<void> _showAvatarActions(
 
   Widget _buildInputArea() {
     final double kb = MediaQuery.of(context).viewInsets.bottom;
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color bar = isDark ? tgBar : Colors.white;
+    final Color text = isDark ? Colors.white : Colors.black87;
+    final Color hint = isDark ? Colors.white24 : Colors.black45;
+    final Color icon = isDark ? Colors.white38 : Colors.black54;
+    final Color sub = isDark ? Colors.white70 : Colors.black54;
+    final Color muted = isDark ? Colors.white38 : Colors.black45;
 
     return StreamBuilder<DocumentSnapshot>(
       stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).snapshots(),
@@ -4068,6 +4830,7 @@ Future<void> _showAvatarActions(
                       ],
                     ),
                   ),
+                _buildReplyComposerBar(context),
                 Container(
                   padding: const EdgeInsets.fromLTRB(8, 0, 8, 0),
                   color: Colors.transparent,
@@ -4078,14 +4841,18 @@ Future<void> _showAvatarActions(
                         child: Opacity(
                           opacity: blocked ? 0.6 : 1.0,
                           child: Container(
-                            decoration: BoxDecoration(color: tgBar, borderRadius: BorderRadius.circular(26)),
+                            decoration: BoxDecoration(
+                              color: bar,
+                              borderRadius: BorderRadius.circular(26),
+                              border: isDark ? null : Border.all(color: Colors.black12),
+                            ),
                             child: Row(
                               children: [
                                 const SizedBox(width: 8),
                                 IconButton(
                                   icon: Icon(
                                     _showEmoji ? Icons.keyboard : Icons.sentiment_satisfied_alt,
-                                    color: Colors.white38,
+                                    color: icon,
                                     size: 28,
                                   ),
                                   onPressed: blocked
@@ -4105,12 +4872,12 @@ Future<void> _showAvatarActions(
                                         controller: _msgController,
                                         enabled: !blocked,
                                         onTap: () => setState(() => _showEmoji = false),
-                                        style: const TextStyle(color: Colors.white, fontSize: 16),
+                                        style: TextStyle(color: text, fontSize: 16),
                                         maxLines: 5,
                                         minLines: 1,
-                                        decoration: const InputDecoration(
+                                        decoration: InputDecoration(
                                           hintText: "Message",
-                                          hintStyle: TextStyle(color: Colors.white24),
+                                          hintStyle: TextStyle(color: hint),
                                           border: InputBorder.none,
                                         ),
                                       ),
@@ -4121,22 +4888,29 @@ Future<void> _showAvatarActions(
                                             children: [
                                               Container(width: 8, height: 8, decoration: BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle)),
                                               const SizedBox(width: 8),
-                                              Text(
-                                                '${(_recordSecondsNotifier.value ~/ 60).toString().padLeft(2, '0')}:${(_recordSecondsNotifier.value % 60).toString().padLeft(2, '0')}',
-                                                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                              ValueListenableBuilder<int>(
+                                                valueListenable: _recordSecondsNotifier,
+                                                builder: (context, secs, _) {
+                                                  final mm = (secs ~/ 60).toString().padLeft(2, '0');
+                                                  final ss = (secs % 60).toString().padLeft(2, '0');
+                                                  return Text(
+                                                    '$mm:$ss',
+                                                    style: TextStyle(color: sub, fontSize: 12),
+                                                  );
+                                                },
                                               ),
                                               const Spacer(),
                                               if (!_recordLocked)
-                                                const Text('Glisser pour annuler', style: TextStyle(color: Colors.white38, fontSize: 11)),
+                                                Text('Glisser pour annuler', style: TextStyle(color: muted, fontSize: 11)),
                                               if (_recordLocked)
-                                                const Text('Verrouillé', style: TextStyle(color: Colors.white38, fontSize: 11)),
+                                                Text('Verrouillé', style: TextStyle(color: muted, fontSize: 11)),
                                             ],
                                           ),
                                         ),
                                     ],
                                   ),
                                 ),
-                                IconButton(icon: const Icon(Icons.attach_file, color: Colors.white38, size: 26), onPressed: blocked ? null : _showAttachmentMenu),
+                                IconButton(icon: Icon(Icons.attach_file, color: icon, size: 26), onPressed: blocked ? null : _showAttachmentMenu),
                                 const SizedBox(width: 4),
                               ],
                             ),
@@ -4145,6 +4919,7 @@ Future<void> _showAvatarActions(
                       ),
                       const SizedBox(width: 8),
                       GestureDetector(
+                        behavior: HitTestBehavior.translucent,
                         onTap: blocked
                             ? null
                             : () async {
@@ -4162,22 +4937,26 @@ Future<void> _showAvatarActions(
                               },
                         onLongPressStart: blocked
                             ? null
-                            : (_) async {
+                            : (details) async {
                                 if (_hasText || _isRecording) return;
+                                _recordStartDx = details.globalPosition.dx;
+                                _recordStartDy = details.globalPosition.dy;
                                 await _startRecording();
                               },
                         onLongPressMoveUpdate: blocked
                             ? null
                             : (details) async {
                                 if (!_isRecording || _recordLocked) return;
-                                if (details.offsetFromOrigin.dx < -80 && !_recordCanceled) {
+                                final dx = _recordStartDx != null ? (details.globalPosition.dx - _recordStartDx!) : details.offsetFromOrigin.dx;
+                                final dy = _recordStartDy != null ? (details.globalPosition.dy - _recordStartDy!) : details.offsetFromOrigin.dy;
+                                if (dx < -80 && !_recordCanceled) {
                                   setState(() => _recordCanceled = true);
                                   await _cancelRecording();
                                   if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enregistrement annulé')));
                                   }
                                 }
-                                if (details.offsetFromOrigin.dy < -80 && !_recordLocked && !_recordCanceled) {
+                                if (dy < -70 && !_recordLocked && !_recordCanceled) {
                                   setState(() => _recordLocked = true);
                                 }
                               },
@@ -4187,31 +4966,78 @@ Future<void> _showAvatarActions(
                                 if (!_isRecording) return;
                                 if (_recordCanceled) return;
                                 if (_recordLocked) return;
+                                _recordStartDx = null;
+                                _recordStartDy = null;
                                 await _stopRecording();
                               },
-                        child: AnimatedScale(
-                          scale: _hasText ? 1.06 : 1.0,
-                          duration: const Duration(milliseconds: 160),
-                          child: Container(
-                            width: 52,
-                            height: 52,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [_isRecording ? Colors.redAccent : tgAccent.withOpacity(0.95), tgAccent]),
-                              shape: BoxShape.circle,
-                              boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 8, offset: const Offset(0, 4))],
-                            ),
-                            child: Center(
-                              child: AnimatedSwitcher(
-                                duration: const Duration(milliseconds: 220),
-                                transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
-                                child: _recordLocked
-                                    ? const Icon(Icons.send, key: ValueKey('send_locked'), color: Colors.white, size: 24)
-                                    : (_isRecording
-                                        ? const Icon(Icons.mic, key: ValueKey('mic_rec'), color: Colors.white, size: 24)
-                                        : (_hasText ? const Icon(Icons.send, key: ValueKey('send'), color: Colors.white, size: 24) : const Icon(Icons.mic, key: ValueKey('mic'), color: Colors.white, size: 24))),
+                        child: Stack(
+                          clipBehavior: Clip.none,
+                          children: [
+                            AnimatedScale(
+                              scale: _hasText ? 1.06 : 1.0,
+                              duration: const Duration(milliseconds: 160),
+                              child: Container(
+                                width: 52,
+                                height: 52,
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [_isRecording ? Colors.redAccent : tgAccent.withOpacity(0.95), tgAccent]),
+                                  shape: BoxShape.circle,
+                                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 8, offset: const Offset(0, 4))],
+                                ),
+                                child: Center(
+                                  child: AnimatedSwitcher(
+                                    duration: const Duration(milliseconds: 220),
+                                    transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
+                                    child: _recordLocked
+                                        ? const Icon(Icons.send, key: ValueKey('send_locked'), color: Colors.white, size: 24)
+                                        : (_isRecording
+                                            ? const Icon(Icons.mic, key: ValueKey('mic_rec'), color: Colors.white, size: 24)
+                                            : (_hasText ? const Icon(Icons.send, key: ValueKey('send'), color: Colors.white, size: 24) : const Icon(Icons.mic, key: ValueKey('mic'), color: Colors.white, size: 24))),
+                                  ),
+                                ),
                               ),
                             ),
-                          ),
+                            if (_isRecording && !_recordLocked)
+                              Positioned(
+                                top: -52,
+                                left: 2,
+                                child: AnimatedBuilder(
+                                  animation: _lockHintCtrl,
+                                  builder: (context, child) {
+                                    final v = _lockHintCtrl.value;
+                                    final pulse = 1.0 + (0.06 * (0.5 - (v - 0.5).abs()) * 2);
+                                    final floatY = -4.0 + (8.0 * (v <= 0.5 ? v : 1 - v));
+                                    return Transform.translate(
+                                      offset: Offset(0, floatY),
+                                      child: Transform.scale(
+                                        scale: pulse,
+                                        child: child,
+                                      ),
+                                    );
+                                  },
+                                  child: AnimatedOpacity(
+                                    duration: const Duration(milliseconds: 160),
+                                    opacity: _isRecording ? 1.0 : 0.0,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withOpacity(0.6),
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(color: Colors.white12),
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.lock, color: Colors.white70, size: 14),
+                                          SizedBox(width: 6),
+                                          Text('↑ Verrouiller', style: TextStyle(color: Colors.white70, fontSize: 11)),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     ],
@@ -4226,10 +5052,10 @@ Future<void> _showAvatarActions(
                       },
                       config: Config(
                         emojiViewConfig: EmojiViewConfig(
-                          backgroundColor: tgBar,
+                          backgroundColor: bar,
                         ),
                         categoryViewConfig: CategoryViewConfig(
-                          backgroundColor: tgBar,
+                          backgroundColor: bar,
                           indicatorColor: tgAccent,
                           iconColorSelected: tgAccent,
                         ),
@@ -4327,6 +5153,8 @@ Future<void> _showAvatarActions(
   @override
   void initState() {
     super.initState();
+    _lockHintCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
+      ..repeat(reverse: true);
     _msgListener = () => _onUserTyped(_msgController.text);
     _msgController.addListener(_msgListener);
     // mark presence when opening the chat
@@ -4430,6 +5258,7 @@ Future<void> _showAvatarActions(
   void dispose() {
     _msgController.removeListener(_msgListener);
     _msgController.dispose();
+    _lockHintCtrl.dispose();
     if (_recorderInitialized) {
       try {
         _recorder?.closeRecorder();
@@ -4558,6 +5387,25 @@ Future<void> _showAvatarActions(
     b.setUint32(0, v, Endian.little);
     return b.buffer.asUint8List();
   }
+}
+
+class _BubbleTailPainter extends CustomPainter {
+  final Color color;
+  _BubbleTailPainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..color = color;
+    final path = Path()
+      ..moveTo(0, size.height)
+      ..lineTo(size.width, size.height / 2)
+      ..lineTo(0, 0)
+      ..close();
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _BubbleTailPainter oldDelegate) => oldDelegate.color != color;
 }
 
 class AudioMessagePlayer extends StatefulWidget {
@@ -4717,10 +5565,10 @@ class _MediaViewerPageState extends State<_MediaViewerPage> {
                 final ok = await showDialog<bool>(
                   context: context,
                   builder: (c) => AlertDialog(
-                    backgroundColor: tgBar,
-                    title: const Text('Supprimer ce média ?', style: TextStyle(color: Colors.white)),
+                    backgroundColor: Theme.of(c).brightness == Brightness.dark ? tgBar : Colors.white,
+                    title: Text('Supprimer ce média ?', style: TextStyle(color: Theme.of(c).brightness == Brightness.dark ? Colors.white : Colors.black87)),
                     actions: [
-                      TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Annuler')),
+                      TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: Theme.of(c).brightness == Brightness.dark ? Colors.white70 : Colors.black54))),
                       TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Supprimer', style: TextStyle(color: Colors.redAccent))),
                     ],
                   ),

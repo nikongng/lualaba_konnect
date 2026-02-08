@@ -10,6 +10,7 @@ import 'package:video_player/video_player.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:lualaba_konnect/shared/widgets/account_badge.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
 import 'dart:typed_data';
@@ -19,6 +20,8 @@ import 'call_webrtc_page.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:lualaba_konnect/core/supabase_service.dart';
 import 'package:lualaba_konnect/core/notification_service.dart';
+import 'package:lualaba_konnect/core/config.dart';
+import 'package:http/http.dart' as http;
 import 'package:flutter_contacts/flutter_contacts.dart';
 import '../../../auth/presentation/pages/ModernDashboard.dart';
 import 'package:flutter/services.dart';
@@ -41,6 +44,13 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
   final Color orangeAccent = const Color(0xFFE57C00);
   final Color tgAccent = const Color(0xFF64B5F6);
   String selectedCategory = "TOUS";
+
+  bool _isDark(BuildContext context) => Theme.of(context).brightness == Brightness.dark;
+  Color _modalBg(BuildContext context) => _isDark(context) ? const Color(0xFF0F171A) : Colors.white;
+  Color _modalText(BuildContext context) => _isDark(context) ? Colors.white : Colors.black87;
+  Color _modalSub(BuildContext context) => _isDark(context) ? Colors.white70 : Colors.black54;
+  Color _modalMuted(BuildContext context) => _isDark(context) ? Colors.white54 : Colors.black45;
+  Color _modalTileBg(BuildContext context) => _isDark(context) ? Colors.white10 : Colors.black12;
 
   @override
   void initState() {
@@ -86,27 +96,27 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF0F171A),
+      backgroundColor: _modalBg(context),
       isScrollControlled: true,
       builder: (ctx) {
         return Padding(
           padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
           child: Container(
             padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(color: const Color(0xFF0F171A), borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
+            decoration: BoxDecoration(color: _modalBg(ctx), borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
             child: Wrap(children: [
               Row(children: [
-                CircleAvatar(radius: 28, backgroundColor: const Color(0xFF2C3E50), backgroundImage: (photoUrl != null && photoUrl.isNotEmpty) ? CachedNetworkImageProvider(photoUrl) as ImageProvider : null, child: (photoUrl == null || photoUrl.isEmpty) ? Text(displayName.isNotEmpty ? displayName[0].toUpperCase() : '?', style: const TextStyle(color: Colors.white54)) : null),
+                CircleAvatar(radius: 28, backgroundColor: const Color(0xFF2C3E50), backgroundImage: (photoUrl != null && photoUrl.isNotEmpty) ? CachedNetworkImageProvider(photoUrl) as ImageProvider : null, child: (photoUrl == null || photoUrl.isEmpty) ? Text(displayName.isNotEmpty ? displayName[0].toUpperCase() : '?', style: TextStyle(color: _modalMuted(ctx))) : null),
                 const SizedBox(width: 12),
-                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(displayName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), const SizedBox(height: 4), Text(currentUser?.email ?? '', style: const TextStyle(color: Colors.white60, fontSize: 12))])),
-                IconButton(icon: const Icon(Icons.close, color: Colors.white54), onPressed: () => Navigator.pop(ctx)),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(displayName, style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold)), const SizedBox(height: 4), Text(currentUser?.email ?? '', style: TextStyle(color: _modalSub(ctx), fontSize: 12))])),
+                IconButton(icon: Icon(Icons.close, color: _modalMuted(ctx)), onPressed: () => Navigator.pop(ctx)),
               ]),
               const SizedBox(height: 12),
-              ListTile(leading: const Icon(Icons.edit, color: Colors.white70), title: const Text('Modifier bio / nom', style: TextStyle(color: Colors.white)), onTap: () { Navigator.pop(ctx); _showEditProfileDialog(); }),
-              ListTile(leading: const Icon(Icons.photo_camera, color: Colors.white70), title: const Text('Changer la photo', style: TextStyle(color: Colors.white)), onTap: () { Navigator.pop(ctx); _changeProfilePhoto(); }),
-              ListTile(leading: const Icon(Icons.lock, color: Colors.white70), title: const Text('Sécurité', style: TextStyle(color: Colors.white)), onTap: () { Navigator.pop(ctx); _showSecurityMenu(); }),
-              ListTile(leading: const Icon(Icons.privacy_tip, color: Colors.white70), title: const Text('Confidentialité', style: TextStyle(color: Colors.white)), onTap: () { Navigator.pop(ctx); _showPrivacyMenu(); }),
-              ListTile(leading: const Icon(Icons.chat_bubble_outline, color: Colors.white70), title: const Text('Discussion (thème)', style: TextStyle(color: Colors.white)), onTap: () { Navigator.pop(ctx); _showChatSettingsMenu(); }),
+              ListTile(leading: Icon(Icons.edit, color: _modalSub(ctx)), title: Text('Modifier bio / nom', style: TextStyle(color: _modalText(ctx))), onTap: () { Navigator.pop(ctx); _showEditProfileDialog(); }),
+              ListTile(leading: Icon(Icons.photo_camera, color: _modalSub(ctx)), title: Text('Changer la photo', style: TextStyle(color: _modalText(ctx))), onTap: () { Navigator.pop(ctx); _changeProfilePhoto(); }),
+              ListTile(leading: Icon(Icons.lock, color: _modalSub(ctx)), title: Text('Sécurité', style: TextStyle(color: _modalText(ctx))), onTap: () { Navigator.pop(ctx); _showSecurityMenu(); }),
+              ListTile(leading: Icon(Icons.privacy_tip, color: _modalSub(ctx)), title: Text('Confidentialité', style: TextStyle(color: _modalText(ctx))), onTap: () { Navigator.pop(ctx); _showPrivacyMenu(); }),
+              ListTile(leading: Icon(Icons.chat_bubble_outline, color: _modalSub(ctx)), title: Text('Discussion (thème)', style: TextStyle(color: _modalText(ctx))), onTap: () { Navigator.pop(ctx); _showChatSettingsMenu(); }),
               const SizedBox(height: 8),
             ]),
           ),
@@ -123,13 +133,13 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
         padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
         child: Container(
           padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(color: const Color(0xFF0F171A), borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
+          decoration: BoxDecoration(color: _modalBg(ctx), borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            const Text('Modifier profil', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            Text('Modifier profil', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
-            TextField(decoration: const InputDecoration(hintText: 'Nom d\'utilisateur', hintStyle: TextStyle(color: Colors.white38)), style: const TextStyle(color: Colors.white), onChanged: (v) => newName = v, controller: TextEditingController(text: newName)),
+            TextField(decoration: InputDecoration(hintText: 'Nom d\'utilisateur', hintStyle: TextStyle(color: _modalMuted(ctx))), style: TextStyle(color: _modalText(ctx)), onChanged: (v) => newName = v, controller: TextEditingController(text: newName)),
             const SizedBox(height: 8),
-            TextField(decoration: const InputDecoration(hintText: 'Bio', hintStyle: TextStyle(color: Colors.white38)), style: const TextStyle(color: Colors.white), onChanged: (v) => newBio = v),
+            TextField(decoration: InputDecoration(hintText: 'Bio', hintStyle: TextStyle(color: _modalMuted(ctx))), style: TextStyle(color: _modalText(ctx)), onChanged: (v) => newBio = v),
             const SizedBox(height: 12),
             Row(children: [Expanded(child: OutlinedButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler'))), const SizedBox(width: 12), ElevatedButton(onPressed: () async {
               Navigator.pop(ctx);
@@ -169,21 +179,21 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
 
     bool autoDelete = (userData['autoDeleteMessages'] ?? false) as bool;
 
-    await showModalBottomSheet(context: context, backgroundColor: const Color(0xFF0F171A), builder: (ctx) {
+    await showModalBottomSheet(context: context, backgroundColor: _modalBg(context), builder: (ctx) {
       return StatefulBuilder(builder: (mCtx, setStateModal) {
         return Container(
           padding: const EdgeInsets.all(12),
           child: Wrap(children: [
-            const ListTile(title: Text('Sécurité', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+            ListTile(title: Text('Sécurité', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold))),
             SwitchListTile(value: autoDelete, onChanged: (v) async {
               setStateModal(() => autoDelete = v);
               if (currentUser == null || userCollection == null) return;
               try {
                 await FirebaseFirestore.instance.collection(userCollection).doc(currentUser!.uid).set({'autoDeleteMessages': v}, SetOptions(merge: true));
               } catch (e) { debugPrint('Failed save autoDelete: $e'); }
-            }, title: const Text('Autosuppression des messages', style: TextStyle(color: Colors.white))),
-            ListTile(title: const Text('Utilisateurs bloqués', style: TextStyle(color: Colors.white)), onTap: () { Navigator.pop(ctx); _showBlockedUsers(); }),
-            ListTile(title: const Text('Appareils connectés', style: TextStyle(color: Colors.white)), onTap: () { Navigator.pop(ctx); _showConnectedDevices(userData); }),
+            }, title: Text('Autosuppression des messages', style: TextStyle(color: _modalText(ctx)))),
+            ListTile(title: Text('Utilisateurs bloqués', style: TextStyle(color: _modalText(ctx))), onTap: () { Navigator.pop(ctx); _showBlockedUsers(); }),
+            ListTile(title: Text('Appareils connectés', style: TextStyle(color: _modalText(ctx))), onTap: () { Navigator.pop(ctx); _showConnectedDevices(userData); }),
             const SizedBox(height: 8),
           ]),
         );
@@ -200,18 +210,18 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
     final data = doc.exists ? (doc.data() ?? {}) : {};
     final blocked = List<String>.from(data['blockedUsers'] ?? []);
 
-    await showModalBottomSheet(context: context, backgroundColor: const Color(0xFF0F171A), builder: (ctx) {
+    await showModalBottomSheet(context: context, backgroundColor: _modalBg(context), builder: (ctx) {
       return Container(
         padding: const EdgeInsets.all(12),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const ListTile(title: Text('Utilisateurs bloqués', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-          if (blocked.isEmpty) const Padding(padding: EdgeInsets.all(20), child: Text('Aucun utilisateur bloqué', style: TextStyle(color: Colors.white38))),
+          ListTile(title: Text('Utilisateurs bloqués', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold))),
+          if (blocked.isEmpty) Padding(padding: const EdgeInsets.all(20), child: Text('Aucun utilisateur bloqué', style: TextStyle(color: _modalMuted(ctx)))),
           ...blocked.map((b) => FutureBuilder<DocumentSnapshot>(
             future: FirebaseFirestore.instance.collection('classic_users').doc(b).get(),
             builder: (ctx, snap) {
               final name = (snap.hasData && snap.data!.exists) ? UserUtils.formatName(snap.data!.data() as Map<String, dynamic>?) : b;
               return ListTile(
-                title: Text(name, style: const TextStyle(color: Colors.white)),
+                title: Text(name, style: TextStyle(color: _modalText(ctx))),
                 trailing: TextButton(onPressed: () async {
                   try {
                     await docRef.update({'blockedUsers': FieldValue.arrayRemove([b])});
@@ -222,7 +232,7 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                 }, child: const Text('Débloquer')),
               );
             }
-          )).toList(),
+          )),
         ]),
       );
     });
@@ -230,13 +240,13 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
 
   void _showConnectedDevices(Map<String, dynamic> userData) {
     final devices = (userData['devices'] is List) ? List<String>.from(userData['devices']) : <String>[];
-    showModalBottomSheet(context: context, backgroundColor: const Color(0xFF0F171A), builder: (ctx) {
+    showModalBottomSheet(context: context, backgroundColor: _modalBg(context), builder: (ctx) {
       return Container(
         padding: const EdgeInsets.all(12),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const ListTile(title: Text('Appareils connectés', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-          if (devices.isEmpty) const Padding(padding: EdgeInsets.all(20), child: Text('Aucun appareil connecté', style: TextStyle(color: Colors.white38))),
-          ...devices.map((d) => ListTile(title: Text(d, style: const TextStyle(color: Colors.white)), subtitle: const Text('Dernière activité', style: TextStyle(color: Colors.white38))))
+          ListTile(title: Text('Appareils connectés', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold))),
+          if (devices.isEmpty) Padding(padding: const EdgeInsets.all(20), child: Text('Aucun appareil connecté', style: TextStyle(color: _modalMuted(ctx)))),
+          ...devices.map((d) => ListTile(title: Text(d, style: TextStyle(color: _modalText(ctx))), subtitle: Text('Dernière activité', style: TextStyle(color: _modalMuted(ctx)))))
         ]),
       );
     });
@@ -314,17 +324,17 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
     bool showBio = prefs.getBool('show_bio') ?? true;
     bool showStatus = prefs.getBool('show_status') ?? true;
 
-    await showModalBottomSheet(context: context, backgroundColor: const Color(0xFF0F171A), builder: (ctx) {
+    await showModalBottomSheet(context: context, backgroundColor: _modalBg(context), builder: (ctx) {
       return StatefulBuilder(builder: (mCtx, setStateModal) {
         return Container(
           padding: const EdgeInsets.all(12),
           child: Wrap(children: [
-            const ListTile(title: Text('Confidentialité', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-            SwitchListTile(value: showToContacts, onChanged: (v) async { setStateModal(() => showToContacts = v); await prefs.setBool('show_phone_to_contacts', v); }, title: const Text('Visible pour les contacts', style: TextStyle(color: Colors.white))),
-            SwitchListTile(value: showOnline, onChanged: (v) async { setStateModal(() => showOnline = v); await prefs.setBool('show_online_presence', v); }, title: const Text('Présence en ligne', style: TextStyle(color: Colors.white))),
-            SwitchListTile(value: showProfilePhotos, onChanged: (v) async { setStateModal(() => showProfilePhotos = v); await prefs.setBool('show_profile_photos', v); }, title: const Text('Photos de profil', style: TextStyle(color: Colors.white))),
-            SwitchListTile(value: showBio, onChanged: (v) async { setStateModal(() => showBio = v); await prefs.setBool('show_bio', v); }, title: const Text('Bio', style: TextStyle(color: Colors.white))),
-            SwitchListTile(value: showStatus, onChanged: (v) async { setStateModal(() => showStatus = v); await prefs.setBool('show_status', v); }, title: const Text('Statut', style: TextStyle(color: Colors.white))),
+            ListTile(title: Text('Confidentialité', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold))),
+            SwitchListTile(value: showToContacts, onChanged: (v) async { setStateModal(() => showToContacts = v); await prefs.setBool('show_phone_to_contacts', v); }, title: Text('Visible pour les contacts', style: TextStyle(color: _modalText(ctx)))),
+            SwitchListTile(value: showOnline, onChanged: (v) async { setStateModal(() => showOnline = v); await prefs.setBool('show_online_presence', v); }, title: Text('Présence en ligne', style: TextStyle(color: _modalText(ctx)))),
+            SwitchListTile(value: showProfilePhotos, onChanged: (v) async { setStateModal(() => showProfilePhotos = v); await prefs.setBool('show_profile_photos', v); }, title: Text('Photos de profil', style: TextStyle(color: _modalText(ctx)))),
+            SwitchListTile(value: showBio, onChanged: (v) async { setStateModal(() => showBio = v); await prefs.setBool('show_bio', v); }, title: Text('Bio', style: TextStyle(color: _modalText(ctx)))),
+            SwitchListTile(value: showStatus, onChanged: (v) async { setStateModal(() => showStatus = v); await prefs.setBool('show_status', v); }, title: Text('Statut', style: TextStyle(color: _modalText(ctx)))),
             const SizedBox(height: 8),
           ]),
         );
@@ -335,15 +345,15 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
   Future<void> _showChatSettingsMenu() async {
     final prefs = await SharedPreferences.getInstance();
     String theme = prefs.getString('chat_theme') ?? 'system';
-    await showModalBottomSheet(context: context, backgroundColor: const Color(0xFF0F171A), builder: (ctx) {
+    await showModalBottomSheet(context: context, backgroundColor: _modalBg(context), builder: (ctx) {
       return StatefulBuilder(builder: (mCtx, setStateModal) {
         return Container(
           padding: const EdgeInsets.all(12),
           child: Wrap(children: [
-            const ListTile(title: Text('Thème discussion', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-            RadioListTile<String>(value: 'system', groupValue: theme, onChanged: (v) async { if (v != null) { setStateModal(() => theme = v); await prefs.setString('chat_theme', v); } }, title: const Text('Système', style: TextStyle(color: Colors.white))),
-            RadioListTile<String>(value: 'light', groupValue: theme, onChanged: (v) async { if (v != null) { setStateModal(() => theme = v); await prefs.setString('chat_theme', v); } }, title: const Text('Clair', style: TextStyle(color: Colors.white))),
-            RadioListTile<String>(value: 'dark', groupValue: theme, onChanged: (v) async { if (v != null) { setStateModal(() => theme = v); await prefs.setString('chat_theme', v); } }, title: const Text('Sombre', style: TextStyle(color: Colors.white))),
+            ListTile(title: Text('Thème discussion', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold))),
+            RadioListTile<String>(value: 'system', groupValue: theme, onChanged: (v) async { if (v != null) { setStateModal(() => theme = v); await prefs.setString('chat_theme', v); } }, title: Text('Système', style: TextStyle(color: _modalText(ctx)))),
+            RadioListTile<String>(value: 'light', groupValue: theme, onChanged: (v) async { if (v != null) { setStateModal(() => theme = v); await prefs.setString('chat_theme', v); } }, title: Text('Clair', style: TextStyle(color: _modalText(ctx)))),
+            RadioListTile<String>(value: 'dark', groupValue: theme, onChanged: (v) async { if (v != null) { setStateModal(() => theme = v); await prefs.setString('chat_theme', v); } }, title: Text('Sombre', style: TextStyle(color: _modalText(ctx)))),
           ]),
         );
       });
@@ -459,6 +469,50 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
       });
   }
 
+  Future<void> _sendIncomingCallPush({
+    required String calleeId,
+    required String callId,
+    required bool isVideo,
+  }) async {
+    try {
+      if (calleeId.trim().isEmpty) return;
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final idToken = await user.getIdToken();
+      final url = Uri.parse(kNotifierUrl);
+
+      final String callerName = (user.displayName != null && user.displayName!.trim().isNotEmpty)
+          ? user.displayName!.trim()
+          : 'Appel entrant';
+
+      final String callerPhoto = (user.photoURL != null && user.photoURL!.trim().isNotEmpty)
+          ? user.photoURL!.trim()
+          : 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+
+      await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $idToken',
+        },
+        body: jsonEncode({
+          'recipients': [calleeId],
+          'title': callerName,
+          'body': isVideo ? 'Appel vidéo entrant' : 'Appel audio entrant',
+          'senderAvatarUrl': callerPhoto,
+          'data': {
+            'type': 'incoming_call',
+            'callId': callId,
+            'isVideo': isVideo,
+          },
+        }),
+      );
+    } catch (e) {
+      debugPrint('Send incoming call push error: $e');
+    }
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -509,6 +563,22 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
     } catch (e) { if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e'))); }
   }
 
+  Future<void> _hideChatForMe(String chatId) async {
+    if (currentUser == null) return;
+    try {
+      final ref = FirebaseFirestore.instance.collection('chats').doc(chatId);
+      await ref.set({
+        'hiddenFor': {currentUser!.uid: true},
+        'unreadCounts': {currentUser!.uid: 0},
+      }, SetOptions(merge: true));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Conversation supprimee pour vous')));
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+    }
+  }
+
   Future<void> _showContactInfoFromList(String otherId) async {
     try {
       DocumentSnapshot? doc;
@@ -523,11 +593,15 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
       final data = doc.data() as Map<String, dynamic>? ?? {};
       final displayName = UserUtils.formatName(data);
       final email = data['email'] ?? '';
-      showModalBottomSheet(context: context, backgroundColor: const Color(0xFF0F171A), builder: (ctx) {
+      showModalBottomSheet(context: context, backgroundColor: _modalBg(context), builder: (ctx) {
         return Container(
           padding: const EdgeInsets.all(12),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            ListTile(leading: CircleAvatar(backgroundImage: (data['photoUrl'] ?? data['photo'])?.isNotEmpty == true ? CachedNetworkImageProvider((data['photoUrl'] ?? data['photo']) as String) as ImageProvider : null), title: Text(displayName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), subtitle: Text(email, style: const TextStyle(color: Colors.white60))),
+            ListTile(
+              leading: CircleAvatar(backgroundImage: (data['photoUrl'] ?? data['photo'])?.isNotEmpty == true ? CachedNetworkImageProvider((data['photoUrl'] ?? data['photo']) as String) as ImageProvider : null),
+              title: Text(displayName, style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold)),
+              subtitle: Text(email, style: TextStyle(color: _modalSub(ctx))),
+            ),
             Row(children: [Expanded(child: OutlinedButton(onPressed: () { Navigator.pop(ctx); _startChatWithUser(otherId, displayName, 'auto'); }, child: const Text('Message'))), const SizedBox(width: 8), OutlinedButton(onPressed: () { Navigator.pop(ctx); }, child: const Text('Fermer'))]),
           ]),
         );
@@ -554,20 +628,24 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
   }
 
   Widget _buildSearchField() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final text = isDark ? Colors.white : Colors.black87;
+    final sub = isDark ? Colors.white70 : Colors.black54;
+    final fieldBg = isDark ? Colors.white10 : const Color(0xFFF1F3F5);
     return SizedBox(
       height: 40,
       child: TextField(
         controller: _searchController,
         focusNode: _searchFocus,
-        style: const TextStyle(color: Colors.white),
+        style: TextStyle(color: text),
         decoration: InputDecoration(
           contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           hintText: 'Rechercher',
-          hintStyle: const TextStyle(color: Colors.white54),
+          hintStyle: TextStyle(color: sub),
           filled: true,
-          fillColor: Colors.white10,
+          fillColor: fieldBg,
           border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-          prefixIcon: const Icon(Icons.search, color: Colors.white54, size: 20),
+          prefixIcon: Icon(Icons.search, color: sub, size: 20),
         ),
         onChanged: (v) => setState(() {}),
       ),
@@ -575,9 +653,11 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
   }
 
   Widget _menuTile(IconData icon, String title, VoidCallback onTap) {
+    final text = _modalText(context);
+    final sub = _modalSub(context);
     return ListTile(
-      leading: Icon(icon, color: Colors.white70),
-      title: Text(title, style: const TextStyle(color: Colors.white)),
+      leading: Icon(icon, color: sub),
+      title: Text(title, style: TextStyle(color: text)),
       onTap: onTap,
     );
   }
@@ -633,7 +713,7 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                     width: MediaQuery.of(context).size.width * 0.78,
                     height: MediaQuery.of(context).size.height,
                     decoration: BoxDecoration(
-                      color: const Color(0xFF0F171A),
+                      color: _modalBg(ctx),
                       borderRadius: const BorderRadius.only(topRight: Radius.circular(24), bottomRight: Radius.circular(24)),
                       boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.45 * anim1.value), blurRadius: 30 * anim1.value)],
                     ),
@@ -646,17 +726,17 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                           child: Row(children: [
                             CircleAvatar(
                               radius: 26,
-                              backgroundColor: const Color(0xFF2C3E50),
+                              backgroundColor: _modalTileBg(ctx),
                               backgroundImage: (photoUrl != null && photoUrl.isNotEmpty) ? CachedNetworkImageProvider(photoUrl) as ImageProvider : null,
-                              child: (photoUrl == null || photoUrl.isEmpty) ? Text((displayName.isNotEmpty ? displayName[0].toUpperCase() : '?'), style: const TextStyle(color: Colors.white54)) : null,
+                              child: (photoUrl == null || photoUrl.isEmpty) ? Text((displayName.isNotEmpty ? displayName[0].toUpperCase() : '?'), style: TextStyle(color: _modalMuted(ctx))) : null,
                             ),
                             const SizedBox(width: 12),
                             Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                              Text(displayName, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              Text(displayName, style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold)),
                               const SizedBox(height: 4),
-                              Text(currentUser?.email ?? '', style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                              Text(currentUser?.email ?? '', style: TextStyle(color: _modalSub(context), fontSize: 12)),
                             ])),
-                            IconButton(icon: const Icon(Icons.close, color: Colors.white54), onPressed: () { Navigator.pop(ctx); _menuController.reverse(); }),
+                            IconButton(icon: Icon(Icons.close, color: _modalMuted(ctx)), onPressed: () { Navigator.pop(ctx); _menuController.reverse(); }),
                           ]),
                         ),
                         const SizedBox(height: 20),
@@ -702,7 +782,7 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                                     final TextEditingController contactsSearchCtrl = TextEditingController();
                                     showModalBottomSheet(
                                       context: context,
-                                      backgroundColor: const Color(0xFF0F171A),
+                                      backgroundColor: _modalBg(context),
                                       builder: (_) {
                                         return StatefulBuilder(builder: (mCtx, setStateModal) {
                                           return Material(
@@ -710,20 +790,20 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                                             child: Container(
                                               height: 520,
                                               padding: const EdgeInsets.all(12),
-                                              decoration: BoxDecoration(color: const Color(0xFF0F171A)),
+                                              decoration: BoxDecoration(color: _modalBg(mCtx)),
                                               child: Column(
                                                 children: [
                                                   Row(children: [
                                                     Expanded(
                                                       child: TextField(
                                                         controller: contactsSearchCtrl,
-                                                        style: const TextStyle(color: Colors.white),
+                                                        style: TextStyle(color: _modalText(mCtx)),
                                                         decoration: InputDecoration(
-                                                          prefixIcon: const Icon(Icons.search, color: Colors.white54),
+                                                          prefixIcon: Icon(Icons.search, color: _modalMuted(mCtx)),
                                                           hintText: 'Rechercher un contact...',
-                                                          hintStyle: const TextStyle(color: Colors.white38),
+                                                          hintStyle: TextStyle(color: _modalMuted(mCtx)),
                                                           filled: true,
-                                                          fillColor: Colors.white10,
+                                                          fillColor: _modalTileBg(mCtx),
                                                           border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                                                         ),
                                                         onChanged: (q) => setStateModal(() {
@@ -745,7 +825,7 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                                                     const SizedBox(width: 8),
                                                     IconButton(
                                                       tooltip: 'Inviter',
-                                                      icon: const Icon(Icons.person_add_alt_1, color: Colors.white),
+                                                      icon: Icon(Icons.person_add_alt_1, color: _modalText(mCtx)),
                                                       onPressed: () async {
                                                         final inviteLink = 'https://lualaba.app/invite';
                                                         await Clipboard.setData(ClipboardData(text: inviteLink));
@@ -756,18 +836,18 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                                                   const SizedBox(height: 8),
                                                   Expanded(
                                                     child: visibleAppUsers.isEmpty
-                                                        ? const Center(child: Padding(padding: EdgeInsets.all(20), child: Text('Aucun contact de l\'application trouvé', style: TextStyle(color: Colors.white38))))
+                                                        ? Center(child: Padding(padding: const EdgeInsets.all(20), child: Text('Aucun contact de l\'application trouvé', style: TextStyle(color: _modalMuted(mCtx)))))
                                                         : ListView.builder(
                                                             itemCount: visibleAppUsers.length,
                                                             itemBuilder: (c, i) {
                                                               final u = visibleAppUsers[i];
                                                               return ListTile(
-                                                                title: Text(u['name'] ?? '', style: const TextStyle(color: Colors.white)),
-                                                                subtitle: u['email'] != null ? Text(u['email'], style: const TextStyle(color: Colors.white60)) : null,
+                                                                title: Text(u['name'] ?? '', style: TextStyle(color: _modalText(mCtx))),
+                                                                subtitle: u['email'] != null ? Text(u['email'], style: TextStyle(color: _modalSub(mCtx))) : null,
                                                                 leading: CircleAvatar(
-                                                                  backgroundColor: Colors.white10,
+                                                                  backgroundColor: _modalTileBg(mCtx),
                                                                   backgroundImage: (u['photo'] as String?)?.isNotEmpty == true ? CachedNetworkImageProvider(u['photo']) as ImageProvider : null,
-                                                                  child: (u['photo'] as String?)?.isNotEmpty == true ? null : Text((u['name'] as String?)?.isNotEmpty == true ? (u['name'] as String)[0].toUpperCase() : '?'),
+                                                                  child: (u['photo'] as String?)?.isNotEmpty == true ? null : Text((u['name'] as String?)?.isNotEmpty == true ? (u['name'] as String)[0].toUpperCase() : '?', style: TextStyle(color: _modalText(mCtx))),
                                                                 ),
                                                                 onTap: () {
                                                                   Navigator.pop(context);
@@ -800,7 +880,7 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                                   .get();
                                 showModalBottomSheet(
                                   context: context,
-                                  backgroundColor: const Color(0xFF0F171A),
+                                  backgroundColor: _modalBg(context),
                                   builder: (_) {
                                     return Material(
                                       color: Colors.transparent,
@@ -812,8 +892,8 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                                             final calleeId = data['callee'] ?? '';
                                             final calleeName = data['calleeName'] ?? data['callerName'] ?? 'Appel';
                                             return ListTile(
-                                              title: Text(calleeName, style: const TextStyle(color: Colors.white)),
-                                              subtitle: Text(data['status'] ?? '', style: const TextStyle(color: Colors.white60)),
+                                              title: Text(calleeName, style: TextStyle(color: _modalText(context))),
+                                              subtitle: Text(data['status'] ?? '', style: TextStyle(color: _modalSub(context))),
                                               trailing: IconButton(
                                                 icon: const Icon(Icons.call, color: Colors.green),
                                                 onPressed: () async {
@@ -825,8 +905,15 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                                                       'callerName': currentUser!.displayName ?? '',
                                                       'calleeName': calleeName,
                                                       'status': 'ringing',
+                                                      'type': 'audio',
                                                       'createdAt': FieldValue.serverTimestamp(),
                                                     });
+
+                                                    await _sendIncomingCallPush(
+                                                      calleeId: calleeId,
+                                                      callId: callDoc.id,
+                                                      isVideo: false,
+                                                    );
                                                     Navigator.pop(context);
                                                    Navigator.push(
                                                         context,
@@ -1653,14 +1740,14 @@ return ListView.builder(
             _startChatWithUser(otherId, name, 'auto'); // on peut mettre 'auto' car la collection n'a plus d'importance ici
           },
           onLongPress: () {
-            showModalBottomSheet(context: context, backgroundColor: const Color(0xFF0F171A), builder: (ctx) {
+            showModalBottomSheet(context: context, backgroundColor: _modalBg(context), builder: (ctx) {
               return SafeArea(
                 child: Wrap(children: [
-                  ListTile(leading: const Icon(Icons.archive, color: Colors.white70), title: const Text('Archiver la discussion', style: TextStyle(color: Colors.white)), onTap: () async { Navigator.pop(ctx); await _archiveChat(docId); }),
-                  ListTile(leading: const Icon(Icons.person, color: Colors.white70), title: const Text('Afficher le contact', style: TextStyle(color: Colors.white)), onTap: () { Navigator.pop(ctx); _showContactInfoFromList(otherId); }),
-                  ListTile(leading: const Icon(Icons.block, color: Colors.white70), title: const Text('Bloquer', style: TextStyle(color: Colors.white)), onTap: () async { Navigator.pop(ctx); await _blockUser(otherId); }),
-                  ListTile(leading: const Icon(Icons.volume_off, color: Colors.white70), title: const Text('Activer mode silencieux', style: TextStyle(color: Colors.white)), onTap: () async { Navigator.pop(ctx); await _toggleMuteChat(docId); }),
-                  ListTile(leading: const Icon(Icons.close, color: Colors.white54), title: const Text('Annuler', style: TextStyle(color: Colors.white54)), onTap: () => Navigator.pop(ctx)),
+                  ListTile(leading: Icon(Icons.archive, color: _modalSub(ctx)), title: Text('Archiver la discussion', style: TextStyle(color: _modalText(ctx))), onTap: () async { Navigator.pop(ctx); await _archiveChat(docId); }),
+                  ListTile(leading: Icon(Icons.person, color: _modalSub(ctx)), title: Text('Afficher le contact', style: TextStyle(color: _modalText(ctx))), onTap: () { Navigator.pop(ctx); _showContactInfoFromList(otherId); }),
+                  ListTile(leading: Icon(Icons.block, color: _modalSub(ctx)), title: Text('Bloquer', style: TextStyle(color: _modalText(ctx))), onTap: () async { Navigator.pop(ctx); await _blockUser(otherId); }),
+                  ListTile(leading: Icon(Icons.volume_off, color: _modalSub(ctx)), title: Text('Activer mode silencieux', style: TextStyle(color: _modalText(ctx))), onTap: () async { Navigator.pop(ctx); await _toggleMuteChat(docId); }),
+                  ListTile(leading: Icon(Icons.close, color: _modalMuted(ctx)), title: Text('Annuler', style: TextStyle(color: _modalMuted(ctx))), onTap: () => Navigator.pop(ctx)),
                 ]),
               );
             });
@@ -1734,7 +1821,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
       .get();
   String? cid;
   for (var d in existing.docs) {
-    final partsRaw = d.data()?['participants'];
+    final partsRaw = d.data()['participants'];
     final List parts = partsRaw is List ? List.from(partsRaw) : [];
     // only treat as existing 1:1 chat when it's exactly two participants
     if (parts.length == 2 && parts.contains(targetUid)) {
@@ -1770,9 +1857,13 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color bg = isDark ? const Color(0xFF0F171A) : const Color(0xFFF5F6F8);
+    final Color text = isDark ? Colors.white : Colors.black87;
+    final Color sub = isDark ? Colors.white70 : Colors.black54;
     return Scaffold(
       key: _scaffoldKey,
-      backgroundColor: primaryDark,
+      backgroundColor: bg,
       onDrawerChanged: (isOpen) {
         if (isOpen) {
           _menuController.forward();
@@ -1781,21 +1872,23 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
         }
       },
       appBar: AppBar(
-        backgroundColor: primaryDark,
+        backgroundColor: bg,
         elevation: 0,
         leading: IconButton(
           icon: AnimatedIcon(icon: AnimatedIcons.menu_arrow, progress: _menuController),
-          color: Colors.white54,
+          color: sub,
           onPressed: () {
             if (_menuController.isCompleted) _menuController.reverse();
             _showModernMenu();
           },
         ),
-        title: _isSearchActive ? _buildSearchField() : const Text('Chat', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: _isSearchActive
+            ? _buildSearchField()
+            : Text('Chat', style: TextStyle(color: text, fontWeight: FontWeight.bold)),
         actions: [
           if (!_isSearchActive)
             IconButton(
-              icon: const Icon(Icons.search, color: Colors.white54),
+              icon: Icon(Icons.search, color: sub),
               onPressed: () {
                 setState(() => _isSearchActive = true);
                 Future.delayed(const Duration(milliseconds: 50), () => _searchFocus.requestFocus());
@@ -1803,7 +1896,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
             ),
           if (_isSearchActive)
             IconButton(
-              icon: const Icon(Icons.close, color: Colors.white54),
+              icon: Icon(Icons.close, color: sub),
               onPressed: () {
                 setState(() {
                   _isSearchActive = false;
@@ -1830,6 +1923,8 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
   }
 
   Widget _buildCategoryTabs() {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color sub = isDark ? Colors.white38 : Colors.black38;
     final tabs = ["TOUS", "PRO", "ENTERPRISE", "NON LUS", "GROUPES"];
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1842,7 +1937,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
             if (label == 'NON LUS' && _totalUnread > 0) {
               final int count = _totalUnread;
               labelWidget = Row(mainAxisSize: MainAxisSize.min, children: [
-                Text(label, style: TextStyle(color: isActive ? orangeAccent : Colors.white38, fontWeight: FontWeight.bold, fontSize: 13)),
+                Text(label, style: TextStyle(color: isActive ? orangeAccent : sub, fontWeight: FontWeight.bold, fontSize: 13)),
                 const SizedBox(width: 6),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -1851,7 +1946,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                 )
               ]);
             } else {
-              labelWidget = Text(label, style: TextStyle(color: isActive ? orangeAccent : Colors.white38, fontWeight: FontWeight.bold, fontSize: 13));
+              labelWidget = Text(label, style: TextStyle(color: isActive ? orangeAccent : sub, fontWeight: FontWeight.bold, fontSize: 13));
             }
 
             return GestureDetector(
@@ -1874,6 +1969,10 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
   }
 
   Widget _buildChatList() {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color text = isDark ? Colors.white : Colors.black87;
+    final Color sub = isDark ? Colors.white70 : Colors.black54;
+    final Color avatarBg = isDark ? const Color(0xFF2C3E50) : Colors.grey.shade300;
     Query query = FirebaseFirestore.instance.collection('chats').where('participants', arrayContains: currentUser?.uid);
     return StreamBuilder<QuerySnapshot>(
       stream: query.orderBy('lastMessageTime', descending: true).snapshots(),
@@ -1918,8 +2017,23 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
           }).toList();
         }
 
+        // hide chats deleted by the current user only
+        docs = docs.where((doc) {
+          final data = doc.data() as Map? ?? {};
+          final hiddenFor = (data['hiddenFor'] is Map) ? Map<String, dynamic>.from(data['hiddenFor']) : <String, dynamic>{};
+          return hiddenFor[currentUser?.uid] != true;
+        }).toList();
+
         // Dédupliquer les discussions 1:1 au cas où il existerait plusieurs documents
-        if (docs.isEmpty) return const Center(child: Text("Aucune discussion", style: TextStyle(color: Colors.white38)));
+        if (docs.isEmpty) {
+          final isDark = Theme.of(context).brightness == Brightness.dark;
+          return Center(
+            child: Text(
+              "Aucune discussion",
+              style: TextStyle(color: isDark ? Colors.white38 : Colors.black38),
+            ),
+          );
+        }
 
         // Build a map to keep only one chat per peer (for non-group chats).
         try {
@@ -1994,7 +2108,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
             return Dismissible(
               key: Key(docId),
               direction: DismissDirection.endToStart,
-              onDismissed: (_) => FirebaseFirestore.instance.collection('chats').doc(docId).delete(),
+              onDismissed: (_) => _hideChatForMe(docId),
               background: Container(color: Colors.redAccent, alignment: Alignment.centerRight, padding: const EdgeInsets.only(right: 20), child: const Icon(Icons.delete, color: Colors.white)),
               child: (() {
                 final bool isGroup = (chat['isGroup'] == true);
@@ -2008,9 +2122,9 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                       await Navigator.push(context, MaterialPageRoute(builder: (context) => GroupChatDetailPage(chatId: docId, chatName: name)));
                       ModernDashboardGlobals.navBarVisible.value = true;
                     },
-                    leading: CircleAvatar(radius: 26, backgroundColor: const Color(0xFF2C3E50), backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null, child: photo.isEmpty ? const Icon(Icons.group, color: Colors.white54) : null),
-                    title: Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    subtitle: Text(subtitleText, style: TextStyle(color: Colors.white54), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    leading: CircleAvatar(radius: 26, backgroundColor: avatarBg, backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null, child: photo.isEmpty ? Icon(Icons.group, color: sub) : null),
+                    title: Text(name, style: TextStyle(color: text, fontWeight: FontWeight.bold)),
+                    subtitle: Text(subtitleText, style: TextStyle(color: sub), maxLines: 1, overflow: TextOverflow.ellipsis),
                     trailing: _buildTimeAndBadge(chat),
                   );
                 }
@@ -2060,6 +2174,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                     } else if (isTyping) subtitleText = 'en train d\'écrire...';
 
                     final photo = (userSnap.hasData && userSnap.data!.exists) ? ((userSnap.data!.data() as Map<String, dynamic>?)?['photoUrl'] ?? (userSnap.data!.data() as Map<String, dynamic>?)?['photo'] ?? (userSnap.data!.data() as Map<String, dynamic>?)?['avatar'] ?? '') as String : '';
+                    final bool showActivity = subtitleText == 'en train d\'Ã©crire...' || subtitleText == 'enregistrement audio...';
                     return ListTile(
                       onTap: () async {
                         ModernDashboardGlobals.navBarVisible.value = false;
@@ -2070,20 +2185,34 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                         onTap: () => _showAvatarActions(context, otherUserId, canEdit: otherUserId == currentUser?.uid, photoUrl: photo),
                         child: Stack(
                           children: [
-                            CircleAvatar(radius: 26, backgroundColor: const Color(0xFF2C3E50), backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null, child: photo.isEmpty ? const Icon(Icons.person, color: Colors.white54) : null),
-                            if (isOnline) Positioned(right: 1, bottom: 1, child: Container(width: 12, height: 12, decoration: BoxDecoration(color: Colors.greenAccent, shape: BoxShape.circle, border: Border.all(color: primaryDark, width: 2)))),
+                            CircleAvatar(radius: 26, backgroundColor: avatarBg, backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null, child: photo.isEmpty ? Icon(Icons.person, color: sub) : null),
+                            if (isOnline)
+                              Positioned(
+                                right: 1,
+                                bottom: 1,
+                                child: Container(
+                                  width: 12,
+                                  height: 12,
+                                  decoration: BoxDecoration(
+                                    color: Colors.greenAccent,
+                                    shape: BoxShape.circle,
+                                    border: Border.all(color: isDark ? primaryDark : Theme.of(context).scaffoldBackgroundColor, width: 2),
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ),
                       title: Row(
                         children: [
-                          Flexible(child: Text(name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                          if (isCert) const Padding(padding: EdgeInsets.only(left: 5), child: Icon(Icons.verified, color: Colors.blue, size: 16)),
-                          if (collection == "pro_users") const Padding(padding: EdgeInsets.only(left: 5), child: Icon(Icons.verified, color: Colors.orange, size: 16)),
-                          if (collection == "enterprise_users") const Padding(padding: EdgeInsets.only(left: 5), child: Icon(Icons.stars, color: Colors.greenAccent, size: 16)),
+                          Flexible(child: Text(name, style: TextStyle(color: text, fontWeight: FontWeight.bold))),
+                          if (isCert || collection.isNotEmpty) ...[
+                            const SizedBox(width: 6),
+                            AccountBadges(isCertified: isCert, accountType: collection, fontSize: 10),
+                          ],
                         ],
                       ),
-                      subtitle: Text(subtitleText, style: TextStyle(color: (subtitleText == 'en train d\'écrire...' || subtitleText == 'enregistrement audio...') ? tgAccent : Colors.white54, fontWeight: (subtitleText == 'en train d\'écrire...' || subtitleText == 'enregistrement audio...') ? FontWeight.bold : FontWeight.normal), maxLines: 1, overflow: TextOverflow.ellipsis),
+                      subtitle: Text(subtitleText, style: TextStyle(color: showActivity ? tgAccent : sub, fontWeight: showActivity ? FontWeight.bold : FontWeight.normal), maxLines: 1, overflow: TextOverflow.ellipsis),
                       trailing: _buildTimeAndBadge(chat),
                     );
                   },
@@ -2097,6 +2226,8 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
   }
 
   Widget _buildTimeAndBadge(Map chat) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color timeColor = isDark ? Colors.white38 : Colors.black38;
     String time = "";
     if (chat['lastMessageTime'] != null) {
       try { time = timeago.format((chat['lastMessageTime'] as Timestamp).toDate(), locale: 'fr'); } catch (e) { time = ""; }
@@ -2107,7 +2238,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
       mainAxisAlignment: MainAxisAlignment.center,
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
-        Text(time, style: const TextStyle(color: Colors.white38, fontSize: 10)),
+        Text(time, style: TextStyle(color: timeColor, fontSize: 10)),
         if (myUnread > 0)
           Container(
             margin: const EdgeInsets.only(top: 4),
@@ -2125,15 +2256,15 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
       context: context,
       builder: (ctx) {
         return AlertDialog(
-          backgroundColor: const Color(0xFF0F171A),
-          title: const Text('Inviter des amis', style: TextStyle(color: Colors.white)),
+          backgroundColor: _modalBg(ctx),
+          title: Text('Inviter des amis', style: TextStyle(color: _modalText(ctx))),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('Partagez ce lien pour inviter vos amis :', style: TextStyle(color: Colors.white70)),
+              Text('Partagez ce lien pour inviter vos amis :', style: TextStyle(color: _modalSub(ctx))),
               const SizedBox(height: 8),
-              SelectableText(inviteLink, style: const TextStyle(color: Colors.white)),
+              SelectableText(inviteLink, style: TextStyle(color: _modalText(ctx))),
             ],
           ),
           actions: [
@@ -2143,11 +2274,11 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                 Navigator.pop(ctx);
                 if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lien copié dans le presse-papier')));
               },
-              child: const Text('Copier', style: TextStyle(color: Colors.white)),
+              child: Text('Copier', style: TextStyle(color: _modalText(ctx))),
             ),
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('Fermer', style: TextStyle(color: Colors.white70)),
+              child: Text('Fermer', style: TextStyle(color: _modalSub(ctx))),
             ),
           ],
         );
@@ -2269,17 +2400,22 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         return StatefulBuilder(builder: (ctx, setState) {
+          final textColor = _modalText(ctx);
+          final subText = _modalSub(ctx);
+          final muted = _modalMuted(ctx);
+          final tileBg = _modalTileBg(ctx);
+          final sheetBg = _modalBg(ctx);
           return Padding(
             padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
             child: ConstrainedBox(
               constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.9),
               child: Container(
-                decoration: BoxDecoration(color: primaryDark, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
+                decoration: BoxDecoration(color: sheetBg, borderRadius: const BorderRadius.vertical(top: Radius.circular(24))),
                 padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Container(width: 45, height: 5, decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(10))),
+                    Container(width: 45, height: 5, decoration: BoxDecoration(color: tileBg, borderRadius: BorderRadius.circular(10))),
                     const SizedBox(height: 12),
 
                     // header: photo + name/description
@@ -2292,23 +2428,37 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                         },
                         child: CircleAvatar(
                           radius: 36,
-                          backgroundColor: Colors.white10,
+                          backgroundColor: tileBg,
                           backgroundImage: groupPhoto != null ? FileImage(File(groupPhoto!.path)) : null,
-                          child: groupPhoto == null ? const Icon(Icons.group, color: Colors.white70, size: 32) : null,
+                          child: groupPhoto == null ? Icon(Icons.group, color: subText, size: 32) : null,
                         ),
                       ),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                           TextField(
-                            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
-                            decoration: InputDecoration(hintText: 'Nom du groupe', hintStyle: const TextStyle(color: Colors.white38), filled: true, fillColor: Colors.white10, contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)),
+                            style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.w600),
+                            decoration: InputDecoration(
+                              hintText: 'Nom du groupe',
+                              hintStyle: TextStyle(color: muted),
+                              filled: true,
+                              fillColor: tileBg,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                            ),
                             onChanged: (v) => setState(() => groupName = v.trim()),
                           ),
                           const SizedBox(height: 8),
                           TextField(
-                            style: const TextStyle(color: Colors.white70),
-                            decoration: InputDecoration(hintText: 'Description (optionnelle)', hintStyle: const TextStyle(color: Colors.white30), filled: true, fillColor: Colors.white10, contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12), border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none)),
+                            style: TextStyle(color: subText),
+                            decoration: InputDecoration(
+                              hintText: 'Description (optionnelle)',
+                              hintStyle: TextStyle(color: muted),
+                              filled: true,
+                              fillColor: tileBg,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                            ),
                             maxLines: 2,
                             onChanged: (v) => setState(() => description = v.trim()),
                           ),
@@ -2329,10 +2479,12 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Qui peut ajouter des membres ?', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                                  Text('Qui peut ajouter des membres ?', style: TextStyle(color: subText, fontSize: 12)),
                                   DropdownButton<String>(
                                     value: canAddMembers,
                                     isExpanded: true,
+                                    dropdownColor: sheetBg,
+                                    style: TextStyle(color: textColor),
                                     items: const [
                                       DropdownMenuItem(value: 'admins', child: Text('Admins seulement')),
                                       DropdownMenuItem(value: 'all', child: Text('Tous les membres')),
@@ -2354,10 +2506,12 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Qui peut changer les infos ?', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                                  Text('Qui peut changer les infos ?', style: TextStyle(color: subText, fontSize: 12)),
                                   DropdownButton<String>(
                                     value: canChangeInfo,
                                     isExpanded: true,
+                                    dropdownColor: sheetBg,
+                                    style: TextStyle(color: textColor),
                                     items: const [
                                       DropdownMenuItem(value: 'admins', child: Text('Admins seulement')),
                                       DropdownMenuItem(value: 'all', child: Text('Tous les membres')),
@@ -2373,9 +2527,9 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                     ),
 
                     const SizedBox(height: 12),
-                    const Divider(color: Colors.white12),
+                    Divider(color: muted),
                     const SizedBox(height: 10),
-                    Text('Sélectionnez des contacts', style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold)),
+                    Text('Sélectionnez des contacts', style: TextStyle(color: subText, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 10),
 
                     // search + add by email
@@ -2384,13 +2538,13 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                         Expanded(
                           child: TextField(
                             controller: groupSearchCtrl,
-                            style: const TextStyle(color: Colors.white),
+                            style: TextStyle(color: textColor),
                             decoration: InputDecoration(
-                              prefixIcon: const Icon(Icons.search, color: Colors.white54),
+                              prefixIcon: Icon(Icons.search, color: muted),
                               hintText: 'Rechercher un contact...',
-                              hintStyle: const TextStyle(color: Colors.white38),
+                              hintStyle: TextStyle(color: muted),
                               filled: true,
-                              fillColor: Colors.white10,
+                              fillColor: tileBg,
                               border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                             ),
                             onChanged: (q) => setState(() {
@@ -2413,7 +2567,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                           width: 44,
                           height: 44,
                           child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(backgroundColor: Colors.white10, padding: EdgeInsets.zero),
+                            style: ElevatedButton.styleFrom(backgroundColor: tileBg, padding: EdgeInsets.zero),
                             onPressed: () async {
                               final email = addEmailCtrl.text.trim();
                               if (email.isEmpty) return;
@@ -2446,7 +2600,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                                 if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Utilisateur déjà dans la liste')));
                               }
                             },
-                            child: const Icon(Icons.add, color: Colors.white),
+                            child: Icon(Icons.add, color: textColor),
                           ),
                         ),
                       ],
@@ -2461,18 +2615,62 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                       final email = u.isNotEmpty ? (u['email'] as String? ?? '') : '';
                       final name = rawName.isNotEmpty ? rawName : (email.isNotEmpty ? email : uid);
                       final photo = u.isNotEmpty ? (u['photo'] as String? ?? '') : '';
-                      return Padding(padding: const EdgeInsets.only(right: 8), child: Chip(backgroundColor: Colors.white10, avatar: CircleAvatar(backgroundImage: photo.isNotEmpty ? NetworkImage(photo) as ImageProvider : null, child: photo.isEmpty ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?') : null), label: Row(children: [Text(name, style: const TextStyle(color: Colors.white70)), const SizedBox(width: 8), GestureDetector(onTap: () => setState(() => selectedUids.remove(uid)), child: const Icon(Icons.close, size: 16, color: Colors.white54))],)), );
+                      return Padding(padding: const EdgeInsets.only(right: 8), child: Chip(backgroundColor: tileBg, avatar: CircleAvatar(backgroundImage: photo.isNotEmpty ? NetworkImage(photo) as ImageProvider : null, child: photo.isEmpty ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: TextStyle(color: textColor)) : null), label: Row(children: [Text(name, style: TextStyle(color: subText)), const SizedBox(width: 8), GestureDetector(onTap: () => setState(() => selectedUids.remove(uid)), child: Icon(Icons.close, size: 16, color: muted))],)), );
                     }).toList())),
 
                     const SizedBox(height: 8),
 
                     // members list
-                    Expanded(child: visibleUsers.isEmpty ? const Center(child: Text('Aucun contact trouvé dans l\'application', style: TextStyle(color: Colors.white38))) : ListView.builder(itemCount: visibleUsers.length, itemBuilder: (c,i) { final u = visibleUsers[i]; final uid = u['uid'] as String; final rawName = (u['name'] as String? ?? ''); final email = (u['email'] as String? ?? ''); final name = rawName.isNotEmpty ? rawName : (email.isNotEmpty ? email : uid); final photo = u['photo'] as String? ?? ''; final selected = selectedUids.contains(uid); return Card(color: Colors.transparent, child: ListTile(leading: GestureDetector(onTap: () async { final picker = ImagePicker(); final img = await picker.pickImage(source: ImageSource.gallery, maxWidth: 800); if (img != null) setState(() => memberPhotos[uid] = img); }, child: CircleAvatar(radius: 22, backgroundColor: Colors.white10, backgroundImage: memberPhotos[uid] != null ? FileImage(File(memberPhotos[uid]!.path)) : (photo.isNotEmpty ? NetworkImage(photo) as ImageProvider : null), child: (memberPhotos[uid] == null && (photo.isEmpty)) ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?') : null, )), title: Text(name, style: const TextStyle(color: Colors.white)), subtitle: Text(u['email'] ?? '', style: const TextStyle(color: Colors.white60)), trailing: Checkbox(value: selected, onChanged: (v) => setState(() => v == true ? selectedUids.add(uid) : selectedUids.remove(uid))), onTap: () => setState(() => selectedUids.contains(uid) ? selectedUids.remove(uid) : selectedUids.add(uid)), )); })),
+                    Expanded(
+                      child: visibleUsers.isEmpty
+                          ? Center(child: Text('Aucun contact trouvé dans l\'application', style: TextStyle(color: muted)))
+                          : ListView.builder(
+                              itemCount: visibleUsers.length,
+                              itemBuilder: (c, i) {
+                                final u = visibleUsers[i];
+                                final uid = u['uid'] as String;
+                                final rawName = (u['name'] as String? ?? '');
+                                final email = (u['email'] as String? ?? '');
+                                final name = rawName.isNotEmpty ? rawName : (email.isNotEmpty ? email : uid);
+                                final photo = u['photo'] as String? ?? '';
+                                final selected = selectedUids.contains(uid);
+                                return Card(
+                                  color: Colors.transparent,
+                                  child: ListTile(
+                                    leading: GestureDetector(
+                                      onTap: () async {
+                                        final picker = ImagePicker();
+                                        final img = await picker.pickImage(source: ImageSource.gallery, maxWidth: 800);
+                                        if (img != null) setState(() => memberPhotos[uid] = img);
+                                      },
+                                      child: CircleAvatar(
+                                        radius: 22,
+                                        backgroundColor: tileBg,
+                                        backgroundImage: memberPhotos[uid] != null
+                                            ? FileImage(File(memberPhotos[uid]!.path))
+                                            : (photo.isNotEmpty ? NetworkImage(photo) as ImageProvider : null),
+                                        child: (memberPhotos[uid] == null && (photo.isEmpty))
+                                            ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: TextStyle(color: textColor))
+                                            : null,
+                                      ),
+                                    ),
+                                    title: Text(name, style: TextStyle(color: textColor)),
+                                    subtitle: Text(u['email'] ?? '', style: TextStyle(color: subText)),
+                                    trailing: Checkbox(
+                                      value: selected,
+                                      onChanged: (v) => setState(() => v == true ? selectedUids.add(uid) : selectedUids.remove(uid)),
+                                    ),
+                                    onTap: () => setState(() => selectedUids.contains(uid) ? selectedUids.remove(uid) : selectedUids.add(uid)),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
 
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        Expanded(child: OutlinedButton(onPressed: () => Navigator.pop(ctx), child: const Text('Annuler', style: TextStyle(color: Colors.white70)))),
+                        Expanded(child: OutlinedButton(onPressed: () => Navigator.pop(ctx), child: Text('Annuler', style: TextStyle(color: subText)))),
                         const SizedBox(width: 12),
                         ElevatedButton(
                           onPressed: () async {
@@ -2489,7 +2687,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                             if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Création du groupe...')));
 
                             try {
-                              final participantIds = [currentUser!.uid, ...selectedUids].toSet().toList();
+                              final participantIds = {currentUser!.uid, ...selectedUids}.toList();
 
                               // create chat doc
                               final newChatRef = await FirebaseFirestore.instance.collection('chats').add({
@@ -2557,7 +2755,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                               try {
                                 final creatorName = FirebaseAuth.instance.currentUser?.displayName ?? 'Un utilisateur';
                                 final addedCount = selectedUids.length;
-                                final text = '$creatorName a créé le groupe' + (addedCount > 0 ? ' et a ajouté $addedCount membre(s)' : '');
+                                final text = '$creatorName a créé le groupe${addedCount > 0 ? ' et a ajouté $addedCount membre(s)' : ''}';
                                 // add system message
                                 await newChatRef.collection('messages').add({
                                   'type': 'system',
@@ -2608,7 +2806,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
     final snap = await FirebaseFirestore.instance.collection('saved_messages').where('userId', isEqualTo: currentUser!.uid).orderBy('createdAt', descending: true).get();
     showModalBottomSheet(
       context: context,
-      backgroundColor: const Color(0xFF0F171A),
+      backgroundColor: _modalBg(context),
       isScrollControlled: true,
       builder: (_) {
         return Material(
@@ -2616,31 +2814,31 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
           child: SizedBox(
             height: MediaQuery.of(context).size.height * 0.8,
             child: snap.docs.isEmpty
-              ? const Center(child: Padding(padding: EdgeInsets.all(20), child: Text('Aucun message sauvegardé', style: TextStyle(color: Colors.white38))))
+              ? Center(child: Padding(padding: const EdgeInsets.all(20), child: Text('Aucun message sauvegardé', style: TextStyle(color: _modalMuted(context)))))
               : ListView.builder(
                 itemCount: snap.docs.length,
                 itemBuilder: (c, i) {
                   final d = snap.docs[i];
-                  final data = d.data() as Map<String, dynamic>;
+                  final data = d.data();
                   final type = (data['type'] ?? 'text') as String;
                   final createdAt = data['createdAt'] is Timestamp ? (data['createdAt'] as Timestamp).toDate() : DateTime.now();
                   final timeLabel = timeago.format(createdAt, locale: 'fr');
 
                   Widget leading;
                   if (type == 'image' && (data['url'] ?? '').toString().isNotEmpty) {
-                    leading = CircleAvatar(backgroundColor: Colors.white10, backgroundImage: CachedNetworkImageProvider(data['url']) as ImageProvider);
+                    leading = CircleAvatar(backgroundColor: _modalTileBg(context), backgroundImage: CachedNetworkImageProvider(data['url']) as ImageProvider);
                   } else if (type == 'video') {
-                    leading = const CircleAvatar(backgroundColor: Colors.white10, child: Icon(Icons.videocam, color: Colors.white));
+                    leading = CircleAvatar(backgroundColor: _modalTileBg(context), child: Icon(Icons.videocam, color: _modalText(context)));
                   } else if (type == 'audio') {
-                    leading = const CircleAvatar(backgroundColor: Colors.white10, child: Icon(Icons.audiotrack, color: Colors.white));
+                    leading = CircleAvatar(backgroundColor: _modalTileBg(context), child: Icon(Icons.audiotrack, color: _modalText(context)));
                   } else {
-                    leading = const CircleAvatar(backgroundColor: Colors.white10, child: Icon(Icons.bookmark, color: Colors.white));
+                    leading = CircleAvatar(backgroundColor: _modalTileBg(context), child: Icon(Icons.bookmark, color: _modalText(context)));
                   }
 
                   return ListTile(
                     leading: leading,
-                    title: Text((data['text'] ?? (data['url'] ?? '')) as String, style: const TextStyle(color: Colors.white), maxLines: 2, overflow: TextOverflow.ellipsis),
-                    subtitle: Text('${data['sourceName'] ?? ''} • $timeLabel', style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                    title: Text((data['text'] ?? (data['url'] ?? '')) as String, style: TextStyle(color: _modalText(context)), maxLines: 2, overflow: TextOverflow.ellipsis),
+                    subtitle: Text('${data['sourceName'] ?? ''} • $timeLabel', style: TextStyle(color: _modalSub(context), fontSize: 12)),
                     onTap: () async {
                       // If we have chatId, open conversation
                       final chatId = data['chatId'] as String?;
@@ -2648,7 +2846,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
                         Navigator.pop(context);
                         try {
                           final doc = await FirebaseFirestore.instance.collection('chats').doc(chatId).get();
-                          final isGroup = doc.exists && ((doc.data() as Map<String, dynamic>?)?['isGroup'] == true);
+                          final isGroup = doc.exists && ((doc.data())?['isGroup'] == true);
                           if (mounted) {
                             if (isGroup) {
                               Navigator.push(context, MaterialPageRoute(builder: (_) => GroupChatDetailPage(chatId: chatId, chatName: data['sourceName'] ?? 'Discussion')));
@@ -2929,3 +3127,8 @@ Future<void> _showAvatarActions(
     },
   );
 }
+
+
+
+
+

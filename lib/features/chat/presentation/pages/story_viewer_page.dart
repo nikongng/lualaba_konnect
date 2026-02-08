@@ -9,6 +9,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:video_player/video_player.dart';
 import 'package:intl/intl.dart';
+import 'package:lualaba_konnect/shared/widgets/account_badge.dart';
+import 'package:lualaba_konnect/features/chat/presentation/pages/user_utils.dart';
 
 class StoryViewerPage extends StatefulWidget {
   final List<DocumentSnapshot> stories;
@@ -124,9 +126,16 @@ Future<void> _recordViewForStory(int index) async {
     final doc = widget.stories[index];
     final id = doc.id;
     String text = '';
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sheetBg = isDark ? const Color(0xFF0F171A) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subText = isDark ? Colors.white70 : Colors.black54;
+    final muted = isDark ? Colors.white54 : Colors.black38;
+    final divider = isDark ? Colors.white12 : Colors.black12;
+    final fieldBg = isDark ? const Color(0xFF132026) : const Color(0xFFF2F4F6);
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.black87,
+      backgroundColor: sheetBg,
       isScrollControlled: true,
       builder: (ctx) {
         return Padding(
@@ -135,17 +144,46 @@ Future<void> _recordViewForStory(int index) async {
             height: 360,
             child: Column(
               children: [
-                const Padding(padding: EdgeInsets.all(12.0), child: Text('Commentaires', style: TextStyle(color: Colors.white, fontSize: 18))),
-                const Divider(color: Colors.white24),
+                Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Text('Commentaires', style: TextStyle(color: textColor, fontSize: 18)),
+                ),
+                Divider(color: divider),
                 Expanded(child: StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance.collection('stories').doc(id).collection('comments').orderBy('createdAt', descending: true).snapshots(),
                   builder: (c, snap) {
-                    if (!snap.hasData || snap.data!.docs.isEmpty) return Center(child: Text('Aucun commentaire', style: TextStyle(color: Colors.white54)));
+                    if (!snap.hasData || snap.data!.docs.isEmpty) {
+                      return Center(child: Text('Aucun commentaire', style: TextStyle(color: muted)));
+                    }
                     return ListView.builder(
                       itemCount: snap.data!.docs.length,
                       itemBuilder: (ctx, i) {
                         final d = snap.data!.docs[i].data() as Map<String, dynamic>;
-                        return ListTile(title: Text(d['text'] ?? '', style: TextStyle(color: Colors.white)), subtitle: Text(d['authorName'] ?? '', style: TextStyle(color: Colors.white70)));
+                        final authorId = (d['authorId'] ?? '').toString();
+                        final authorName = (d['authorName'] ?? 'Utilisateur').toString();
+                        return ListTile(
+                          title: Text(d['text'] ?? '', style: TextStyle(color: textColor)),
+                          subtitle: authorId.isEmpty
+                              ? Text(authorName, style: TextStyle(color: subText))
+                              : FutureBuilder<Map<String, dynamic>>(
+                                  future: _fetchStoryProfile({'userId': authorId, 'userName': authorName}),
+                                  builder: (context, snap) {
+                                    final display = snap.data?['name']?.toString() ?? authorName;
+                                    final accountType = snap.data?['collection']?.toString();
+                                    final isCert = snap.data?['isCert'] == true;
+                                    return Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(display, style: TextStyle(color: subText)),
+                                        if (isCert || accountType != null) ...[
+                                          const SizedBox(width: 6),
+                                          AccountBadges(isCertified: isCert, accountType: accountType, fontSize: 9),
+                                        ],
+                                      ],
+                                    );
+                                  },
+                                ),
+                        );
                       },
                     );
                   },
@@ -153,8 +191,23 @@ Future<void> _recordViewForStory(int index) async {
                 Padding(
                   padding: const EdgeInsets.all(12.0),
                   child: Row(children: [
-                    Expanded(child: TextField(style: const TextStyle(color: Colors.white), decoration: const InputDecoration(hintText: 'Ajouter un commentaire', hintStyle: TextStyle(color: Colors.white38)), onChanged: (v) => text = v)),
-                    IconButton(icon: const Icon(Icons.send, color: Colors.white), onPressed: () async {
+                    Expanded(
+                      child: TextField(
+                        style: TextStyle(color: textColor),
+                        decoration: InputDecoration(
+                          hintText: 'Ajouter un commentaire',
+                          hintStyle: TextStyle(color: muted),
+                          filled: true,
+                          fillColor: fieldBg,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: divider)),
+                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: divider)),
+                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: Theme.of(context).colorScheme.primary)),
+                        ),
+                        onChanged: (v) => text = v,
+                      ),
+                    ),
+                    IconButton(icon: Icon(Icons.send, color: Theme.of(context).colorScheme.primary), onPressed: () async {
                       final uid = FirebaseAuth.instance.currentUser?.uid;
                       final name = FirebaseAuth.instance.currentUser?.displayName ?? '';
                       if (text.trim().isEmpty || uid == null) return;
@@ -181,9 +234,15 @@ Future<void> _recordViewForStory(int index) async {
     if (uid == null || ownerId.isEmpty || ownerId != uid) {
       return;
     }
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sheetBg = isDark ? const Color(0xFF0F171A) : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black87;
+    final subText = isDark ? Colors.white70 : Colors.black54;
+    final muted = isDark ? Colors.white54 : Colors.black38;
+    final divider = isDark ? Colors.white12 : Colors.black12;
     showModalBottomSheet(
       context: context,
-      backgroundColor: Colors.black87,
+      backgroundColor: sheetBg,
       isScrollControlled: true,
       builder: (ctx) {
         return Padding(
@@ -192,21 +251,30 @@ Future<void> _recordViewForStory(int index) async {
             height: 420,
             child: Column(
               children: [
-                const Padding(padding: EdgeInsets.all(12.0), child: Text('Vus par', style: TextStyle(color: Colors.white, fontSize: 18))),
-                const Divider(color: Colors.white24),
+                Padding(
+                  padding: const EdgeInsets.all(12.0),
+                  child: Text('Vus par', style: TextStyle(color: textColor, fontSize: 18)),
+                ),
+                Divider(color: divider),
                 Expanded(child: StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance.collection('stories').doc(id).collection('views').orderBy('seenAt', descending: true).snapshots(),
                   builder: (c, snap) {
-                    if (!snap.hasData || snap.data!.docs.isEmpty) return Center(child: Text('Aucun visiteur', style: TextStyle(color: Colors.white54)));
+                    if (!snap.hasData || snap.data!.docs.isEmpty) {
+                      return Center(child: Text('Aucun visiteur', style: TextStyle(color: muted)));
+                    }
                     return ListView.separated(
                       itemCount: snap.data!.docs.length,
-                      separatorBuilder: (_, __) => const Divider(color: Colors.white12),
+                      separatorBuilder: (_, __) => Divider(color: divider),
                       itemBuilder: (ctx, i) {
                         final d = snap.data!.docs[i].data() as Map<String, dynamic>;
                         final seen = d['seenAt'] is Timestamp ? DateFormat.yMd().add_Hm().format((d['seenAt'] as Timestamp).toDate()) : '';
                         return ListTile(
-                          leading: const CircleAvatar(backgroundColor: Colors.white24, child: Icon(Icons.person, color: Colors.white, size: 18)),
-                          title: Text(seen, style: const TextStyle(color: Colors.white)),
+                          leading: CircleAvatar(
+                            backgroundColor: isDark ? Colors.white24 : Colors.black12,
+                            child: Icon(Icons.person, color: textColor, size: 18),
+                          ),
+                          title: Text(seen, style: TextStyle(color: textColor)),
+                          subtitle: d['viewerName'] != null ? Text('${d['viewerName']}', style: TextStyle(color: subText)) : null,
                         );
                       },
                     );
@@ -387,12 +455,23 @@ Future<void> _recordViewForStory(int index) async {
                     children: [
                       const CircleAvatar(radius: 18, backgroundColor: Colors.white24, child: Icon(Icons.person, color: Colors.white, size: 20)),
                       const SizedBox(width: 10),
-                      FutureBuilder<String>(
+                      FutureBuilder<Map<String, dynamic>>(
                         key: ValueKey(widget.stories[_currentIndex].id),
-                        future: _fetchDisplayNameForData(widget.stories[_currentIndex].data() as Map<String, dynamic>),
+                        future: _fetchStoryProfile(widget.stories[_currentIndex].data() as Map<String, dynamic>),
                         builder: (context, snap) {
-                          final display = snap.hasData ? snap.data! : '...';
-                          return Text(display, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 10, color: Colors.black)]));
+                          final display = snap.data?['name']?.toString() ?? '...';
+                          final accountType = snap.data?['collection']?.toString();
+                          final isCert = snap.data?['isCert'] == true;
+                          return Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(display, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, shadows: [Shadow(blurRadius: 10, color: Colors.black)])),
+                              if (isCert || accountType != null) ...[
+                                const SizedBox(width: 6),
+                                AccountBadges(isCertified: isCert, accountType: accountType, fontSize: 10),
+                              ],
+                            ],
+                          );
                         },
                       ),
                       const Spacer(),
@@ -512,7 +591,24 @@ Future<void> _recordViewForStory(int index) async {
                         final owner = _ownerIdOf(data);
                         final uid = FirebaseAuth.instance.currentUser?.uid;
                         if (uid==null) return;
-                        final ok = await showDialog<bool>(context: context, builder: (c) { return AlertDialog(backgroundColor: Colors.black87, title: const Text('Bloquer cet utilisateur?', style: TextStyle(color: Colors.white)), content: const Text('Vous ne verrez plus les stories de cet utilisateur.', style: TextStyle(color: Colors.white70)), actions: [ TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Annuler')), TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Bloquer', style: TextStyle(color: Colors.red))) ],); });
+                        final ok = await showDialog<bool>(
+                          context: context,
+                          builder: (c) {
+                            final isDark = Theme.of(c).brightness == Brightness.dark;
+                            final dialogBg = isDark ? const Color(0xFF0F171A) : Colors.white;
+                            final textColor = isDark ? Colors.white : Colors.black87;
+                            final subText = isDark ? Colors.white70 : Colors.black54;
+                            return AlertDialog(
+                              backgroundColor: dialogBg,
+                              title: Text('Bloquer cet utilisateur?', style: TextStyle(color: textColor)),
+                              content: Text('Vous ne verrez plus les stories de cet utilisateur.', style: TextStyle(color: subText)),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: textColor))),
+                                TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Bloquer', style: TextStyle(color: Colors.red))),
+                              ],
+                            );
+                          },
+                        );
                         if (ok==true) {
                           final meRef = FirebaseFirestore.instance.collection('classic_users').doc(uid);
                           await meRef.update({'blocked': FieldValue.arrayUnion([owner])});
@@ -611,6 +707,42 @@ String _ownerIdOf(Map<String, dynamic> data) {
   if (data.containsKey('uid')) return data['uid'] as String? ?? '';
   if (data.containsKey('posterId')) return data['posterId'] as String? ?? '';
   return '';
+}
+
+Future<Map<String, dynamic>> _fetchStoryProfile(Map<String, dynamic> data) async {
+  try {
+    final ownerId = _ownerIdOf(data);
+    final currentUid = FirebaseAuth.instance.currentUser?.uid;
+
+    if (currentUid != null && ownerId == currentUid) {
+      return {'name': 'Moi', 'collection': null, 'isCert': false};
+    }
+
+    final collections = ['classic_users', 'pro_users', 'enterprise_users'];
+    for (String col in collections) {
+      final snap = await FirebaseFirestore.instance.collection(col).doc(ownerId).get();
+      if (snap.exists) {
+        final userData = snap.data();
+        if (userData != null) {
+          final name = UserUtils.formatName(userData);
+          final firstName = (userData['firstName'] ?? '').toString();
+          final display = name.isNotEmpty ? name : (firstName.isNotEmpty ? firstName : 'Utilisateur');
+          final isCert = userData['isCertified'] == true;
+          return {'name': display, 'collection': col, 'isCert': isCert};
+        }
+      }
+    }
+
+    final storyUserName = data['userName'] as String?;
+    if (storyUserName != null && storyUserName.isNotEmpty && storyUserName != 'Moi') {
+      return {'name': storyUserName, 'collection': null, 'isCert': false};
+    }
+
+    return {'name': 'Utilisateur', 'collection': null, 'isCert': false};
+  } catch (e) {
+    debugPrint('Erreur fetchStoryProfile: $e');
+    return {'name': 'Utilisateur', 'collection': null, 'isCert': false};
+  }
 }
 
 Future<String> _fetchDisplayNameForData(Map<String, dynamic> data) async {

@@ -5,6 +5,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'call_webrtc_logic.dart';
 import 'package:lualaba_konnect/core/notification_service.dart';
+import 'package:lualaba_konnect/core/ongoing_call_service.dart';
 
 class CallWebRTCPage extends StatefulWidget {
   final String name;
@@ -28,7 +29,7 @@ class CallWebRTCPage extends StatefulWidget {
   State<CallWebRTCPage> createState() => _CallWebRTCPageState();
 }
 
-class _CallWebRTCPageState extends State<CallWebRTCPage> with SingleTickerProviderStateMixin {
+class _CallWebRTCPageState extends State<CallWebRTCPage> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late CallWebRTCLogic _logic;
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
@@ -39,6 +40,7 @@ class _CallWebRTCPageState extends State<CallWebRTCPage> with SingleTickerProvid
   bool _isSpeakerOn = false;
   bool _isConnected = false;
   bool _isRinging = false;
+  bool _videoPausedByBackground = false;
   
   // États PiP (Picture-in-Picture)
   bool _isMinimized = false;
@@ -54,17 +56,48 @@ class _CallWebRTCPageState extends State<CallWebRTCPage> with SingleTickerProvid
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _stopwatch = Stopwatch();
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
 
+    // Keep audio reliable when app goes background (Android): show a foreground-service notification.
+    // Video is handled separately (we disable camera when backgrounded).
+    OngoingCallService.start(
+      title: widget.name.isNotEmpty ? widget.name : 'Appel en cours',
+      subtitle: widget.isVideo ? 'Appel vidéo (audio en arrière-plan)' : 'Appel audio en cours',
+    );
+
     if (widget.isVideo) {
       _isSpeakerOn = true;
       Helper.setSpeakerphoneOn(true);
     }
     _initRenderers();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Most realistic behavior: when app goes background, keep audio but pause video capture.
+    if (!widget.isVideo) return;
+
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+      if (_camera) {
+        _videoPausedByBackground = true;
+        _localRenderer.srcObject?.getVideoTracks().forEach((t) => t.enabled = false);
+        setState(() {});
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      if (_videoPausedByBackground) {
+        _videoPausedByBackground = false;
+        // Restore only if user didn't manually disable camera during the pause.
+        if (_camera) {
+          _localRenderer.srcObject?.getVideoTracks().forEach((t) => t.enabled = true);
+        }
+        setState(() {});
+      }
+    }
   }
 
   Future<void> _initRenderers() async {
@@ -159,6 +192,8 @@ class _CallWebRTCPageState extends State<CallWebRTCPage> with SingleTickerProvid
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    OngoingCallService.stop();
     _timer.cancel();
     _stopwatch.stop();
     _pulseController.dispose();

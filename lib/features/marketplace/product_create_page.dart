@@ -247,22 +247,27 @@ class _ProductCreatePageState extends State<ProductCreatePage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color bg = isDark ? const Color(0xFF0F1214) : const Color(0xFFF0F2F5);
+    final Color appBarBg = isDark ? const Color(0xFF14181C) : Colors.white;
+    final Color text = isDark ? Colors.white : Colors.black;
+    final Color sub = isDark ? Colors.white70 : Colors.black54;
     return Scaffold(
-      backgroundColor: const Color(0xFFF0F2F5),
+      backgroundColor: bg,
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
             expandedHeight: 120.0,
             pinned: true,
             elevation: 0,
-            backgroundColor: Colors.white,
+            backgroundColor: appBarBg,
             flexibleSpace: FlexibleSpaceBar(
-              title: const Text("Vendre un article", 
-                style: TextStyle(color: Colors.black, fontWeight: FontWeight.w800, fontSize: 18)),
+              title: Text("Vendre un article", 
+                style: TextStyle(color: text, fontWeight: FontWeight.w800, fontSize: 18)),
               centerTitle: true,
             ),
             leading: IconButton(
-              icon: const Icon(Icons.close, color: Colors.black),
+              icon: Icon(Icons.close, color: text),
               onPressed: () => Navigator.pop(context),
             ),
           ),
@@ -270,7 +275,7 @@ class _ProductCreatePageState extends State<ProductCreatePage> {
             SliverToBoxAdapter(
               child: LinearProgressIndicator(
                 value: _uploadProgress,
-                backgroundColor: Colors.grey.shade50,
+                backgroundColor: isDark ? Colors.white10 : Colors.grey.shade50,
                 color: Colors.orange,
               ),
             ),
