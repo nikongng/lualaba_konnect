@@ -178,7 +178,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
       for (final col in ['enterprise_users', 'pro_users', 'classic_users']) {
         final doc = await FirebaseFirestore.instance.collection(col).doc(authorId).get();
         if (doc.exists) {
-          final data = doc.data() as Map<String, dynamic>? ?? {};
+          final data = doc.data() ?? {};
           final first = _firstNameFromData(data);
           final name = UserUtils.formatName(data);
           final displayName = _safeName(first.isNotEmpty ? first : (name.isNotEmpty ? name : fallbackName));
@@ -188,7 +188,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
       }
       final doc = await FirebaseFirestore.instance.collection('users').doc(authorId).get();
       if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>? ?? {};
+        final data = doc.data() ?? {};
         final first = _firstNameFromData(data);
         final name = UserUtils.formatName(data);
         final displayName = _safeName(first.isNotEmpty ? first : (name.isNotEmpty ? name : fallbackName));
@@ -211,7 +211,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
       try {
         final snap = await FirebaseFirestore.instance.collection(col).doc(uid).get();
         if (!snap.exists) continue;
-        final data = snap.data() as Map<String, dynamic>? ?? <String, dynamic>{};
+        final data = snap.data() ?? <String, dynamic>{};
         firstData ??= data;
         firstCol ??= col;
 
@@ -228,7 +228,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
         }
       } catch (_) {}
     }
-    if (bestNameData != null) return {'collection': bestNameCol, 'data': bestNameData!};
+    if (bestNameData != null) return {'collection': bestNameCol, 'data': bestNameData};
     return {'collection': firstCol, 'data': firstData ?? <String, dynamic>{}};
   }
   static const List<Map<String, String>> _reactionOptions = [
@@ -502,7 +502,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
     if (idx == -1) return text;
     final before = text.substring(0, idx);
     final compact = display.replaceAll(' ', '');
-    return '${before}@$compact ';
+    return '$before@$compact ';
   }
 
   Widget _buildMentionText(String text, {TextStyle? base, TextStyle? mention}) {
@@ -1295,7 +1295,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
                           final hasTarget = docs.any((d) => d.id == jumpCommentId);
                           if (hasTarget && jumpReplyId != null) {
                             WidgetsBinding.instance.addPostFrameCallback((_) {
-                              _openReplies(postId, jumpCommentId!, jumpReplyId: jumpReplyId);
+                              _openReplies(postId, jumpCommentId, jumpReplyId: jumpReplyId);
                             });
                             jumpReplyId = null;
                           }
@@ -1547,7 +1547,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
       final snap = await tx.get(ref);
       if (!snap.exists) return;
       tx.delete(ref.collection('comments').doc(commentId));
-      final current = (snap.data() as Map<String, dynamic>?)?['commentsCount'] ?? 0;
+      final current = (snap.data())?['commentsCount'] ?? 0;
       final next = (current is int && current > 0) ? current - 1 : 0;
       tx.update(ref, {'commentsCount': next});
     });
@@ -1835,7 +1835,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
       final snap = await tx.get(ref);
       if (!snap.exists) return;
       tx.delete(ref.collection('replies').doc(replyId));
-      final current = (snap.data() as Map<String, dynamic>?)?['repliesCount'] ?? 0;
+      final current = (snap.data())?['repliesCount'] ?? 0;
       final next = (current is int && current > 0) ? current - 1 : 0;
       tx.update(ref, {'repliesCount': next});
     });
@@ -2461,7 +2461,7 @@ class _VerticalNewsPostState extends State<VerticalNewsPost> {
       for (final col in ['enterprise_users', 'pro_users', 'classic_users']) {
         final doc = await FirebaseFirestore.instance.collection(col).doc(authorId).get();
         if (doc.exists) {
-          final data = doc.data() as Map<String, dynamic>? ?? {};
+          final data = doc.data() ?? {};
           final first = _firstNameFromData(data);
           final name = UserUtils.formatName(data);
           final displayName = _safeName(first.isNotEmpty ? first : (name.isNotEmpty ? name : fallbackName));
@@ -2478,7 +2478,7 @@ class _VerticalNewsPostState extends State<VerticalNewsPost> {
 
       final doc = await FirebaseFirestore.instance.collection('users').doc(authorId).get();
       if (doc.exists) {
-        final data = doc.data() as Map<String, dynamic>? ?? {};
+        final data = doc.data() ?? {};
         final first = _firstNameFromData(data);
         final name = UserUtils.formatName(data);
         final displayName = _safeName(first.isNotEmpty ? first : (name.isNotEmpty ? name : fallbackName));
@@ -2546,15 +2546,15 @@ class _VerticalNewsPostState extends State<VerticalNewsPost> {
   @override
   Widget build(BuildContext context) {
     final data = widget.data;
-    int _asInt(dynamic v) {
+    int asInt(dynamic v) {
       if (v is int) return v;
       if (v is num) return v.toInt();
       return int.tryParse(v?.toString() ?? '') ?? 0;
     }
     final images = List<String>.from(data['images'] ?? []);
-    final likes = _asInt(data['likes']);
-    final comments = _asInt(data['commentsCount']);
-    final shares = _asInt(data['sharesCount']);
+    final likes = asInt(data['likes']);
+    final comments = asInt(data['commentsCount']);
+    final shares = asInt(data['sharesCount']);
     final likedBy = List<dynamic>.from(data['likedBy'] ?? []);
     final userId = FirebaseAuth.instance.currentUser?.uid;
     final isLiked = userId != null && likedBy.contains(userId);
@@ -2578,7 +2578,7 @@ class _VerticalNewsPostState extends State<VerticalNewsPost> {
     for (final opt in _reactionOptions) {
       final key = opt['key'];
       if (key == null || key.isEmpty) continue;
-      final cnt = _asInt(reactions[key]);
+      final cnt = asInt(reactions[key]);
       reactionCounts[key] = cnt < 0 ? 0 : cnt;
     }
     // Merge likes counter into the like reaction for the summary line.

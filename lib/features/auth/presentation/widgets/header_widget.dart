@@ -210,12 +210,6 @@ class _HeaderWidgetState extends State<HeaderWidget>
   void _showPhotoUpdatedToast() {
     if (!mounted) return;
     final overlay = Overlay.of(context);
-    if (overlay == null) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        const SnackBar(content: Text('Photo de profil mise à jour')),
-      );
-      return;
-    }
 
     late OverlayEntry entry;
     final controller = AnimationController(
@@ -289,12 +283,6 @@ class _HeaderWidgetState extends State<HeaderWidget>
   void _showCustomToast(String message) {
     if (!mounted) return;
     final overlay = Overlay.of(context);
-    if (overlay == null) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(content: Text(message)),
-      );
-      return;
-    }
 
     late OverlayEntry entry;
     final controller = AnimationController(

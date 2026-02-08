@@ -2751,7 +2751,7 @@ class _DropdownField extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final safeValue = (value != null && items.any((e) => e.value == value)) ? value : null;
     return DropdownButtonFormField<String>(
-      value: safeValue,
+      initialValue: safeValue,
       items: items,
       onChanged: onChanged,
       style: TextStyle(color: textColor, fontWeight: FontWeight.w800),

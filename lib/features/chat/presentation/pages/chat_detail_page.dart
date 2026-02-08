@@ -409,8 +409,11 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
   // ---- Multi-select helpers ----
   void _toggleSelection(String id) {
     setState(() {
-      if (_selectedMessageIds.contains(id)) _selectedMessageIds.remove(id);
-      else _selectedMessageIds.add(id);
+      if (_selectedMessageIds.contains(id)) {
+        _selectedMessageIds.remove(id);
+      } else {
+        _selectedMessageIds.add(id);
+      }
       _selectionMode = _selectedMessageIds.isNotEmpty;
     });
   }
@@ -503,7 +506,7 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
           .get();
 
       if (lastSnap.docs.isNotEmpty) {
-        final last = lastSnap.docs.first.data() as Map<String, dynamic>;
+        final last = lastSnap.docs.first.data();
         final preview = _messagePreviewText(last);
         await chatRef.update({
           'lastMessage': preview,
@@ -574,7 +577,7 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
               child: Text('$emoji $count', style: const TextStyle(color: Colors.white, fontSize: 12)),
             ),
           );
-        }).toList(),
+        }),
         if (msgRef != null)
           GestureDetector(
             onTap: () => _showReactionPicker(msgRef),
@@ -900,7 +903,7 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
   Future<void> _saveMessageForUser(Map msg, {String? chatId}) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    final Map<String, dynamic> data = msg is Map<String, dynamic> ? msg : Map<String, dynamic>.from(msg as Map);
+    final Map<String, dynamic> data = msg is Map<String, dynamic> ? msg : Map<String, dynamic>.from(msg);
     final msgId = data['id'] ?? data['messageId'] ?? '';
     try {
       // avoid duplicates
@@ -1046,7 +1049,7 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                       Navigator.pop(ctx);
                       try {
                         final doc = await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).get();
-                        final isGroup = doc.exists && ((doc.data() as Map<String, dynamic>?)?['isGroup'] == true);
+                        final isGroup = doc.exists && ((doc.data())?['isGroup'] == true);
                         if (mounted) {
                           if (isGroup) {
                             Navigator.push(context, MaterialPageRoute(builder: (_) => GroupChatDetailPage(chatId: widget.chatId, chatName: displayName)));
@@ -2349,7 +2352,7 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                           Switch(
                             value: sendDisabled,
                             onChanged: (v) => setModal(() => sendDisabled = v),
-                            activeColor: Colors.orangeAccent,
+                            activeThumbColor: Colors.orangeAccent,
                           ),
                         ],
                       ),
@@ -2786,7 +2789,7 @@ Future<void> _blockContact(String otherId) async {
   Widget _buildReplyInBubble(BuildContext context, Map<String, dynamic> m, {required bool isMe}) {
     final raw = m['replyTo'];
     if (raw is! Map) return const SizedBox.shrink();
-    final r = Map<String, dynamic>.from(raw as Map);
+    final r = Map<String, dynamic>.from(raw);
     final isDark = _isDark(context);
     final barColor = isMe ? Colors.white70 : tgAccent;
     final titleColor = isDark ? Colors.white70 : Colors.black87;
@@ -4006,8 +4009,11 @@ Future<void> _editContactLocal(String otherId) async {
                 onLongPress: () => _onMessageLongPress(doc, m),
                 onDoubleTap: () => _toggleReaction(doc.reference, '❤️'),
                 onTap: () {
-                  if (_selectionMode) _toggleSelection(doc.id);
-                  else _onMessageOpen(doc, m);
+                  if (_selectionMode) {
+                    _toggleSelection(doc.id);
+                  } else {
+                    _onMessageOpen(doc, m);
+                  }
                 },
                 child: Stack(
                   children: [

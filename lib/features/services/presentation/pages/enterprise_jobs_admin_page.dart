@@ -648,7 +648,7 @@ class _EnterpriseJobsAdminPageState extends State<EnterpriseJobsAdminPage> with 
     ValueChanged<String?> onChanged,
   ) {
     return DropdownButtonFormField<String>(
-      value: value,
+      initialValue: value,
       items: items.map((e) => DropdownMenuItem(value: e.$1, child: Text(e.$2))).toList(),
       onChanged: onChanged,
       style: TextStyle(color: text, fontWeight: FontWeight.w800),
@@ -920,7 +920,7 @@ class _EnterpriseJobsAdminPageState extends State<EnterpriseJobsAdminPage> with 
                                       spacing: 8,
                                       runSpacing: 6,
                                       children: [
-                                        _pill('${_statusLabel(statusKey)}', _statusColor(statusKey, isDark), isDark),
+                                        _pill(_statusLabel(statusKey), _statusColor(statusKey, isDark), isDark),
                                         if (loc.trim().isNotEmpty) _pill(loc.trim(), sub, isDark),
                                         if (type.trim().isNotEmpty) _pill(type.trim(), sub, isDark),
                                         if (when.isNotEmpty) _pill(when, sub, isDark),

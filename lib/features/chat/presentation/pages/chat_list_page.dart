@@ -13,7 +13,6 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:lualaba_konnect/shared/widgets/account_badge.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:timeago/timeago.dart' as timeago;
 import 'dart:convert';
 import 'call_webrtc_page.dart';

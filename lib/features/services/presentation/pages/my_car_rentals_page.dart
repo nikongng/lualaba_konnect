@@ -382,7 +382,7 @@ class _MyCarRentalsPageState extends State<MyCarRentalsPage> {
                                     const SizedBox(width: 8),
                                     Switch(
                                       value: active,
-                                      activeColor: _accent,
+                                      activeThumbColor: _accent,
                                       onChanged: (v) async {
                                         await doc.reference.update({
                                           'active': v,
@@ -443,7 +443,6 @@ class _Field extends StatelessWidget {
     required this.textColor,
     required this.subColor,
     required this.divider,
-    this.validator,
     this.maxLines = 1,
     this.keyboardType,
   });

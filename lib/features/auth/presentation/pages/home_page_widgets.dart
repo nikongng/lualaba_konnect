@@ -141,7 +141,7 @@ class HomePageWidgets {
               itemCount: docs.length,
               itemBuilder: (context, index) {
                 final raw = docs[index].data();
-                final data = raw is Map ? Map<String, dynamic>.from(raw as Map) : <String, dynamic>{};
+                final data = raw is Map ? Map<String, dynamic>.from(raw) : <String, dynamic>{};
 
                 final source = (data['category'] ?? data['authorName'] ?? 'Actu').toString();
                 final title = (data['text'] ?? '').toString();

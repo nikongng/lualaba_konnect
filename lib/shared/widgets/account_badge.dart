@@ -43,7 +43,7 @@ class _VerifiedBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final badgeSize = size.clamp(12, 20).toDouble();
-    return Container(
+    return SizedBox(
       width: badgeSize,
       height: badgeSize,
       child: Stack(

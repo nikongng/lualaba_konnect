@@ -46,8 +46,10 @@ dependencies:
   # PDF & OCR
   syncfusion_flutter_pdf: ^28.1.33
   pdfx: ^2.4.0
-  google_mlkit_text_recognition: ^0.11.0
-  google_mlkit_commons: ^0.6.1
+  # Keep MLKit in sync with Firebase iOS pods to avoid CocoaPods conflicts.
+  # Note: Recent google_mlkit_* releases may require a higher iOS deployment target.
+  google_mlkit_text_recognition: ^0.15.1
+  google_mlkit_commons: ^0.11.1
 
   # Location & Sensors
   geolocator: ^13.0.0

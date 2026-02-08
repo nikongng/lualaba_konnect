@@ -143,10 +143,10 @@ class CallWebRTCLogic {
         }
 
         // Fallback: some platforms deliver track without streams — wrap track in a MediaStream
-        _log('onTrack: received track id=${event.track?.id}, creating MediaStream fallback');
+        _log('onTrack: received track id=${event.track.id}, creating MediaStream fallback');
         try {
-          final ms = await createLocalMediaStream('remote_${event.track?.id ?? DateTime.now().millisecondsSinceEpoch}');
-          await ms.addTrack(event.track!);
+          final ms = await createLocalMediaStream('remote_${event.track.id ?? DateTime.now().millisecondsSinceEpoch}');
+          await ms.addTrack(event.track);
           onRemoteStream?.call(ms);
           return;
         } catch (e) {

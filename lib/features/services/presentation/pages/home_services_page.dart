@@ -972,7 +972,7 @@ class _ProCard extends StatelessWidget {
                     Row(
                       children: [
                         const Icon(Icons.star_rounded, size: 18, color: Color(0xFFFFC107)),
-                        Text('${pro.rating.toStringAsFixed(1)}', style: TextStyle(color: text, fontWeight: FontWeight.w900)),
+                        Text(pro.rating.toStringAsFixed(1), style: TextStyle(color: text, fontWeight: FontWeight.w900)),
                         const SizedBox(width: 6),
                         Text('(${pro.reviews})', style: TextStyle(color: sub, fontWeight: FontWeight.w700)),
                       ],
@@ -1068,7 +1068,6 @@ class _Field extends StatelessWidget {
     this.validator,
     this.maxLines = 1,
     this.keyboardType,
-    this.onChanged,
   });
 
   final String label;
