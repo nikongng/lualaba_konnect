@@ -308,15 +308,23 @@ class MyApp extends StatelessWidget {
           title: 'Lualaba Konnect',
           debugShowCheckedModeBanner: false,
           theme: baseLight.copyWith(
-            colorScheme: baseLight.colorScheme.copyWith(primary: Colors.orange),
-            textTheme: GoogleFonts.notoSansTextTheme(baseLight.textTheme),
-            fontFamily: 'Poppins',
-          ),
-          darkTheme: baseDark.copyWith(
-            colorScheme: baseDark.colorScheme.copyWith(primary: Colors.orange),
-            textTheme: GoogleFonts.notoSansTextTheme(baseDark.textTheme),
-            fontFamily: 'Poppins',
-          ),
+  colorScheme: baseLight.colorScheme.copyWith(
+    primary: Colors.orange,
+  ),
+  textTheme: baseLight.textTheme.apply(
+    fontFamily: 'Poppins',
+  ),
+),
+
+          darkTheme: ThemeData(
+  brightness: Brightness.dark,
+  colorScheme: ColorScheme.fromSeed(
+    seedColor: Colors.orange,
+    brightness: Brightness.dark,
+  ),
+  fontFamily: 'Poppins',
+),
+
           themeMode: themeCtrl.mode,
           home: const SplashScreen(),
           routes: {
