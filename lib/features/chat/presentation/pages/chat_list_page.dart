@@ -500,6 +500,8 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
           'title': callerName,
           'body': isVideo ? 'Appel vidéo entrant' : 'Appel audio entrant',
           'senderAvatarUrl': callerPhoto,
+          'existing_android_channel_id': 'lualaba_channel_v2',
+          'android_sound': 'lualaba_pop',
           'data': {
             'type': 'incoming_call',
             'callId': callId,
@@ -2093,7 +2095,9 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
           debugPrint('Dedup chat list error: $e');
         }
 
+        // Leave room for the floating nav bar so the last chats aren't hidden behind it.
         return ListView.builder(
+          padding: const EdgeInsets.only(bottom: 140),
           itemCount: docs.length,
           itemBuilder: (context, index) {
             final chat = docs[index].data() as Map<String, dynamic>?;

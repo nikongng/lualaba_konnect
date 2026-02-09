@@ -32,11 +32,12 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     await fln.initialize(const InitializationSettings(android: androidInit));
 
     const androidDetails = AndroidNotificationDetails(
-      'lualaba_channel',
+      'lualaba_channel_v2',
       'Lualaba Notifications',
       importance: Importance.max,
       priority: Priority.high,
       playSound: true,
+      sound: RawResourceAndroidNotificationSound('lualaba_pop'),
     );
 
     // Extraction du payload pour la navigation

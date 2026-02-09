@@ -65,12 +65,16 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
           builder: (context, constraints) {
             final double totalWidth = constraints.maxWidth;
             final double itemWidth = totalWidth / 5;
+            // Less-rounded corners (requested): keep it "floating", but not too pill-shaped.
+            const double barHeight = 65;
+            const double barRadius = 22;
+            const double focusRadius = 14;
 
             return AnimatedContainer(
               duration: const Duration(milliseconds: 500),
-              height: 65,
+              height: barHeight,
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(40),
+                borderRadius: BorderRadius.circular(barRadius),
                 boxShadow: [
                   BoxShadow(
                     color: widget.isDark 
@@ -82,7 +86,7 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
                 ],
               ),
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(40),
+                borderRadius: BorderRadius.circular(barRadius),
                 child: BackdropFilter(
                   filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
                   child: AnimatedContainer(
@@ -91,7 +95,7 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
                       color: widget.isDark
                           ? const Color(0xFF1E3E3B).withOpacity(0.8)
                           : Colors.white.withOpacity(0.85),
-                      borderRadius: BorderRadius.circular(40),
+                      borderRadius: BorderRadius.circular(barRadius),
                       border: Border.all(
                         color: widget.isDark 
                             ? Colors.white.withOpacity(0.15) 
@@ -112,7 +116,7 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
                             width: itemWidth * 0.7,
                             decoration: BoxDecoration(
                               color: const Color(0xFF00CBA9).withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(20),
+                              borderRadius: BorderRadius.circular(focusRadius),
                             ),
                           ),
                         ),

@@ -1259,16 +1259,24 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx2, setModal) {
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 16,
-                right: 16,
-                top: 16,
-                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
+            final media = MediaQuery.of(ctx2);
+            // Keep the sheet responsive when the keyboard is shown.
+            // Using AnimatedPadding alone can overflow if we also use a fixed height.
+            final desiredH = media.size.height * 0.82;
+            final sheetH = (desiredH - media.viewInsets.bottom).clamp(320.0, desiredH);
+
+            return AnimatedPadding(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+              padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
+              child: SizedBox(
+                height: sheetH,
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                    child: Column(
+                      children: [
                   Container(height: 4, width: 40, decoration: BoxDecoration(color: divider, borderRadius: BorderRadius.circular(10))),
                   const SizedBox(height: 12),
                   Align(
@@ -1276,8 +1284,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
                     child: Text('Commentaires', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: textColor)),
                   ),
                   const SizedBox(height: 12),
-                  SizedBox(
-                    height: 320,
+                  Expanded(
                     child: StreamBuilder<QuerySnapshot>(
                       stream: FirebaseFirestore.instance
                           .collection('posts')
@@ -1477,8 +1484,8 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
                     ],
                   ),
                   if (_activeMentionQuery(ctrl.text).isNotEmpty)
-                    SizedBox(
-                      height: 130,
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxHeight: media.size.height * 0.22),
                       child: StreamBuilder<QuerySnapshot>(
                         stream: FirebaseFirestore.instance.collection('users').limit(20).snapshots(),
                         builder: (context, snap) {
@@ -1517,7 +1524,10 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
                         },
                       ),
                     ),
-                ],
+                      ],
+                    ),
+                  ),
+                ),
               ),
             );
           },
@@ -1582,25 +1592,31 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx2, setModal) {
-            return Padding(
-              padding: EdgeInsets.only(
-                left: 16,
-                right: 16,
-                top: 16,
-                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(height: 4, width: 40, decoration: BoxDecoration(color: divider, borderRadius: BorderRadius.circular(10))),
-                  const SizedBox(height: 12),
+            // Keep the sheet responsive when the keyboard is shown.
+            final media = MediaQuery.of(ctx2);
+            final desiredH = media.size.height * 0.78;
+            final sheetH = (desiredH - media.viewInsets.bottom).clamp(280.0, desiredH);
+
+            return AnimatedPadding(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+              padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
+              child: SizedBox(
+                height: sheetH,
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                    child: Column(
+                      children: [
+                        Container(height: 4, width: 40, decoration: BoxDecoration(color: divider, borderRadius: BorderRadius.circular(10))),
+                        const SizedBox(height: 12),
                   Align(
                     alignment: Alignment.centerLeft,
                     child: Text('Réponses', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: textColor)),
                   ),
                   const SizedBox(height: 12),
-                  SizedBox(
-                    height: 260,
+                  Expanded(
                     child: StreamBuilder<QuerySnapshot>(
                       stream: FirebaseFirestore.instance
                           .collection('posts')
@@ -1776,8 +1792,8 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
                     ],
                   ),
                   if (_activeMentionQuery(ctrl.text).isNotEmpty)
-                    SizedBox(
-                      height: 120,
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxHeight: media.size.height * 0.22),
                       child: StreamBuilder<QuerySnapshot>(
                         stream: FirebaseFirestore.instance.collection('users').limit(20).snapshots(),
                         builder: (context, snap) {
@@ -1816,7 +1832,10 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
                         },
                       ),
                     ),
-                ],
+                      ],
+                    ),
+                  ),
+                ),
               ),
             );
           },

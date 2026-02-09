@@ -18,6 +18,7 @@ class _AnimatedFabColumnState extends State<AnimatedFabColumn> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(bottom: 96.0),
       child: Column(
@@ -31,6 +32,7 @@ class _AnimatedFabColumnState extends State<AnimatedFabColumn> {
             gradient: const [Color(0xFF34495E), Color(0xFF1D2733)],
             onTap: widget.onEditTap,
             isCamera: false,
+            isDark: isDark,
           ),
           const SizedBox(height: 16),
           _buildFab(
@@ -41,13 +43,26 @@ class _AnimatedFabColumnState extends State<AnimatedFabColumn> {
             gradient: const [Color(0xFFFFB74D), Color(0xFFE57C00)],
             onTap: widget.onCameraTap,
             isCamera: true,
+            isDark: isDark,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildFab({required IconData icon, required double size, required double scale, double rotation = 0, required List<Color> gradient, required VoidCallback onTap, required bool isCamera}) {
+  Widget _buildFab({
+    required IconData icon,
+    required double size,
+    required double scale,
+    double rotation = 0,
+    required List<Color> gradient,
+    required VoidCallback onTap,
+    required bool isCamera,
+    required bool isDark,
+  }) {
+    // Light mode request: camera floating icon should be orange.
+    const Color orangeIcon = Color(0xFFFF8A1F);
+    final Color iconColor = isCamera ? (isDark ? Colors.white : orangeIcon) : Colors.white;
     return GestureDetector(
       onTapDown: (_) => setState(() {
         if (isCamera) { _cameraScale = 0.85; _cameraRotation = math.pi / 8; } 
@@ -68,9 +83,18 @@ class _AnimatedFabColumnState extends State<AnimatedFabColumn> {
             decoration: isCamera
                 ? BoxDecoration(
                     shape: BoxShape.circle,
-                    color: Colors.white.withOpacity(0.03),
-                    border: Border.all(color: Colors.white.withOpacity(0.06), width: 1.8),
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 10, offset: const Offset(0, 6))],
+                    color: isDark ? Colors.white.withOpacity(0.03) : orangeIcon.withOpacity(0.08),
+                    border: Border.all(
+                      color: isDark ? Colors.white.withOpacity(0.06) : orangeIcon.withOpacity(0.22),
+                      width: 1.8,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: (isDark ? Colors.black : orangeIcon).withOpacity(0.14),
+                        blurRadius: 10,
+                        offset: const Offset(0, 6),
+                      )
+                    ],
                   )
                 : BoxDecoration(
                     shape: BoxShape.circle,
@@ -87,10 +111,10 @@ class _AnimatedFabColumnState extends State<AnimatedFabColumn> {
                     height: size * 0.78,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.black.withOpacity(0.12),
+                      color: isDark ? Colors.black.withOpacity(0.12) : orangeIcon.withOpacity(0.14),
                     ),
                   ),
-                Icon(icon, color: Colors.white, size: size * 0.42),
+                Icon(icon, color: iconColor, size: size * 0.42),
               ],
             ),
           ),

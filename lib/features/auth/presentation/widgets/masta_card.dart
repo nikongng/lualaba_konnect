@@ -195,10 +195,16 @@ class _MastaCardState extends State<MastaCard> with SingleTickerProviderStateMix
                           color: isMasta ? Colors.white24 : Colors.white,
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Text(
-                          _messages[index]["text"]!,
-                          style: TextStyle(color: isMasta ? Colors.white : const Color(0xFF7F00FF), fontSize: 12),
-                        ),
+                        // AI replies should be selectable (copy/selection like WhatsApp/Telegram).
+                        child: isMasta
+                            ? SelectableText(
+                                _messages[index]["text"]!,
+                                style: const TextStyle(color: Colors.white, fontSize: 12),
+                              )
+                            : Text(
+                                _messages[index]["text"]!,
+                                style: const TextStyle(color: Color(0xFF7F00FF), fontSize: 12),
+                              ),
                       ),
                     );
                   },

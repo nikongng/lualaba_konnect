@@ -98,6 +98,10 @@ class _CopperCardState extends State<CopperCard> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final subText = isDark ? Colors.white70 : Colors.black54;
+    final divider = isDark ? Colors.white12 : Colors.black12;
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -105,7 +109,7 @@ class _CopperCardState extends State<CopperCard> {
         borderRadius: BorderRadius.circular(30),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withOpacity(isDark ? 0.25 : 0.05),
             blurRadius: 20,
             offset: const Offset(0, 10),
           )
@@ -121,13 +125,13 @@ class _CopperCardState extends State<CopperCard> {
               children: [
                 Text(
                   "MARCHÉ LME (MàJ: $lastUpdate)",
-                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.grey),
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: subText),
                 ),
                 IconButton(
                   onPressed: isLoading ? null : fetchPrices,
                   icon: isLoading 
                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.refresh, size: 20, color: Colors.blue),
+                    : Icon(Icons.refresh, size: 20, color: scheme.primary),
                 ),
               ],
             ),
@@ -143,7 +147,7 @@ class _CopperCardState extends State<CopperCard> {
             chartPoints: [10, 12, 9, 15, 14, 18, 20],
             imageUrl: copperUrl,
           ),
-          Divider(height: 1, color: Colors.grey.withOpacity(0.1), indent: 20, endIndent: 20),
+          Divider(height: 1, color: divider, indent: 20, endIndent: 20),
           _buildMetalRow(
             context,
             label: "COBALT (LME)",
@@ -164,6 +168,10 @@ class _CopperCardState extends State<CopperCard> {
     required bool isUp, required Color color, required List<double> chartPoints,
     required String imageUrl,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scheme = Theme.of(context).colorScheme;
+    final labelText = isDark ? Colors.white60 : Colors.black45;
+    final priceText = scheme.onSurface;
     return InkWell(
       onTap: () {
         Navigator.push(context, MaterialPageRoute(
@@ -196,9 +204,9 @@ class _CopperCardState extends State<CopperCard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: Colors.grey)),
+                  Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: labelText)),
                   const SizedBox(height: 2),
-                  Text("\$$price", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  Text("\$$price", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: priceText)),
                 ],
               ),
             ),

@@ -11,27 +11,29 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _fln = FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
+  static bool _localInitialized = false;
 
   // --- CONFIGURATION DU CANAL (ID UNIQUE) ---
   static const AndroidNotificationChannel channel = AndroidNotificationChannel(
-    'lualaba_channel', // DOIT correspondre à l'ID dans le Manifest
+    'lualaba_channel_v2', // New id => forces Android to (re)create with custom sound
     'Lualaba Notifications',
     description: 'Notifications pour le chat et le marketplace',
     importance: Importance.max,
     playSound: true,
+    // Custom sound (Android: android/app/src/main/res/raw/lualaba_pop.mp3)
+    sound: RawResourceAndroidNotificationSound('lualaba_pop'),
     enableVibration: true,
   );
 
-  static Future<void> init() async {
-    if (_initialized) return;
+  /// Local notifications + Android channel (sound is tied to the channel id).
+  static Future<void> initLocalOnly() async {
+    if (_localInitialized) return;
 
-    // 2. Créer officiellement le canal sur le système Android
-    // C'est l'étape qui manquait pour l'affichage en arrière-plan
+    // Create officially the channel on Android (required for background display + custom sound).
     await _fln
         .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(channel);
 
-    // 3. Configuration de l'initialisation
     const AndroidInitializationSettings androidInit = AndroidInitializationSettings('@mipmap/launcher_icon');
     final DarwinInitializationSettings iosInit = DarwinInitializationSettings();
 
@@ -43,10 +45,16 @@ class NotificationService {
     await _fln.initialize(
       initSettings,
       onDidReceiveNotificationResponse: (NotificationResponse response) {
-        // Logique de navigation au clic sur la notification
         debugPrint("Notification cliquée avec payload: ${response.payload}");
       },
     );
+
+    _localInitialized = true;
+  }
+
+  static Future<void> init() async {
+    if (_initialized) return;
+    await initLocalOnly();
 
     // 3b. OneSignal initialization (optional)
     const String oneSignalAppId = String.fromEnvironment('ONESIGNAL_APP_ID', defaultValue: 'ac19fdcc-16e7-4775-8806-8cde03d1fadb');
@@ -174,6 +182,7 @@ class NotificationService {
       importance: Importance.max,
       priority: Priority.high,
       playSound: true,
+      sound: const RawResourceAndroidNotificationSound('lualaba_pop'),
       icon: '@mipmap/launcher_icon',
     );
 

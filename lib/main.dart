@@ -19,6 +19,7 @@ import 'features/auth/presentation/pages/AuthMainPage.dart';
 import 'features/dashboard/presentation/pages/dashboard_page.dart';
 import 'core/theme_controller.dart';
 import 'core/call_invite_listener.dart';
+import 'core/notification_service.dart';
 
 // Keep OneSignal push subscription id synced to Firestore (Android can take a bit to provide it).
 String? _oneSignalBoundUid;
@@ -70,6 +71,10 @@ void main() async {
     }
   }
 
+  // 4b. Initialiser le canal Android des notifications (son personnalisé, vibration, etc.)
+  // Important: sur Android 8+, le son est "verrouillé" au niveau du channel id.
+  try { await NotificationService.initLocalOnly(); } catch (e) { debugPrint('NotificationService.initLocalOnly error: $e'); }
+
   // 5. CONFIGURATION ONESIGNAL (UNIQUEMENT MOBILE)
   // On ignore le Web pour se concentrer sur Android/iOS
   if (!kIsWeb) {
@@ -94,7 +99,19 @@ void main() async {
       final accepted = await OneSignal.Notifications.requestPermission(true);
       debugPrint('OneSignal permission accepted=$accepted');
 
-      // D. Gestion des clics sur notification (Appel entrant)
+      // D. S'assurer que OneSignal considère l'utilisateur "opted-in" (pas seulement la permission OS).
+      // Sinon OneSignal peut répondre: "unsubscribed subscriptions attached" pour l'external_user_id.
+      try {
+        await OneSignal.User.pushSubscription.optIn();
+        debugPrint(
+          'OneSignal push optedIn=${OneSignal.User.pushSubscription.optedIn} '
+          'id=${OneSignal.User.pushSubscription.id} token=${OneSignal.User.pushSubscription.token}',
+        );
+      } catch (e) {
+        debugPrint('OneSignal optIn error: $e');
+      }
+
+      // E. Gestion des clics sur notification (Appel entrant)
       OneSignal.Notifications.addClickListener((event) {
         final data = event.notification.additionalData;
         final actionId = event.result.actionId;
@@ -262,6 +279,10 @@ Future<void> _updateUserOneSignalId(String uid) async {
       return;
     }
     debugPrint('🚀 OneSignal pushSubscription.id prêt : $onesignalId');
+    debugPrint(
+      'OneSignal state optedIn=${OneSignal.User.pushSubscription.optedIn} '
+      'token=${OneSignal.User.pushSubscription.token}',
+    );
 
     // ÉTAPE 3 : Sauvegarde dans Firestore pour que Render puisse le trouver
     await _saveOneSignalIdToFirestore(uid: uid, onesignalId: onesignalId);
@@ -280,23 +301,21 @@ class MyApp extends StatelessWidget {
     return AnimatedBuilder(
       animation: themeCtrl,
       builder: (context, _) {
+        final baseLight = ThemeData.light(useMaterial3: true);
+        final baseDark = ThemeData.dark(useMaterial3: true);
         return MaterialApp(
           navigatorKey: appNavigatorKey, // Indispensable pour la navigation hors contexte
           title: 'Lualaba Konnect',
           debugShowCheckedModeBanner: false,
-          theme: ThemeData(
-            brightness: Brightness.light,
-            primarySwatch: Colors.orange,
-            textTheme: GoogleFonts.notoSansTextTheme(),
+          theme: baseLight.copyWith(
+            colorScheme: baseLight.colorScheme.copyWith(primary: Colors.orange),
+            textTheme: GoogleFonts.notoSansTextTheme(baseLight.textTheme),
             fontFamily: 'Poppins',
-            useMaterial3: true,
           ),
-          darkTheme: ThemeData(
-            brightness: Brightness.dark,
-            primarySwatch: Colors.orange,
-            textTheme: GoogleFonts.notoSansTextTheme(),
+          darkTheme: baseDark.copyWith(
+            colorScheme: baseDark.colorScheme.copyWith(primary: Colors.orange),
+            textTheme: GoogleFonts.notoSansTextTheme(baseDark.textTheme),
             fontFamily: 'Poppins',
-            useMaterial3: true,
           ),
           themeMode: themeCtrl.mode,
           home: const SplashScreen(),

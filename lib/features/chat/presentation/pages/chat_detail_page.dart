@@ -34,7 +34,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:lualaba_konnect/core/config.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:lualaba_konnect/shared/widgets/account_badge.dart';
@@ -42,7 +42,8 @@ import 'package:lualaba_konnect/shared/widgets/account_badge.dart';
 
 const Color tgBg = Color(0xFF0B1418);
 const Color tgAccent = Color(0xFF00CBA9);
-const Color tgMyBubble = Color(0xFF5B8DEF);
+// Outgoing bubble (dark blue, WhatsApp-ish vibe).
+const Color tgMyBubble = Color(0xFF0B3A6D);
 const Color tgOtherBubble = Color(0xFF2E2F4F);
 const Color tgBar = Color(0xFF071011);
 class ChatDetailPage extends StatefulWidget {
@@ -58,6 +59,9 @@ class ChatDetailPage extends StatefulWidget {
 class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMixin {
   final TextEditingController _msgController = TextEditingController();
   final currentUser = FirebaseAuth.instance.currentUser;
+  String? _cachedSenderUid;
+  String? _cachedSenderName;
+  String? _cachedSenderPhoto;
   fs.FlutterSoundRecorder? _recorder;
   bool _recorderInitialized = false;
   late final VoidCallback _msgListener;
@@ -78,6 +82,61 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
   // sound effects
   final _sfxPlayer = AudioPlayer();
   bool _messageStreamInitialized = false;
+
+  Future<Map<String, String>> _resolveSenderMeta(User user) async {
+    // Cache to avoid hitting Firestore on every message/call.
+    if (_cachedSenderUid == user.uid &&
+        _cachedSenderName != null &&
+        _cachedSenderName!.trim().isNotEmpty &&
+        _cachedSenderPhoto != null &&
+        _cachedSenderPhoto!.trim().isNotEmpty) {
+      return {'name': _cachedSenderName!.trim(), 'photo': _cachedSenderPhoto!.trim()};
+    }
+
+    String name = (user.displayName ?? '').trim();
+    String photo = (user.photoURL ?? '').trim();
+
+    // Fallback to Firestore profile (works for web too).
+    try {
+      final cols = ['classic_users', 'pro_users', 'enterprise_users'];
+      for (final col in cols) {
+        final snap = await FirebaseFirestore.instance.collection(col).doc(user.uid).get();
+        if (!snap.exists) continue;
+        final d = snap.data() ?? <String, dynamic>{};
+
+        String pickString(List<String> keys) {
+          for (final k in keys) {
+            final v = d[k];
+            if (v == null) continue;
+            final s = v.toString().trim();
+            if (s.isNotEmpty) return s;
+          }
+          return '';
+        }
+
+        name = name.isNotEmpty
+            ? name
+            : (pickString(['displayName', 'name', 'username']).isNotEmpty
+                ? pickString(['displayName', 'name', 'username'])
+                : '${pickString(['firstName'])} ${pickString(['lastName'])}'.trim());
+
+        if (photo.isEmpty) {
+          photo = pickString(['photoUrl', 'avatarUrl', 'profileImageUrl', 'imageUrl']);
+        }
+        break;
+      }
+    } catch (_) {
+      // Best-effort only.
+    }
+
+    if (name.isEmpty) name = 'Un utilisateur';
+    if (photo.isEmpty) photo = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+
+    _cachedSenderUid = user.uid;
+    _cachedSenderName = name;
+    _cachedSenderPhoto = photo;
+    return {'name': name, 'photo': photo};
+  }
   // tracked for potential use by other logic; keep but silence unused warning
   // ignore: unused_field
   String? _lastMessageId;
@@ -581,14 +640,18 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         if (msgRef != null)
           GestureDetector(
             onTap: () => _showReactionPicker(msgRef),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.white10,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white12),
+            // Requested: the "+" should not look like a chip/circle inside the bubble.
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              child: Text(
+                '+',
+                style: TextStyle(
+                  color: tgAccent.withOpacity(0.95),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                ),
               ),
-              child: const Text('+', style: TextStyle(color: Colors.white, fontSize: 12)),
             ),
           ),
       ],
@@ -2902,16 +2965,9 @@ Future<void> _blockContact(String otherId) async {
           if (recipients.isNotEmpty) {
             final url = Uri.parse(kNotifierUrl);
             
-            // On prépare le Nom et l'Avatar de l'utilisateur actuel
-          // Sécurité : si le nom est vide, on met "Un utilisateur"
-          final String senderName = (user.displayName != null && user.displayName!.isNotEmpty) 
-              ? user.displayName! 
-              : 'Un utilisateur';
-
-          // Sécurité : si la photo est vide, on met une icône par défaut
-          final String senderPhoto = (user.photoURL != null && user.photoURL!.isNotEmpty) 
-              ? user.photoURL! 
-              : 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+            final meta = await _resolveSenderMeta(user);
+            final String senderName = meta['name'] ?? 'Un utilisateur';
+            final String senderPhoto = meta['photo'] ?? 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
 
             // Message preview per type (avoid sending raw URLs / empty strings)
             final String msgType = (payload['type'] ?? 'text').toString();
@@ -2956,6 +3012,10 @@ Future<void> _blockContact(String otherId) async {
                 'body': preview,             // IRA DANS CONTENTS (APERÇU)
                 'senderAvatarUrl': senderPhoto, // IRA DANS LARGE_ICON (L'AVATAR)
                 'imageUrl': imageUrl,        // large image for media notifications when supported
+                // Tell OneSignal to use our pre-created Android channel (custom sound, etc.).
+                // If the backend is a proxy, it can forward this to OneSignal as `existing_android_channel_id`.
+                'existing_android_channel_id': 'lualaba_channel_v2',
+                'android_sound': 'lualaba_pop',
                 'data': { 
                   'chatId': widget.chatId,
                   'chatName': widget.chatName,
@@ -3337,11 +3397,17 @@ Future<void> _editContactLocal(String otherId) async {
 
       final String callerName = (user.displayName != null && user.displayName!.trim().isNotEmpty)
           ? user.displayName!.trim()
-          : 'Appel entrant';
+          : '';
 
       final String callerPhoto = (user.photoURL != null && user.photoURL!.trim().isNotEmpty)
           ? user.photoURL!.trim()
-          : 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+          : '';
+
+      final meta = await _resolveSenderMeta(user);
+      final String resolvedCallerName =
+          callerName.isNotEmpty ? callerName : (meta['name'] ?? 'Appel entrant');
+      final String resolvedCallerPhoto =
+          callerPhoto.isNotEmpty ? callerPhoto : (meta['photo'] ?? 'https://cdn-icons-png.flaticon.com/512/149/149071.png');
 
       final resp = await http.post(
         url,
@@ -3351,9 +3417,11 @@ Future<void> _editContactLocal(String otherId) async {
         },
         body: jsonEncode({
           'recipients': [calleeId],
-          'title': callerName,
+          'title': resolvedCallerName,
           'body': isVideo ? 'Appel vidéo entrant' : 'Appel audio entrant',
-          'senderAvatarUrl': callerPhoto,
+          'senderAvatarUrl': resolvedCallerPhoto,
+          'existing_android_channel_id': 'lualaba_channel_v2',
+          'android_sound': 'lualaba_pop',
           'data': {
             'type': 'incoming_call',
             'callId': callId,
@@ -3374,20 +3442,34 @@ Future<void> _editContactLocal(String otherId) async {
   Widget build(BuildContext context) {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final Color bg = isDark ? tgBg : const Color(0xFFF5F6F8);
-    final Color bar = isDark ? tgBar : Colors.white;
+    // Light mode requested: an "orange noiratre" top bar (burnt orange / near-black).
+    final bool warmBar = !isDark;
+    final Color bar = isDark ? tgBar : const Color(0xFF2B140B);
+    final Gradient? barGradient = warmBar
+        ? const LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              Color(0xFF241006),
+              Color(0xFF6E2A0C),
+            ],
+          )
+        : null;
     final Color text = isDark ? Colors.white : Colors.black87;
     final Color sub = isDark ? Colors.white70 : Colors.black54;
     final Color icon = isDark ? Colors.white : Colors.black87;
+    final Color appBarFg = Colors.white;
     return Scaffold(
       resizeToAvoidBottomInset: false,
       backgroundColor: bg,
       appBar: AppBar(
         backgroundColor: bar,
+        flexibleSpace: barGradient == null ? null : Container(decoration: BoxDecoration(gradient: barGradient)),
         elevation: 1,
-        iconTheme: IconThemeData(color: icon),
-        leading: _selectionMode ? IconButton(icon: Icon(Icons.close, color: icon), onPressed: () => _clearSelection()) : null,
+        iconTheme: IconThemeData(color: warmBar ? appBarFg : icon),
+        leading: _selectionMode ? IconButton(icon: Icon(Icons.close, color: warmBar ? appBarFg : icon), onPressed: () => _clearSelection()) : null,
         title: _selectionMode
-            ? Text('${_selectedMessageIds.length} sélectionné(s)', style: TextStyle(color: text))
+            ? Text('${_selectedMessageIds.length} sélectionné(s)', style: TextStyle(color: warmBar ? appBarFg : text))
             : StreamBuilder<DocumentSnapshot>(
           stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).snapshots(),
           builder: (context, snap) {
@@ -3486,7 +3568,14 @@ Future<void> _editContactLocal(String otherId) async {
                     children: [
                       Row(
                         children: [
-                          Flexible(child: Text(name.isNotEmpty ? name : 'Utilisateur', style: TextStyle(color: text, fontSize: 16, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                          Flexible(
+                            child: Text(
+                              name.isNotEmpty ? name : 'Utilisateur',
+                              style: TextStyle(color: warmBar ? appBarFg : text, fontSize: 16, fontWeight: FontWeight.w700),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                           if (isCert || (accountType != null && accountType.isNotEmpty)) ...[
                             const SizedBox(width: 6),
                             AccountBadges(isCertified: isCert, accountType: accountType, fontSize: 10),
@@ -3494,7 +3583,7 @@ Future<void> _editContactLocal(String otherId) async {
                         ],
                       ),
                       const SizedBox(height: 2),
-                      if (status.isNotEmpty) Text(status, style: TextStyle(color: sub, fontSize: 12, height: 1.1)),
+                      if (status.isNotEmpty) Text(status, style: TextStyle(color: warmBar ? Colors.white70 : sub, fontSize: 12, height: 1.1)),
                     ],
                   ),
                 );
@@ -3674,7 +3763,7 @@ Future<void> _editContactLocal(String otherId) async {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (!_selectionMode && !isGroup)
-                    IconButton(icon: Icon(Icons.call, color: icon), onPressed: () => _showCallOptions()),
+                    IconButton(icon: Icon(Icons.call, color: warmBar ? appBarFg : icon), onPressed: () => _showCallOptions()),
                   if (!_selectionMode)
                     PopupMenuButton<String>(
                       onSelected: (v) => _onMenuSelected(v),
@@ -3835,15 +3924,19 @@ Future<void> _editContactLocal(String otherId) async {
           itemCount: snapshot.data!.docs.length,
           itemBuilder: (context, index) {
             final doc = snapshot.data!.docs[index];
+            // `reverse: true` means index 0 renders at the bottom (newest).
+            // For Telegram-like bubble grouping we need the neighbors in the visual stack.
+            final QueryDocumentSnapshot? newerDoc = index > 0 ? snapshot.data!.docs[index - 1] : null; // below
+            final QueryDocumentSnapshot? olderDoc = (index + 1) < snapshot.data!.docs.length ? snapshot.data!.docs[index + 1] : null; // above
             final key = _messageKeys.putIfAbsent(doc.id, () => GlobalKey());
-            return KeyedSubtree(key: key, child: _buildBubble(doc));
+            return KeyedSubtree(key: key, child: _buildBubble(doc, olderDoc: olderDoc, newerDoc: newerDoc));
           },
         );
       },
     );
   }
 
-  Widget _buildBubble(QueryDocumentSnapshot doc) {
+  Widget _buildBubble(QueryDocumentSnapshot doc, {QueryDocumentSnapshot? olderDoc, QueryDocumentSnapshot? newerDoc}) {
     final m = doc.data() as Map<String, dynamic>;
     bool isMe = m['senderId'] == currentUser?.uid;
     String type = m['type'] ?? 'text';
@@ -3926,21 +4019,94 @@ Future<void> _editContactLocal(String otherId) async {
     final bool isAudio = type == 'audio' || type == 'voice';
     final double meBlend = isMedia ? 0.35 : (isAudio ? 0.28 : 0.25);
     final double otherBlend = isMedia ? 0.18 : (isAudio ? 0.14 : 0.06);
-    final Color myBase = isDark ? tgMyBubble : const Color(0xFF4F8DF5);
-    final Color otherBase = isDark ? tgOtherBubble : const Color(0xFFEFF2F7);
-    final Color borderColor = isDark ? Colors.white.withOpacity(isMe ? 0.18 : 0.12) : Colors.black.withOpacity(isMe ? 0.08 : 0.06);
+    final bool onDarkBubble = isDark || isMe || (!isDark && !isMe);
+    // Requested: my bubble should be a darker color (not bright blue).
+    final Color myBase = tgMyBubble;
+    // Light mode (requested): other bubble should be black (not white).
+    final Color otherBase = isDark ? tgOtherBubble : const Color(0xFF101114);
+    final Color borderColor = onDarkBubble
+        ? Colors.white.withOpacity(isMe ? 0.18 : 0.12)
+        : Colors.black.withOpacity(isMe ? 0.08 : 0.06);
     final Color shadowBase = isDark ? Colors.black.withOpacity(0.35) : Colors.black.withOpacity(0.08);
     final Color accentShadowBase = (isMe ? tgAccent : otherBase).withOpacity(isDark ? 0.18 : 0.12);
-    final Color timeColor = isDark ? Colors.white70 : Colors.black54;
-    final Color statusBg = isDark ? Colors.black26 : Colors.black12;
+    final Color timeColor = onDarkBubble ? Colors.white70 : Colors.black54;
+    final Color statusBg = onDarkBubble ? Colors.white10 : Colors.black12;
     final meColors = [
-      Color.lerp(myBase, tgAccent, meBlend)!,
-      Color.lerp(myBase, Colors.white, isMedia ? 0.12 : 0.08)!,
+      // Dark blue gradient (WhatsApp/Telegram-ish). Keep it blue, not teal.
+      Color.lerp(myBase, const Color(0xFF0F4C8A), isMedia ? 0.22 : 0.18)!,
+      Color.lerp(myBase, Colors.black, isMedia ? 0.06 : 0.10)!,
     ];
-    final otherColors = [
-      Color.lerp(otherBase, isDark ? Colors.black : Colors.white, isMedia ? 0.04 : 0.08)!,
-      Color.lerp(otherBase, tgAccent, otherBlend)!,
-    ];
+    final otherColors = isDark
+        ? [
+            Color.lerp(otherBase, Colors.black, isMedia ? 0.04 : 0.08)!,
+            Color.lerp(otherBase, tgAccent, otherBlend)!,
+          ]
+        : [
+            const Color(0xFF16171B),
+            isMedia ? const Color(0xFF0E0F12) : const Color(0xFF121318),
+          ];
+
+    // --- Telegram-like grouping (dynamic bubble shape) ---
+    DateTime? _dtFrom(Map<String, dynamic> x) {
+      try {
+        final ts = x['timestamp'];
+        if (ts is Timestamp) return ts.toDate();
+      } catch (_) {}
+      return null;
+    }
+
+    bool _sameSender(QueryDocumentSnapshot? d) {
+      if (d == null) return false;
+      try {
+        final md = d.data() as Map<String, dynamic>;
+        final String sid = (m['senderId'] ?? '').toString();
+        if (sid.isEmpty) return false;
+        if ((md['senderId'] ?? '').toString() != sid) return false;
+        final String t = (md['type'] ?? 'text').toString();
+        if (t == 'system') return false;
+        // Group only if close in time (keeps grouping natural like Telegram).
+        final a = _dtFrom(m);
+        final b = _dtFrom(md);
+        if (a == null || b == null) return true;
+        return a.difference(b).abs().inMinutes <= 5;
+      } catch (_) {
+        return false;
+      }
+    }
+
+    final bool canGroup = type != 'system';
+    final bool sameAbove = canGroup && _sameSender(olderDoc);
+    final bool sameBelow = canGroup && _sameSender(newerDoc);
+    final bool showTail = canGroup && !sameBelow; // only on last bubble of a run (bottom-most)
+
+    BorderRadius bubbleRadius() {
+      // Slightly tighter radii => more compact Telegram/WhatsApp feel.
+      const double r = 16;
+      const double join = 9;
+      const double tail = 5;
+
+      if (isMe) {
+        return BorderRadius.only(
+          topLeft: const Radius.circular(r),
+          topRight: Radius.circular(sameAbove ? join : r),
+          bottomLeft: const Radius.circular(r),
+          bottomRight: Radius.circular(showTail ? tail : (sameBelow ? join : r)),
+        );
+      }
+      return BorderRadius.only(
+        topLeft: Radius.circular(sameAbove ? join : r),
+        topRight: const Radius.circular(r),
+        bottomLeft: Radius.circular(showTail ? tail : (sameBelow ? join : r)),
+        bottomRight: const Radius.circular(r),
+      );
+    }
+
+    final EdgeInsets bubbleMargin = EdgeInsets.only(
+      top: sameAbove ? 1 : 4,
+      bottom: sameBelow ? 1 : 4,
+      left: 10,
+      right: 10,
+    );
 
     BoxDecoration bubbleDecoration = BoxDecoration(
       gradient: LinearGradient(
@@ -3948,12 +4114,7 @@ Future<void> _editContactLocal(String otherId) async {
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
       ),
-      borderRadius: BorderRadius.only(
-        topLeft: const Radius.circular(18),
-        topRight: const Radius.circular(18),
-        bottomLeft: Radius.circular(isMe ? 18 : 6),
-        bottomRight: Radius.circular(isMe ? 6 : 18),
-      ),
+      borderRadius: bubbleRadius(),
       border: Border.all(color: borderColor),
       boxShadow: [
         BoxShadow(color: shadowBase, blurRadius: isDark ? 14 : 8, offset: const Offset(0, 6)),
@@ -3991,9 +4152,10 @@ Future<void> _editContactLocal(String otherId) async {
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 420),
           curve: Curves.easeOutCubic,
-          margin: const EdgeInsets.symmetric(vertical: 6, horizontal: 12),
+          margin: bubbleMargin,
           constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.78,
+            // Slightly narrower bubbles (less "big blocks")
+            maxWidth: MediaQuery.of(context).size.width * 0.72,
           ),
           // highlight when selected
           decoration: _selectedMessageIds.contains(doc.id) || isHighlighted
@@ -4006,9 +4168,47 @@ Future<void> _editContactLocal(String otherId) async {
               : bubbleDecoration,
           child: Material(
             color: Colors.transparent,
-            child: ClipRRect(
-              borderRadius: bubbleDecoration.borderRadius as BorderRadius,
-              child: InkWell(
+            child: Stack(
+              clipBehavior: Clip.none, // tail can extend outside the bubble bounds
+              children: [
+                if (showTail)
+                  Positioned(
+                    bottom: 6,
+                    left: isMe ? null : -18,
+                    right: isMe ? -18 : null,
+                    child: IgnorePointer(
+                      child: TweenAnimationBuilder<double>(
+                        tween: Tween(begin: 0.0, end: 1.0),
+                        duration: const Duration(milliseconds: 240),
+                        curve: Curves.easeOutCubic,
+                        builder: (context, t, child) {
+                          final scale = 0.90 + (0.10 * t);
+                          final dx = (isMe ? 2.0 : -2.0) * (1 - t);
+                          final dy = 1.5 * (1 - t);
+                          return Opacity(
+                            opacity: (0.10 + 0.90 * t).clamp(0.0, 1.0),
+                            child: Transform.translate(
+                              offset: Offset(dx, dy),
+                              child: Transform.scale(scale: scale, child: child),
+                            ),
+                          );
+                        },
+                        child: Transform.rotate(
+                          angle: isMe ? 0.26 : -0.26,
+                          child: CustomPaint(
+                            painter: _BubbleTailPainter(
+                              color: (isMe ? meColors.first : otherColors.first).withOpacity(0.94),
+                              pointRight: isMe,
+                            ),
+                            size: const Size(20, 14),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ClipRRect(
+                  borderRadius: bubbleDecoration.borderRadius as BorderRadius,
+                  child: InkWell(
                 onLongPress: () => _onMessageLongPress(doc, m),
                 onDoubleTap: () => _toggleReaction(doc.reference, '❤️'),
                 onTap: () {
@@ -4036,22 +4236,9 @@ Future<void> _editContactLocal(String otherId) async {
                         ),
                       ),
                     ),
-                    Positioned(
-                      bottom: 6,
-                      left: isMe ? null : -6,
-                      right: isMe ? -6 : null,
-                      child: Transform.rotate(
-                        angle: isMe ? 0.3 : -0.3,
-                        child: CustomPaint(
-                          painter: _BubbleTailPainter(
-                            color: (isMe ? meColors.first : otherColors.first).withOpacity(0.95),
-                          ),
-                          size: const Size(14, 10),
-                        ),
-                      ),
-                    ),
                     Padding(
-                      padding: const EdgeInsets.all(12),
+                      // More compact padding (Telegram-ish)
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
@@ -4094,9 +4281,9 @@ Future<void> _editContactLocal(String otherId) async {
                           ],
                           _buildReplyInBubble(context, m, isMe: isMe),
                           _buildContent(m, type, isMe: isMe),
-                          const SizedBox(height: 6),
+                          const SizedBox(height: 4),
                           _buildReactions(m, doc.reference),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 6),
                           Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -4107,14 +4294,15 @@ Future<void> _editContactLocal(String otherId) async {
                               ),
                               if (isMe) const SizedBox(width: 8),
                               if (isMe)
-                                AnimatedContainer(
-                                  duration: const Duration(milliseconds: 300),
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: BoxDecoration(
-                                    color: statusBg,
-                                    shape: BoxShape.circle,
+                                // Requested: read receipts should not be inside circles.
+                                AnimatedSwitcher(
+                                  duration: const Duration(milliseconds: 220),
+                                  transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
+                                  child: IconTheme(
+                                    key: ValueKey('${m['isRead']}_${m['delivered']}'),
+                                    data: const IconThemeData(size: 14),
+                                    child: statusIcon,
                                   ),
-                                  child: statusIcon,
                                 ),
                             ],
                           ),
@@ -4124,6 +4312,8 @@ Future<void> _editContactLocal(String otherId) async {
                   ],
                 ),
               ),
+            ),
+              ],
             ),
           ),
         ),
@@ -4517,11 +4707,15 @@ Future<void> _showAvatarActions(
 
   Widget _buildContent(Map m, String type, {required bool isMe}) {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
-    final Color textColor = (isDark || isMe) ? Colors.white : Colors.black87;
-    final Color subText = (isDark || isMe) ? Colors.white70 : Colors.black54;
-    final Color mutedText = (isDark || isMe) ? Colors.white54 : Colors.black45;
-    final Color iconMuted = (isDark || isMe) ? Colors.white24 : Colors.black26;
-    final Color iconColor = (isDark || isMe) ? Colors.white : Colors.black87;
+    // Bubble palette rules:
+    // - My bubble is always "dark" (blue) even in light mode.
+    // - Other bubble in light mode is also dark (user request: black).
+    final bool onDarkBubble = isDark || isMe || (!isDark && !isMe);
+    final Color textColor = onDarkBubble ? Colors.white : Colors.black87;
+    final Color subText = onDarkBubble ? Colors.white70 : Colors.black54;
+    final Color mutedText = onDarkBubble ? Colors.white54 : Colors.black45;
+    final Color iconMuted = onDarkBubble ? Colors.white24 : Colors.black26;
+    final Color iconColor = onDarkBubble ? Colors.white : Colors.black87;
     // Afficher message supprimé pour l'utilisateur courant
     try {
       if (currentUser != null && m['deletedFor'] is Map) {
@@ -4614,7 +4808,7 @@ Future<void> _showAvatarActions(
                   );
                 },
               )
-            : const Icon(Icons.videocam, color: Colors.white24, size: 50);
+            : Icon(Icons.videocam, color: iconMuted, size: 50);
 
       case 'file':
         return FutureBuilder<File?>(
@@ -4667,6 +4861,7 @@ Future<void> _showAvatarActions(
                   child: AudioMessagePlayer(
                     url: (local != null && local.existsSync()) ? 'file://${local.path}' : url,
                     fileName: m['fileName'] ?? 'Audio',
+                    onDarkBubble: onDarkBubble,
                   ),
                 ),
                 if (url.isNotEmpty && (local == null || !local.existsSync()))
@@ -5400,27 +5595,51 @@ Future<void> _showAvatarActions(
 
 class _BubbleTailPainter extends CustomPainter {
   final Color color;
-  _BubbleTailPainter({required this.color});
+  // `true` => tail points to the right, `false` => to the left.
+  final bool pointRight;
+  _BubbleTailPainter({required this.color, required this.pointRight});
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()..color = color;
+    // Softer, Telegram-like tail (not a sharp triangle).
+    final w = size.width;
+    final h = size.height;
     final path = Path()
-      ..moveTo(0, size.height)
-      ..lineTo(size.width, size.height / 2)
-      ..lineTo(0, 0)
+      ..moveTo(0, h)
+      ..quadraticBezierTo(w * 0.18, h * 0.72, w * 0.55, h * 0.62)
+      ..quadraticBezierTo(w * 0.82, h * 0.54, w, h * 0.5)
+      ..quadraticBezierTo(w * 0.82, h * 0.46, w * 0.55, h * 0.38)
+      ..quadraticBezierTo(w * 0.18, h * 0.28, 0, 0)
+      ..quadraticBezierTo(w * 0.10, h * 0.5, 0, h)
       ..close();
-    canvas.drawPath(path, paint);
+    if (pointRight) {
+      canvas.drawPath(path, paint);
+    } else {
+      // Mirror horizontally so incoming bubbles point left.
+      canvas.save();
+      canvas.translate(w, 0);
+      canvas.scale(-1, 1);
+      canvas.drawPath(path, paint);
+      canvas.restore();
+    }
   }
 
   @override
-  bool shouldRepaint(covariant _BubbleTailPainter oldDelegate) => oldDelegate.color != color;
+  bool shouldRepaint(covariant _BubbleTailPainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.pointRight != pointRight;
 }
 
 class AudioMessagePlayer extends StatefulWidget {
   final String url;
   final String fileName;
-  const AudioMessagePlayer({super.key, required this.url, required this.fileName});
+  final bool onDarkBubble;
+  const AudioMessagePlayer({
+    super.key,
+    required this.url,
+    required this.fileName,
+    required this.onDarkBubble,
+  });
 
   @override
   State<AudioMessagePlayer> createState() => _AudioMessagePlayerState();
@@ -5450,11 +5669,16 @@ class _AudioMessagePlayerState extends State<AudioMessagePlayer> {
 
   @override
   Widget build(BuildContext context) {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
+    final bool onDark = isDark || widget.onDarkBubble;
+    final Color fg = onDark ? Colors.white : Colors.black87;
+    final Color sub = onDark ? Colors.white70 : Colors.black54;
+    final Color muted = onDark ? Colors.white24 : Colors.black26;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton(
-          icon: Icon(_playing ? Icons.pause : Icons.play_arrow, color: Colors.white),
+          icon: Icon(_playing ? Icons.pause : Icons.play_arrow, color: fg),
           onPressed: () async {
             if (_playing) {
               await _player.pause();
@@ -5482,15 +5706,15 @@ class _AudioMessagePlayerState extends State<AudioMessagePlayer> {
               final pos = Duration(milliseconds: (v * _duration.inMilliseconds).round());
               await _player.seek(pos);
             }
-          }, activeColor: Colors.white, inactiveColor: Colors.white24),
+          }, activeColor: fg, inactiveColor: muted),
           Row(children: [
-            Expanded(child: Text(widget.fileName, style: const TextStyle(color: Colors.white, fontSize: 13), overflow: TextOverflow.ellipsis)),
+            Expanded(child: Text(widget.fileName, style: TextStyle(color: fg, fontSize: 13), overflow: TextOverflow.ellipsis)),
             const SizedBox(width: 8),
-            Text(_fmt(_position), style: const TextStyle(color: Colors.white70, fontSize: 11)),
+            Text(_fmt(_position), style: TextStyle(color: sub, fontSize: 11)),
             const SizedBox(width: 6),
-            Text('/', style: TextStyle(color: Colors.white24, fontSize: 11)),
+            Text('/', style: TextStyle(color: muted, fontSize: 11)),
             const SizedBox(width: 6),
-            Text(_fmt(_duration), style: const TextStyle(color: Colors.white24, fontSize: 11)),
+            Text(_fmt(_duration), style: TextStyle(color: muted, fontSize: 11)),
           ])
         ]))
       ],

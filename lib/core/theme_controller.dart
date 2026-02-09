@@ -8,14 +8,15 @@ class ThemeController extends ChangeNotifier {
 
   static const String _key = 'app_theme_mode';
 
-  ThemeMode _mode = ThemeMode.system;
+  // Default theme on app start: light (user can still switch to dark from UI).
+  ThemeMode _mode = ThemeMode.light;
 
   ThemeMode get mode => _mode;
   bool get isDark => _mode == ThemeMode.dark;
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_key) ?? 'system';
+    final raw = prefs.getString(_key) ?? 'light';
     _mode = _fromString(raw);
     notifyListeners();
   }
@@ -39,7 +40,8 @@ class ThemeController extends ChangeNotifier {
       case 'dark':
         return ThemeMode.dark;
       default:
-        return ThemeMode.system;
+        // We still accept legacy "system", but default to light if unknown.
+        return ThemeMode.light;
     }
   }
 
