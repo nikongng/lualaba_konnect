@@ -18,6 +18,9 @@ import '../../../live/live_page.dart';
 import '../../../marketplace/marketplace_page.dart';
 import 'news_feed_page.dart';
 import 'profile_page_widgets.dart';
+import 'package:lualaba_konnect/features/adult/adult_space_page.dart';
+import 'package:lualaba_konnect/features/admin/presentation/pages/identity_validation_admin_page.dart';
+import 'profile_settings_page.dart';
 import '../widgets/floating_nav_bar.dart';
 import '../widgets/weather_widget.dart';
 import '../widgets/header_widget.dart';
@@ -43,6 +46,8 @@ class _ModernDashboardState extends State<ModernDashboard> {
   final ThemeController _themeCtrl = ThemeController.instance;
   bool _isDarkMode = false;
   bool _notificationsEnabled = true;
+  bool _isAdmin = false;
+  bool _adminChecked = false;
   double _dataLanUsedGb = 0;
   double? _dataLanTotalGb;
   String _dataLanSource = 'cache';
@@ -62,6 +67,7 @@ class _ModernDashboardState extends State<ModernDashboard> {
     _themeCtrl.addListener(_onThemeChanged);
     _loadNotificationPref();
     _loadDataLanUsage();
+    _loadAdminClaim();
   }
 
   void _onThemeChanged() {
@@ -77,6 +83,41 @@ class _ModernDashboardState extends State<ModernDashboard> {
         setState(() => _notificationsEnabled = enabled);
       }
     } catch (_) {}
+  }
+
+  Future<void> _loadAdminClaim() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        if (mounted) setState(() => _adminChecked = true);
+        return;
+      }
+      final res = await user.getIdTokenResult(true);
+      final claims = res.claims ?? {};
+      if (claims['admin'] == true) {
+        if (mounted) {
+          setState(() {
+            _isAdmin = true;
+            _adminChecked = true;
+          });
+        }
+        return;
+      }
+      try {
+        final snap = await FirebaseFirestore.instance.collection('admin_users').doc(user.uid).get();
+        final enabled = snap.exists && (snap.data()?['enabled'] ?? true);
+        if (mounted) {
+          setState(() {
+            _isAdmin = enabled;
+            _adminChecked = true;
+          });
+        }
+      } catch (_) {
+        if (mounted) setState(() => _adminChecked = true);
+      }
+    } catch (_) {
+      if (mounted) setState(() => _adminChecked = true);
+    }
   }
 
   double? _parseNum(dynamic v) {
@@ -1113,7 +1154,16 @@ Widget _buildProfilePage(bool isDark, Color textColor, {Key? key}) {
           // 1. TES TUILES D'ACTION
           ProfilePageWidgets.buildActionTile("Ma Santé", "Dossier médical", Icons.favorite_border, const Color(0xFF00CBA9), isDark),
           const SizedBox(height: 12),
-          ProfilePageWidgets.buildActionTile("Espace Adultes", "Rencontres", Icons.whatshot, Colors.redAccent, isDark),
+          ProfilePageWidgets.buildActionTile(
+            "Espace Adultes",
+            "Rencontres",
+            Icons.whatshot,
+            Colors.redAccent,
+            isDark,
+            onTap: () {
+              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AdultSpacePage()));
+            },
+          ),
           
           const SizedBox(height: 25),
 
@@ -1135,7 +1185,11 @@ Widget _buildProfilePage(bool isDark, Color textColor, {Key? key}) {
           ProfilePageWidgets.sectionTitle("MON COMPTE", Colors.orange),
           ProfilePageWidgets.settingsTile(
             Icons.person_outline, "Profil", 
-            isDark ? Colors.white.withOpacity(0.05) : Colors.white, textColor
+            isDark ? Colors.white.withOpacity(0.05) : Colors.white,
+            textColor,
+            onTap: () {
+              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const ProfileSettingsPage()));
+            },
           ),
           ProfilePageWidgets.settingsTile(
             Icons.account_balance_wallet_outlined, "Portefeuille", 
@@ -1143,6 +1197,20 @@ Widget _buildProfilePage(bool isDark, Color textColor, {Key? key}) {
           ),
 
           const SizedBox(height: 15),
+
+          if (_adminChecked && _isAdmin) ...[
+            ProfilePageWidgets.sectionTitle("ADMIN", Colors.orange),
+            ProfilePageWidgets.settingsTile(
+              Icons.verified_user_outlined,
+              "Validation identité",
+              isDark ? Colors.white.withOpacity(0.05) : Colors.white,
+              textColor,
+              onTap: () {
+                Navigator.of(context).push(MaterialPageRoute(builder: (_) => const IdentityValidationAdminPage()));
+              },
+            ),
+            const SizedBox(height: 15),
+          ],
 
           // --- SECTION : PRÉFÉRENCES ---
           ProfilePageWidgets.sectionTitle("PRÉFÉRENCES", Colors.orange),

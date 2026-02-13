@@ -64,6 +64,7 @@ dependencies:
   # AI & Network
   google_generative_ai: ^0.4.7
   http: ^1.1.0
+  crypto: ^3.0.3
 
   # 🔥 FIREBASE
   firebase_core: ^3.15.2

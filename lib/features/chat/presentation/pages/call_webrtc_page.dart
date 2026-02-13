@@ -1,11 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
 import 'call_webrtc_logic.dart';
+import 'group_call_webrtc_page.dart';
 import 'package:lualaba_konnect/core/notification_service.dart';
 import 'package:lualaba_konnect/core/ongoing_call_service.dart';
+import 'package:lualaba_konnect/core/config.dart';
 
 class CallWebRTCPage extends StatefulWidget {
   final String name;
@@ -33,6 +39,8 @@ class _CallWebRTCPageState extends State<CallWebRTCPage> with SingleTickerProvid
   late CallWebRTCLogic _logic;
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final RTCVideoRenderer _remoteRenderer = RTCVideoRenderer();
+  bool _endingHandled = false;
+  bool _navigatingUpgrade = false;
 
   // États de l'appel
   bool _muted = false;
@@ -147,9 +155,7 @@ class _CallWebRTCPageState extends State<CallWebRTCPage> with SingleTickerProvid
         if (st == 'ended' || st == 'failed') {
           _stopwatch.stop();
           NotificationService.stopRingtone();
-          Future.delayed(const Duration(milliseconds: 500), () {
-            if (mounted) Navigator.of(context).pop();
-          });
+          _handleEndedOrUpgrade();
         }
       },
       onLog: (m) => debugPrint('[WebRTC_UI] $m'),
@@ -224,6 +230,270 @@ class _CallWebRTCPageState extends State<CallWebRTCPage> with SingleTickerProvid
 
   void _switchCamera() {
     _localRenderer.srcObject?.getVideoTracks().forEach((track) => Helper.switchCamera(track));
+  }
+
+  Future<void> _handleEndedOrUpgrade() async {
+    if (_navigatingUpgrade) return;
+    if (_endingHandled) return;
+    _endingHandled = true;
+
+    try {
+      final snap = await FirebaseFirestore.instance.collection('calls').doc(widget.callId).get();
+      final data = snap.data() ?? <String, dynamic>{};
+      final upgradeTo = (data['upgradeToCallId'] ?? '').toString();
+      if (upgradeTo.isNotEmpty) {
+        _navigatingUpgrade = true;
+        final bool isVideo = (data['upgradeIsVideo'] == true) || widget.isVideo;
+        final String title = (data['upgradeTitle'] ?? widget.name).toString();
+        if (!mounted) return;
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => GroupCallWebRTCPage(
+              callId: upgradeTo,
+              name: title,
+              isVideo: isVideo,
+              isCaller: widget.isCaller,
+            ),
+          ),
+        );
+        return;
+      }
+    } catch (_) {
+      // Best-effort only.
+    }
+
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) Navigator.of(context).pop();
+    });
+  }
+
+  Future<void> _showAddParticipantSheet() async {
+    try {
+      final self = FirebaseAuth.instance.currentUser;
+      if (self == null) return;
+      if (!_isConnected) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Attendez la connexion avant d’ajouter une personne')),
+          );
+        }
+        return;
+      }
+
+      final picked = await _pickContactUid();
+      if (picked == null || picked.trim().isEmpty) return;
+      if (picked == widget.otherId) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cette personne est déjà dans l’appel')));
+        return;
+      }
+      await _upgradeToGroupCall(addUid: picked.trim());
+    } catch (e) {
+      debugPrint('add participant error: $e');
+    }
+  }
+
+  Future<String?> _pickContactUid() async {
+    final self = FirebaseAuth.instance.currentUser;
+    if (self == null) return null;
+
+    // Find the user's profile collection, then read its contacts subcollection.
+    final cols = ['classic_users', 'enterprise_users', 'pro_users'];
+    DocumentReference? baseRef;
+    for (final c in cols) {
+      try {
+        final ref = FirebaseFirestore.instance.collection(c).doc(self.uid);
+        final snap = await ref.get();
+        if (snap.exists) {
+          baseRef = ref;
+          break;
+        }
+      } catch (_) {}
+    }
+    baseRef ??= FirebaseFirestore.instance.collection('classic_users').doc(self.uid);
+
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs = [];
+    try {
+      final snap = await baseRef.collection('contacts').get();
+      docs = snap.docs;
+    } catch (_) {}
+    if (!mounted) return null;
+
+    return await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        final bg = isDark ? const Color(0xFF17212B) : Colors.white;
+        final fg = isDark ? Colors.white : Colors.black87;
+        final sub = isDark ? Colors.white70 : Colors.black54;
+
+        final items = docs
+            .map((d) => {
+                  'uid': d.id,
+                  'name': (d.data()['displayName'] ?? d.data()['name'] ?? '').toString(),
+                  'phone': (d.data()['phone'] ?? '').toString(),
+                })
+            .where((m) => (m['uid'] ?? '').toString().isNotEmpty && (m['uid'] as String) != self.uid)
+            .toList()
+          ..sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
+
+        return Container(
+          height: MediaQuery.of(ctx).size.height * 0.7,
+          decoration: BoxDecoration(color: bg, borderRadius: const BorderRadius.vertical(top: Radius.circular(18))),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Column(
+            children: [
+              Container(width: 44, height: 5, decoration: BoxDecoration(color: isDark ? Colors.white12 : Colors.black12, borderRadius: BorderRadius.circular(5))),
+              const SizedBox(height: 10),
+              Text('Ajouter une personne', style: TextStyle(color: fg, fontSize: 16, fontWeight: FontWeight.w800)),
+              const SizedBox(height: 10),
+              Expanded(
+                child: items.isEmpty
+                    ? Center(child: Text('Aucun contact', style: TextStyle(color: sub)))
+                    : ListView.separated(
+                        itemCount: items.length,
+                        separatorBuilder: (_, __) => Divider(color: isDark ? Colors.white10 : Colors.black12),
+                        itemBuilder: (c, i) {
+                          final it = items[i];
+                          final uid = (it['uid'] ?? '').toString();
+                          final name = (it['name'] ?? '').toString();
+                          final phone = (it['phone'] ?? '').toString();
+                          final letter = (name.isNotEmpty ? name[0] : '?').toUpperCase();
+                          return ListTile(
+                            leading: CircleAvatar(backgroundColor: Colors.white10, child: Text(letter, style: TextStyle(color: fg))),
+                            title: Text(name.isNotEmpty ? name : uid, style: TextStyle(color: fg)),
+                            subtitle: phone.isNotEmpty ? Text(phone, style: TextStyle(color: sub)) : null,
+                            onTap: () => Navigator.pop(c, uid),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _upgradeToGroupCall({required String addUid}) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    if (_navigatingUpgrade) return;
+
+    Map<String, dynamic> oldCall = <String, dynamic>{};
+    try {
+      final snap = await FirebaseFirestore.instance.collection('calls').doc(widget.callId).get();
+      oldCall = snap.data() ?? <String, dynamic>{};
+    } catch (_) {}
+    final String hostId = (oldCall['caller'] ?? (widget.isCaller ? user.uid : widget.otherId)).toString();
+    final String hostName = (oldCall['callerName'] ?? '').toString();
+    final bool amHost = hostId == user.uid;
+
+    final participants = <String>{user.uid, widget.otherId, addUid}.where((e) => e.trim().isNotEmpty).toList();
+    if (participants.length < 3) return;
+
+    final String title = widget.name.isNotEmpty ? widget.name : 'Appel de groupe';
+    final groupCallRef = await FirebaseFirestore.instance.collection('calls').add({
+      'isGroup': true,
+      'caller': hostId,
+      'callerName': hostName.isNotEmpty ? hostName : (user.displayName ?? ''),
+      'upgradedBy': user.uid,
+      'participants': participants,
+      'invited': [addUid],
+      'status': 'ringing',
+      'type': widget.isVideo ? 'video' : 'audio',
+      'createdAt': FieldValue.serverTimestamp(),
+      'groupName': title,
+      'chatName': title,
+      'upgradedFrom': widget.callId,
+    });
+
+    // Notify the added person (and also the current other participant as a fallback).
+    try {
+      await _sendIncomingGroupCallPush(
+        calleeIds: [addUid],
+        callId: groupCallRef.id,
+        isVideo: widget.isVideo,
+        title: title,
+        callerId: hostId,
+        callerName: hostName.isNotEmpty ? hostName : (user.displayName ?? ''),
+      );
+    } catch (_) {}
+
+    _navigatingUpgrade = true;
+    _endingHandled = true;
+
+    // Mark current 1:1 call as upgrading so both participants switch automatically.
+    try {
+      await FirebaseFirestore.instance.collection('calls').doc(widget.callId).set({
+        'upgradeToCallId': groupCallRef.id,
+        'upgradeIsVideo': widget.isVideo,
+        'upgradeTitle': title,
+        'upgradedAt': FieldValue.serverTimestamp(),
+        'status': 'ended',
+      }, SetOptions(merge: true));
+    } catch (_) {}
+
+    try {
+      await _logic.hangup(setFireStoreEnded: false);
+    } catch (_) {}
+
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (_) => GroupCallWebRTCPage(
+          callId: groupCallRef.id,
+          name: title,
+          isVideo: widget.isVideo,
+          isCaller: amHost,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _sendIncomingGroupCallPush({
+    required List<String> calleeIds,
+    required String callId,
+    required bool isVideo,
+    required String title,
+    required String callerId,
+    required String callerName,
+  }) async {
+    final ids = calleeIds.where((e) => e.trim().isNotEmpty).toSet().toList();
+    if (ids.isEmpty) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final idToken = await user.getIdToken();
+    final url = Uri.parse(kNotifierUrl);
+
+    await http.post(
+      url,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $idToken',
+      },
+      body: jsonEncode({
+        'recipients': ids,
+        'title': title,
+        'body': isVideo ? 'Appel vidéo de groupe' : 'Appel audio de groupe',
+        'existing_android_channel_id': 'lualaba_channel_v2',
+        'android_sound': 'lualaba_pop',
+        'data': {
+          'type': 'incoming_call',
+          'isGroup': true,
+          'callId': callId,
+          'isVideo': isVideo,
+          'groupName': title,
+          'chatName': title,
+          'caller': callerId,
+          'callerName': callerName,
+        },
+      }),
+    );
   }
 
   String _formatElapsed() {
@@ -370,6 +640,7 @@ class _CallWebRTCPageState extends State<CallWebRTCPage> with SingleTickerProvid
           _circleBtn(icon: _muted ? Icons.mic_off : Icons.mic, color: _muted ? Colors.redAccent : Colors.white10, onTap: _toggleMute),
           _circleBtn(icon: _isSpeakerOn ? Icons.volume_up : Icons.volume_down, color: _isSpeakerOn ? Colors.blueAccent : Colors.white10, onTap: _toggleSpeaker),
           _circleBtn(icon: Icons.call_end, color: Colors.red, size: 65, onTap: () => _logic.hangup()),
+          _circleBtn(icon: Icons.person_add_alt_1, color: Colors.white10, onTap: _showAddParticipantSheet),
           if (widget.isVideo) ...[
             _circleBtn(icon: _camera ? Icons.videocam : Icons.videocam_off, color: _camera ? Colors.white10 : Colors.grey, onTap: _toggleCamera),
             if (_camera) _circleBtn(icon: Icons.flip_camera_ios, color: Colors.white10, onTap: _switchCamera),

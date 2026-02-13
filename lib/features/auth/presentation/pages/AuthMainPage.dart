@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:lualaba_konnect/core/auth_error_messages.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'account_choice_page.dart';
 import 'forgot_password_page.dart';
@@ -273,7 +274,7 @@ class _AuthMainPageState extends State<AuthMainPage> {
       // navigation vers le dashboard (le dashboard devra lire SharedPreferences pour afficher le nom)
       _navigateToDashboard();
     } on FirebaseAuthException catch (e) {
-      _showError(e.message ?? "Erreur de connexion");
+      _showError(AuthErrorMessages.fromFirebaseAuthException(e));
     } catch (e) {
       _showError("Erreur inattendue lors de la connexion");
       // ignore: avoid_print

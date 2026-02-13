@@ -1,5 +1,5 @@
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:camera/camera.dart';
 
@@ -55,13 +55,20 @@ class _TelegramAttachmentSheetState extends State<TelegramAttachmentSheet> {
   }
 
   Future<void> _loadRecentPhotos() async {
-    final PermissionState ps = await PhotoManager.requestPermissionExtend();
-    if (ps.isAuth || ps.hasAccess) {
-      List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(type: RequestType.image, onlyAll: true);
-      if (albums.isNotEmpty) {
-        List<AssetEntity> media = await albums[0].getAssetListPaged(page: 0, size: 20);
-        if (mounted) setState(() => _recentPhotos = media);
+    // photo_manager doesn't support Web (MissingPluginException at runtime).
+    if (kIsWeb) return;
+    try {
+      final PermissionState ps = await PhotoManager.requestPermissionExtend();
+      if (ps.isAuth || ps.hasAccess) {
+        List<AssetPathEntity> albums = await PhotoManager.getAssetPathList(type: RequestType.image, onlyAll: true);
+        if (albums.isNotEmpty) {
+          List<AssetEntity> media = await albums[0].getAssetListPaged(page: 0, size: 20);
+          if (mounted) setState(() => _recentPhotos = media);
+        }
       }
+    } catch (e) {
+      // On some platforms/plugins this can throw; keep the sheet usable.
+      debugPrint('loadRecentPhotos error: $e');
     }
   }
 

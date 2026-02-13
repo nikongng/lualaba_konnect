@@ -9,6 +9,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:lualaba_konnect/core/app_navigator.dart';
 import 'package:lualaba_konnect/firebase_options.dart';
 import 'package:lualaba_konnect/features/chat/presentation/pages/call_webrtc_page.dart';
+import 'package:lualaba_konnect/features/chat/presentation/pages/group_call_webrtc_page.dart';
 import 'package:lualaba_konnect/features/marketplace/orders_page.dart';
 
 @pragma('vm:entry-point')
@@ -154,6 +155,10 @@ class FcmHandlers {
     NotificationService.playRingtone();
     final callId = data['callId'] ?? data['chatId'] ?? '';
     final callerName = data['callerName'] ?? 'Appel entrant';
+    final bool isGroup = data['isGroup'] == true;
+    final bool isVideo = data['isVideo'] == true ||
+        (data['callType'] ?? data['call_type'] ?? '').toString().toLowerCase() == 'video' ||
+        (data['typeCall'] ?? '').toString().toLowerCase() == 'video';
     
     final ctx = appNavigatorKey.currentContext;
     if (ctx != null) {
@@ -171,7 +176,7 @@ class FcmHandlers {
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             Text(callerName, style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            const Text('Appel entrant', style: TextStyle(color: Colors.white70)),
+            Text(isVideo ? 'Appel vidéo entrant' : 'Appel entrant', style: const TextStyle(color: Colors.white70)),
             const SizedBox(height: 16),
             Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
               ElevatedButton.icon(
@@ -189,13 +194,21 @@ class FcmHandlers {
                   Navigator.pop(c);
                   appNavigatorKey.currentState?.push(
                     MaterialPageRoute(
-                      builder: (_) => CallWebRTCPage(
-                        callId: callId,
-                        otherId: data['caller'] ?? '',
-                        isCaller: false,
-                        name: callerName,
-                        avatarLetter: callerName.isNotEmpty ? callerName[0].toUpperCase() : '?',
-                      ),
+                      builder: (_) => isGroup
+                          ? GroupCallWebRTCPage(
+                              callId: callId,
+                              name: (data['groupName'] ?? data['chatName'] ?? callerName).toString(),
+                              isVideo: isVideo,
+                              isCaller: false,
+                            )
+                          : CallWebRTCPage(
+                              callId: callId,
+                              otherId: data['caller'] ?? '',
+                              isCaller: false,
+                              name: callerName,
+                              avatarLetter: callerName.isNotEmpty ? callerName[0].toUpperCase() : '?',
+                              isVideo: isVideo,
+                            ),
                     ),
                   );
                 }, 
@@ -215,15 +228,27 @@ class FcmHandlers {
     if (data['type'] == 'call') {
       final callId = data['callId'] ?? data['chatId'] ?? '';
       final callerName = data['callerName'] ?? 'Appel entrant';
+      final bool isGroup = data['isGroup'] == true;
+      final bool isVideo = data['isVideo'] == true ||
+          (data['callType'] ?? data['call_type'] ?? '').toString().toLowerCase() == 'video' ||
+          (data['typeCall'] ?? '').toString().toLowerCase() == 'video';
       appNavigatorKey.currentState?.push(
         MaterialPageRoute(
-          builder: (_) => CallWebRTCPage(
-            callId: callId,
-            otherId: data['caller'] ?? '',
-            isCaller: false,
-            name: callerName,
-            avatarLetter: callerName.isNotEmpty ? callerName[0].toUpperCase() : '?',
-          ),
+          builder: (_) => isGroup
+              ? GroupCallWebRTCPage(
+                  callId: callId,
+                  name: (data['groupName'] ?? data['chatName'] ?? callerName).toString(),
+                  isVideo: isVideo,
+                  isCaller: false,
+                )
+              : CallWebRTCPage(
+                  callId: callId,
+                  otherId: data['caller'] ?? '',
+                  isCaller: false,
+                  name: callerName,
+                  avatarLetter: callerName.isNotEmpty ? callerName[0].toUpperCase() : '?',
+                  isVideo: isVideo,
+                ),
         ),
       );
     }

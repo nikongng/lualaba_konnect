@@ -402,6 +402,17 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
             final data = doc.data() as Map<String, dynamic>;
             final callerId = data['caller'] ?? '';
             final callerName = data['callerName'] ?? 'Appel entrant';
+            final bool isVideo = (data['type'] ?? '').toString().toLowerCase() == 'video';
+            bool closed = false;
+            StreamSubscription<DocumentSnapshot>? callSub;
+            void closeSheet(BuildContext c) {
+              if (closed) return;
+              closed = true;
+              try { NotificationService.stopRingtone(); } catch (_) {}
+              try { Navigator.pop(c); } catch (_) {}
+              _showingIncoming = false;
+              callSub?.cancel();
+            }
             // show incoming call dialog
             showModalBottomSheet(
               context: context,
@@ -409,13 +420,32 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
               enableDrag: false,
               backgroundColor: Colors.transparent,
               builder: (ctx) {
+                callSub ??= FirebaseFirestore.instance.collection('calls').doc(doc.id).snapshots().listen((snap) {
+                  if (!snap.exists) {
+                    closeSheet(ctx);
+                    return;
+                  }
+                  final d = (snap.data() is Map) ? Map<String, dynamic>.from(snap.data() as Map) : <String, dynamic>{};
+                  final status = (d['status'] ?? '').toString();
+                  if (status.isNotEmpty && status != 'ringing') {
+                    closeSheet(ctx);
+                    return;
+                  }
+                  if (d['acceptedBy'] != null && d['acceptedBy'].toString().isNotEmpty) {
+                    final accepted = d['acceptedBy'].toString();
+                    if (accepted != uid) {
+                      closeSheet(ctx);
+                      return;
+                    }
+                  }
+                });
                 return Container(
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(color: const Color(0xFF17212B), borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
                     Text('$callerName', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
-                    const Text('Appel entrant', style: TextStyle(color: Colors.white70)),
+                    Text(isVideo ? 'Appel vidéo entrant' : 'Appel entrant', style: const TextStyle(color: Colors.white70)),
                     const SizedBox(height: 16),
                     Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
                       ElevatedButton.icon(
@@ -426,9 +456,7 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                           } catch (e) {
                             debugPrint('Reject err: $e');
                           }
-                          NotificationService.stopRingtone();
-                          Navigator.pop(ctx);
-                          _showingIncoming = false;
+                          closeSheet(ctx);
                         },
                         icon: const Icon(Icons.call_end),
                         label: const Text('Refuser'),
@@ -436,9 +464,23 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                       ),
                       ElevatedButton.icon(
                         onPressed: () async {
+                          try {
+                            await FirebaseFirestore.instance.runTransaction((tx) async {
+                              final ref = FirebaseFirestore.instance.collection('calls').doc(doc.id);
+                              final snap = await tx.get(ref);
+                              if (!snap.exists) return;
+                              final d = (snap.data() is Map) ? Map<String, dynamic>.from(snap.data() as Map) : <String, dynamic>{};
+                              final status = (d['status'] ?? '').toString();
+                              if (status.isNotEmpty && status != 'ringing') return;
+                              tx.update(ref, {
+                                'status': 'accepted',
+                                'acceptedBy': uid,
+                                'acceptedAt': FieldValue.serverTimestamp(),
+                              });
+                            });
+                          } catch (_) {}
                           // accept: open call page as callee
-                          NotificationService.stopRingtone();
-                          Navigator.pop(ctx);
+                          closeSheet(ctx);
                           Navigator.push(
   context,
   MaterialPageRoute(
@@ -448,11 +490,11 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
       isCaller: false,
       name: callerName,
       avatarLetter: callerName.isNotEmpty ? callerName[0].toUpperCase() : '?', // <-- ici !
+      isVideo: isVideo,
     ),
   ),
 );
 
-                          _showingIncoming = false;
                         },
                         icon: const Icon(Icons.call),
                         label: const Text('Accepter'),
@@ -462,7 +504,11 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
                   ]),
                 );
               }
-            );
+            ).whenComplete(() {
+              try { NotificationService.stopRingtone(); } catch (_) {}
+              _showingIncoming = false;
+              callSub?.cancel();
+            });
           }
         }
       });
@@ -569,8 +615,8 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
     try {
       final ref = FirebaseFirestore.instance.collection('chats').doc(chatId);
       await ref.set({
-        'hiddenFor': {currentUser!.uid: true},
-        'unreadCounts': {currentUser!.uid: 0},
+        'hiddenFor.${currentUser!.uid}': true,
+        'unreadCounts.${currentUser!.uid}': 0,
       }, SetOptions(merge: true));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Conversation supprimee pour vous')));
@@ -1843,6 +1889,13 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
     });
     cid = newChat.id;
   }
+
+  // If the chat was previously hidden for me, unhide it so it shows again in the list.
+  try {
+    await FirebaseFirestore.instance.collection('chats').doc(cid).set({
+      'hiddenFor.${currentUser!.uid}': FieldValue.delete(),
+    }, SetOptions(merge: true));
+  } catch (_) {}
 
   // Naviguer vers la page de chat
   if (mounted) {

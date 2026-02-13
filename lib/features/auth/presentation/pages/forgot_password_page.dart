@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:lualaba_konnect/core/auth_error_messages.dart';
 
 class ForgotPasswordPage extends StatefulWidget {
   const ForgotPasswordPage({super.key});
@@ -52,7 +53,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       );
       Navigator.pop(context);
     } on FirebaseAuthException catch (e) {
-      _showMessage(e.message ?? 'Erreur lors de l\'envoi', error: true);
+      _showMessage(AuthErrorMessages.fromFirebaseAuthException(e), error: true);
     } catch (e) {
       _showMessage('Erreur inattendue', error: true);
     } finally {

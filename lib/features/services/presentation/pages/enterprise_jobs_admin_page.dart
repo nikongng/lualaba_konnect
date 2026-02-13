@@ -118,12 +118,29 @@ class _EnterpriseJobsAdminPageState extends State<EnterpriseJobsAdminPage> with 
     return hay.contains(q);
   }
 
+  String _friendlyFirestoreError(Object? error) {
+    final s = (error ?? '').toString();
+    if (s.contains('cloud_firestore/failed-precondition') && s.toLowerCase().contains('requires an index')) {
+      return "Erreur Firestore: index manquant. (Solution: créer l'index dans Firebase console)";
+    }
+    return 'Erreur: $s';
+  }
+
   String _when(Timestamp? ts, int? ms) {
     DateTime? dt;
     if (ts != null) dt = ts.toDate();
     if (dt == null && ms != null) dt = DateTime.fromMillisecondsSinceEpoch(ms);
     if (dt == null) return '';
     return timeago.format(dt, locale: 'fr');
+  }
+
+  DateTime? _createdAtFrom(Map<String, dynamic> d) {
+    final ts = d['createdAt'];
+    if (ts is Timestamp) return ts.toDate();
+    final ms = d['createdAtMs'];
+    if (ms is int) return DateTime.fromMillisecondsSinceEpoch(ms);
+    if (ms is num) return DateTime.fromMillisecondsSinceEpoch(ms.toInt());
+    return null;
   }
 
   String _statusLabel(String s) {
@@ -782,17 +799,13 @@ class _EnterpriseJobsAdminPageState extends State<EnterpriseJobsAdminPage> with 
 
     Query<Map<String, dynamic>> offersQ = FirebaseFirestore.instance
         .collection('job_posts')
-        .where('createdByUid', isEqualTo: widget.enterpriseUid)
-        .orderBy('createdAt', descending: true);
-    if (_offersFilter != 'all') offersQ = offersQ.where('statusKey', isEqualTo: _offersFilter);
+        .where('createdByUid', isEqualTo: widget.enterpriseUid);
 
     final offersAllQ = FirebaseFirestore.instance.collection('job_posts').where('createdByUid', isEqualTo: widget.enterpriseUid);
 
     Query<Map<String, dynamic>> candQ = FirebaseFirestore.instance
         .collection('job_applications')
-        .where('toEnterpriseUid', isEqualTo: widget.enterpriseUid)
-        .orderBy('createdAt', descending: true);
-    if (_candidateFilter != 'all') candQ = candQ.where('statusKey', isEqualTo: _candidateFilter);
+        .where('toEnterpriseUid', isEqualTo: widget.enterpriseUid);
 
     final candAllQ = FirebaseFirestore.instance.collection('job_applications').where('toEnterpriseUid', isEqualTo: widget.enterpriseUid);
 
@@ -881,8 +894,18 @@ class _EnterpriseJobsAdminPageState extends State<EnterpriseJobsAdminPage> with 
                 child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: offersQ.snapshots(),
                   builder: (context, snap) {
-                    if (snap.hasError) return Center(child: Text('Erreur: ${snap.error}', style: TextStyle(color: sub)));
-                    final docs = snap.data?.docs ?? const [];
+                    if (snap.hasError) return Center(child: Text(_friendlyFirestoreError(snap.error), style: TextStyle(color: sub)));
+                    final docs = (snap.data?.docs ?? const []).toList();
+
+                    if (_offersFilter != 'all') {
+                      docs.removeWhere((d) => (d.data()['statusKey'] ?? 'open').toString().trim() != _offersFilter);
+                    }
+
+                    docs.sort((a, b) {
+                      final da = _createdAtFrom(a.data()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+                      final db = _createdAtFrom(b.data()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+                      return db.compareTo(da);
+                    });
                     if (docs.isEmpty) return Center(child: Text("Aucune offre", style: TextStyle(color: sub, fontWeight: FontWeight.w700)));
                     return ListView.separated(
                       padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),
@@ -1037,11 +1060,17 @@ class _EnterpriseJobsAdminPageState extends State<EnterpriseJobsAdminPage> with 
                 child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
                   stream: candQ.snapshots(),
                   builder: (context, snap) {
-                    if (snap.hasError) return Center(child: Text('Erreur: ${snap.error}', style: TextStyle(color: sub)));
+                    if (snap.hasError) return Center(child: Text(_friendlyFirestoreError(snap.error), style: TextStyle(color: sub)));
                     final docs = (snap.data?.docs ?? const [])
                         .where((d) => (d.data()['hiddenByEnterprise'] == true) ? false : true)
+                        .where((d) => _candidateFilter == 'all' ? true : (d.data()['statusKey'] ?? '').toString().trim() == _candidateFilter)
                         .where((d) => _matchesCandidateSearch(d.data()))
                         .toList();
+                    docs.sort((a, b) {
+                      final da = _createdAtFrom(a.data()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+                      final db = _createdAtFrom(b.data()) ?? DateTime.fromMillisecondsSinceEpoch(0);
+                      return db.compareTo(da);
+                    });
                     if (docs.isEmpty) return Center(child: Text('Aucune candidature', style: TextStyle(color: sub, fontWeight: FontWeight.w700)));
                     return ListView.separated(
                       padding: const EdgeInsets.fromLTRB(16, 10, 16, 20),

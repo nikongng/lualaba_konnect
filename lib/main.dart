@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -9,6 +8,7 @@ import 'package:flutter/foundation.dart'; // Pour kIsWeb
 
 // --- Tes imports personnalisés ---
 import 'features/chat/presentation/pages/call_webrtc_page.dart';
+import 'features/chat/presentation/pages/group_call_webrtc_page.dart';
 import 'features/chat/presentation/pages/chat_detail_page.dart';
 import 'firebase_options.dart';
 import 'core/supabase_service.dart';
@@ -115,46 +115,103 @@ void main() async {
       OneSignal.Notifications.addClickListener((event) {
         final data = event.notification.additionalData;
         final actionId = event.result.actionId;
+        final action = (actionId ?? '').toString().trim();
 
         debugPrint("🔔 Notification click : $data");
 
         if (data != null && data['type'] == 'incoming_call') {
           final callId = (data['callId'] ?? '').toString();
+          final currentUid = FirebaseAuth.instance.currentUser?.uid ?? '';
 
-          if (actionId == 'decline') {
-            // Best-effort: update Firestore so caller sees it as rejected.
+          if (action == 'decline') {
+            final bool isGroup = data['isGroup'] == true;
+            // Best-effort: record decline (do not end a group call for everyone).
             if (callId.isNotEmpty) {
               try {
-                FirebaseFirestore.instance.collection('calls').doc(callId).update({'status': 'rejected'});
+                if (currentUid.isNotEmpty) {
+                  FirebaseFirestore.instance.collection('calls').doc(callId).set({
+                    'declinedBy': FieldValue.arrayUnion([currentUid]),
+                  }, SetOptions(merge: true));
+                }
               } catch (_) {}
+              if (!isGroup) {
+                try {
+                  FirebaseFirestore.instance.collection('calls').doc(callId).update({'status': 'rejected'});
+                } catch (_) {}
+              }
             }
             return;
           }
           // Si on clique sur "Répondre" ou sur la notif elle-même
-          if (actionId == 'accept' || actionId == null) {
-            if (callId.isNotEmpty) {
+          if (action != 'accept') {
+            AppNavigator.runWhenReady(() => CallInviteListener.showIncomingCallById(callId, uid: currentUid));
+            return;
+          }
+          if (action == 'accept') {
+            () async {
+              if (callId.isEmpty) return;
+              Map<String, dynamic> callData = <String, dynamic>{};
               try {
-                FirebaseFirestore.instance.collection('calls').doc(callId).update({'status': 'accepted'});
+                final snap = await FirebaseFirestore.instance.collection('calls').doc(callId).get();
+                callData = snap.data() ?? <String, dynamic>{};
               } catch (_) {}
-            }
-             appNavigatorKey.currentState?.push(
-              MaterialPageRoute(
-                builder: (_) => CallWebRTCPage(
-                  callId: data['callId'] ?? '',
-                  otherId: data['sentBy'] ?? '', 
-                  name: event.notification.title ?? 'Appel entrant',
-                  avatarLetter: (event.notification.title ?? 'U')[0].toUpperCase(),
-                  isVideo: data['isVideo'] == true,
-                  isCaller: false, // C'est nous qui recevons
+
+              final bool isGroup = (data['isGroup'] == true) || (callData['isGroup'] == true);
+              final bool isVideo =
+                  (data['isVideo'] == true) || (callData['type'] ?? '').toString().toLowerCase() == 'video';
+              final callerId = (callData['caller'] ?? data['sentBy'] ?? data['caller'] ?? '').toString();
+              final calleeId = (callData['callee'] ?? '').toString();
+              final String title =
+                  (callData['chatName'] ?? callData['groupName'] ?? event.notification.title ?? 'Appel entrant')
+                      .toString();
+              final bool amCaller = currentUid.isNotEmpty && callerId == currentUid;
+
+              if (!isGroup) {
+                try {
+                  FirebaseFirestore.instance.collection('calls').doc(callId).update({'status': 'accepted'});
+                } catch (_) {}
+
+                final otherId = amCaller ? calleeId : callerId;
+                AppNavigator.pushWhenReady(
+                  MaterialPageRoute(
+                    builder: (_) => CallWebRTCPage(
+                      callId: callId,
+                      otherId: otherId,
+                      name: title,
+                      avatarLetter: title.isNotEmpty ? title[0].toUpperCase() : '?',
+                      isVideo: isVideo,
+                      isCaller: amCaller,
+                    ),
+                  ),
+                );
+                return;
+              }
+
+              try {
+                if (currentUid.isNotEmpty) {
+                  FirebaseFirestore.instance.collection('calls').doc(callId).set({
+                    'acceptedBy': FieldValue.arrayUnion([currentUid]),
+                  }, SetOptions(merge: true));
+                }
+              } catch (_) {}
+
+              AppNavigator.pushWhenReady(
+                MaterialPageRoute(
+                  builder: (_) => GroupCallWebRTCPage(
+                    callId: callId,
+                    name: title,
+                    isVideo: isVideo,
+                    isCaller: amCaller,
+                  ),
                 ),
-              ),
-            );
+              );
+            }();
           }
         } else if (data != null && data['type'] == 'chat_message') {
           final chatId = (data['chatId'] ?? '').toString();
           if (chatId.isEmpty) return;
           final chatName = (data['chatName'] ?? event.notification.title ?? 'Discussion').toString();
-          appNavigatorKey.currentState?.push(
+          AppNavigator.pushWhenReady(
             MaterialPageRoute(builder: (_) => ChatDetailPage(chatId: chatId, chatName: chatName)),
           );
         }

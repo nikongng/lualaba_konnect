@@ -6,8 +6,11 @@ import 'dart:ui';
 
 class ProfilePageWidgets {
   // --- TUILE D'ACTION (S'adapte au thème Dark/Light) ---
-  static Widget buildActionTile(String title, String sub, IconData icon, Color color, bool isDark) {
-    return Container(
+  static Widget buildActionTile(String title, String sub, IconData icon, Color color, bool isDark, {VoidCallback? onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(22),
+      child: Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1E3E3B).withOpacity(0.5) : Colors.white,
@@ -38,6 +41,7 @@ class ProfilePageWidgets {
           ),
           Icon(Icons.arrow_forward_ios, size: 14, color: isDark ? Colors.white38 : Colors.grey),
         ],
+      ),
       ),
     );
   }
@@ -188,11 +192,12 @@ class ProfilePageWidgets {
   }
 
   // --- TUILES DE RÉGLAGES ---
-  static Widget settingsTile(IconData icon, String title, Color bg, Color text, {String? trailing}) {
+  static Widget settingsTile(IconData icon, String title, Color bg, Color text, {String? trailing, VoidCallback? onTap}) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(18)),
       child: ListTile(
+        onTap: onTap,
         leading: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(color: text.withOpacity(0.05), borderRadius: BorderRadius.circular(10)),

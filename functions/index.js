@@ -5,7 +5,51 @@ const functions = require('firebase-functions');
 
 admin.initializeApp();
 const db = admin.firestore();
-const USER_COLLECTIONS = ['classic_users', 'pro_users', 'enterprise_users'];
+const USER_COLLECTIONS = ['classic_users', 'pro_users', 'enterprise_users', 'users'];
+
+function toMillis(value) {
+  if (!value) return null;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const d = Date.parse(value);
+    return Number.isNaN(d) ? null : d;
+  }
+  return null;
+}
+
+function mapUserDoc(doc, collection) {
+  const data = doc.data() || {};
+  return {
+    uid: doc.id,
+    collection,
+    firstName: data.firstName || '',
+    lastName: data.lastName || '',
+    phone: data.phone || '',
+    email: data.email || '',
+    profileType: data.profileType ?? null,
+    birthDate: toMillis(data.birthDate),
+    createdAt: toMillis(data.createdAt),
+    isValidated: data.isValidated === true,
+    uploadStatus: data.uploadStatus || '',
+    documents: data.documents || {},
+  };
+}
+
+async function requireAdmin(req, res) {
+  const authHeader = req.headers.authorization || '';
+  if (!authHeader.startsWith('Bearer ')) {
+    res.status(401).json({ message: 'Missing Bearer token' });
+    return null;
+  }
+  const idToken = authHeader.split('Bearer ')[1];
+  const caller = await admin.auth().verifyIdToken(idToken);
+  if (!caller || !caller.admin) {
+    res.status(403).json({ message: 'Forbidden: caller not admin' });
+    return null;
+  }
+  return caller;
+}
 
 // Helper: collect FCM tokens for a user (checks fields and subcollection fcm_tokens)
 async function getTokensForUid(uid) {
@@ -77,6 +121,124 @@ app.get('/listRequests', async (req, res) => {
     const snapshot = await db.collection('admin_requests').where('status', '==', 'pending').orderBy('requestedAt', 'desc').limit(100).get();
     const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
     return res.json({ items });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: err.message || 'Internal error' });
+  }
+});
+
+// List pending identity validations (admin-only)
+app.get('/identity/pending', async (req, res) => {
+  try {
+    const caller = await requireAdmin(req, res);
+    if (!caller) return;
+
+    const items = [];
+    for (const col of USER_COLLECTIONS) {
+      try {
+        const snap = await db.collection(col).where('isValidated', '==', false).limit(50).get();
+        for (const doc of snap.docs) {
+          items.push(mapUserDoc(doc, col));
+        }
+      } catch (e) {
+        console.warn('identity pending error', col, e);
+      }
+    }
+    items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    return res.json({ items });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: err.message || 'Internal error' });
+  }
+});
+
+// Search user by uid/email/phone (admin-only)
+app.get('/identity/search', async (req, res) => {
+  try {
+    const caller = await requireAdmin(req, res);
+    if (!caller) return;
+    const q = (req.query.q || '').toString().trim();
+    if (!q) return res.status(400).json({ message: 'Query required' });
+
+    const results = new Map();
+
+    const addDoc = (doc, col) => {
+      if (!doc || !doc.exists) return;
+      const key = `${col}/${doc.id}`;
+      if (!results.has(key)) results.set(key, mapUserDoc(doc, col));
+    };
+
+    const looksLikeEmail = q.includes('@');
+    const digitsOnly = q.replace(/[^\d+]/g, '');
+    const phoneVariants = [];
+    if (digitsOnly) phoneVariants.push(digitsOnly);
+    if (digitsOnly && !digitsOnly.startsWith('+')) {
+      phoneVariants.push(`+${digitsOnly}`);
+      if (digitsOnly.length === 9) phoneVariants.push(`+243${digitsOnly}`);
+    }
+
+    for (const col of USER_COLLECTIONS) {
+      try {
+        const direct = await db.collection(col).doc(q).get();
+        if (direct.exists) addDoc(direct, col);
+      } catch (_) {}
+    }
+
+    if (looksLikeEmail) {
+      for (const col of USER_COLLECTIONS) {
+        try {
+          const snap = await db.collection(col).where('email', '==', q).limit(10).get();
+          for (const doc of snap.docs) addDoc(doc, col);
+        } catch (_) {}
+      }
+    } else if (phoneVariants.length > 0) {
+      for (const col of USER_COLLECTIONS) {
+        for (const variant of phoneVariants) {
+          try {
+            const snap = await db.collection(col).where('phone', '==', variant).limit(10).get();
+            for (const doc of snap.docs) addDoc(doc, col);
+          } catch (_) {}
+        }
+      }
+    }
+
+    return res.json({ items: Array.from(results.values()) });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ message: err.message || 'Internal error' });
+  }
+});
+
+// Approve identity (admin-only)
+app.post('/identity/approve', async (req, res) => {
+  try {
+    const caller = await requireAdmin(req, res);
+    if (!caller) return;
+    const { uid, collection } = req.body || {};
+    if (!uid) return res.status(400).json({ message: 'uid required' });
+
+    let targetRef = null;
+    if (collection) {
+      const ref = db.collection(collection).doc(uid);
+      const snap = await ref.get();
+      if (snap.exists) targetRef = ref;
+    } else {
+      for (const col of USER_COLLECTIONS) {
+        const ref = db.collection(col).doc(uid);
+        const snap = await ref.get();
+        if (snap.exists) { targetRef = ref; break; }
+      }
+    }
+    if (!targetRef) return res.status(404).json({ message: 'User not found' });
+
+    await targetRef.set({
+      isValidated: true,
+      validatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      validatedBy: caller.uid,
+      uploadStatus: 'validated',
+    }, { merge: true });
+
+    return res.json({ ok: true });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ message: err.message || 'Internal error' });

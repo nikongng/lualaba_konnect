@@ -13,6 +13,18 @@ class NotificationService {
   static bool _initialized = false;
   static bool _localInitialized = false;
 
+  static int _stableHash32(String input) {
+    // FNV-1a 32-bit (stable across runs/platforms)
+    int hash = 0x811c9dc5;
+    for (final unit in input.codeUnits) {
+      hash ^= unit;
+      hash = (hash * 0x01000193) & 0xffffffff;
+    }
+    return hash & 0x7fffffff;
+  }
+
+  static int notificationIdForChat(String chatId) => _stableHash32('chat:$chatId');
+
   // --- CONFIGURATION DU CANAL (ID UNIQUE) ---
   static const AndroidNotificationChannel channel = AndroidNotificationChannel(
     'lualaba_channel_v2', // New id => forces Android to (re)create with custom sound
@@ -125,8 +137,14 @@ class NotificationService {
           String? type;
           try { type = (data['type'] ?? data['notificationType'])?.toString(); } catch (_) { type = null; }
 
+          int? localId;
+          try {
+            final chatId = (data['chatId'] ?? data['chat_id'] ?? data['conversationId'] ?? data['conversation_id'])?.toString();
+            if (chatId != null && chatId.isNotEmpty) localId = notificationIdForChat(chatId);
+          } catch (_) {}
+
           // show local banner and play short pop sound
-          showNotification(title, body, payload: type);
+          showNotification(title, body, payload: type, id: localId);
           try {
             FlutterRingtonePlayer().play(fromAsset: 'assets/sounds/pop.mp3', looping: false, volume: 1.0);
           } catch (_) {}
@@ -174,7 +192,7 @@ class NotificationService {
   }
 
   // --- FONCTION POUR AFFICHER LA NOTIFICATION ---
-  static Future<void> showNotification(String title, String body, {String? payload}) async {
+  static Future<void> showNotification(String title, String body, {String? payload, int? id}) async {
     final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
       channel.id,
       channel.name,
@@ -192,12 +210,40 @@ class NotificationService {
     );
 
     await _fln.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      id ?? (DateTime.now().millisecondsSinceEpoch ~/ 1000),
       title,
       body,
       platform,
       payload: payload,
     );
+  }
+
+  static Future<void> clearNotificationsForChat(String chatId, {bool clearPush = false}) async {
+    try {
+      await initLocalOnly();
+      await _fln.cancel(notificationIdForChat(chatId));
+    } catch (_) {}
+
+    if (!clearPush || kIsWeb) return;
+
+    // OneSignal: there is no reliable per-chat cancel; best effort is to clear app notifications.
+    try {
+      final dynamic os = OneSignal();
+      try {
+        await os.clearOneSignalNotifications();
+        return;
+      } catch (_) {}
+      try {
+        await os.Notifications.clearAll();
+        return;
+      } catch (_) {}
+      try {
+        await os.notifications.clearAll();
+        return;
+      } catch (_) {}
+    } catch (e) {
+      debugPrint('NotificationService.clearNotificationsForChat error: $e');
+    }
   }
 
   // --- ACTIVER/DESACTIVER LES NOTIFICATIONS ---

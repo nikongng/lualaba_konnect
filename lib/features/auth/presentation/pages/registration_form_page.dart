@@ -13,6 +13,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:lualaba_konnect/core/auth_error_messages.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'final_summary_dialog.dart';
 import 'data/userdata/registration_storage_service.dart';
@@ -421,12 +422,7 @@ Future<void> _completeRegistration(bool isAutomaticSuccess) async {
   } on FirebaseAuthException catch (e) {
     if (mounted) setState(() => _isLoading = false);
 
-    String errorMsg = "Erreur d'inscription";
-    if (e.code == 'email-already-in-use') {
-      errorMsg = "Cet email est déjà utilisé.";
-    } else if (e.code == 'weak-password') {
-      errorMsg = "Mot de passe trop faible.";
-    }
+    final errorMsg = AuthErrorMessages.fromFirebaseAuthException(e);
 
     await showFinalSummaryDialog(context, autoValidated: false, customMessage: errorMsg, isError: true);
   } catch (e, st) {

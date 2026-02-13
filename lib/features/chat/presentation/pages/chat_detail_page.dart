@@ -21,6 +21,7 @@ import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:video_player/video_player.dart';
 import 'attachment_menu.dart';
 import 'call_webrtc_page.dart';
+import 'group_call_webrtc_page.dart';
 import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:lualaba_konnect/screnns/camera_screen.dart';
 import 'package:lualaba_konnect/screnns/media_preview_screen.dart';
@@ -34,6 +35,8 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:lualaba_konnect/core/config.dart';
+import 'package:lualaba_konnect/core/notification_service.dart';
+import 'package:lualaba_konnect/core/media_transfer_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -68,6 +71,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
   bool _showEmoji = false;
 
   bool _isLoading = false;
+  String? _uploadLabel;
+  int? _uploadTotalBytes;
+  int _uploadSentBytes = 0;
   bool _isRecording = false;
   bool _recordLocked = false;
   bool _recordCanceled = false;
@@ -82,6 +88,7 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
   // sound effects
   final _sfxPlayer = AudioPlayer();
   bool _messageStreamInitialized = false;
+  bool _markingReceipts = false;
 
   Future<Map<String, String>> _resolveSenderMeta(User user) async {
     // Cache to avoid hitting Firestore on every message/call.
@@ -156,7 +163,8 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
   final Map<String, GlobalKey> _messageKeys = {};
   String? _pendingJumpMessageId;
   String? _highlightMessageId;
-  final Set<String> _downloadingMedia = {};
+  final MediaTransferService _mediaTransfers = MediaTransferService.instance;
+  late final VoidCallback _mediaTransferListener;
 
   // --- REPLY (WhatsApp-style swipe-to-reply) ---
   Map<String, dynamic>? _replyTo; // persisted into Firestore as `replyTo`
@@ -168,15 +176,112 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
   Color _modalMuted(BuildContext context) => _isDark(context) ? Colors.white54 : Colors.black45;
   Color _modalTileBg(BuildContext context) => _isDark(context) ? Colors.white10 : Colors.black12;
   
-  // --- UPLOAD & SAVE HELPERS ---
-  Future<void> _uploadAndSend(dynamic fileSource, String type, String folder, String text, {Map<String, dynamic>? extraData}) async {
-    setState(() => _isLoading = true);
+  String _safeExtFromName(String? name) {
+    if (name == null) return '';
+    final i = name.lastIndexOf('.');
+    if (i == -1 || i == name.length - 1) return '';
+    final ext = name.substring(i).toLowerCase();
+    if (ext.length > 10) return '';
+    final ok = RegExp(r'^\.[a-z0-9]+$').hasMatch(ext);
+    return ok ? ext : '';
+  }
+
+  bool _looksLikeVideo(String? nameOrExt) {
+    if (nameOrExt == null || nameOrExt.trim().isEmpty) return false;
+    final s = nameOrExt.toLowerCase();
+    final ext = s.startsWith('.') ? s.substring(1) : (s.contains('.') ? s.split('.').last : s);
+    const vids = {'mp4', 'mov', 'm4v', '3gp', 'webm', 'mkv', 'avi'};
+    return vids.contains(ext);
+  }
+
+  Future<void> _pickAndSendMultipleMedia() async {
     try {
-      String fileName = '${DateTime.now().millisecondsSinceEpoch}';
+      final res = await FilePicker.platform.pickFiles(
+        type: FileType.media,
+        allowMultiple: true,
+        withData: kIsWeb,
+      );
+      if (res == null || res.files.isEmpty) return;
+
+      setState(() => _isLoading = true);
+      for (var i = 0; i < res.files.length; i++) {
+        final pf = res.files[i];
+        final name = pf.name;
+        final isVideo = _looksLikeVideo(pf.extension ?? name);
+        final msgType = isVideo ? 'video' : 'image';
+        final msgText = isVideo ? '🎬 Vidéo' : '📸 Photo';
+
+        if (mounted) {
+          setState(() {
+            _uploadLabel = 'Envoi ${i + 1}/${res.files.length} • ${isVideo ? "vidéo" : "photo"}';
+            _uploadTotalBytes = pf.size > 0 ? pf.size : null;
+            _uploadSentBytes = 0;
+          });
+        }
+
+        dynamic source;
+        if (kIsWeb) {
+          final bytes = pf.bytes;
+          if (bytes == null) continue;
+          source = XFile.fromData(bytes, name: name);
+        } else {
+          final path = pf.path;
+          if (path == null || path.isEmpty) continue;
+          source = File(path);
+        }
+
+        await _uploadAndSend(
+          source,
+          msgType,
+          'chat_media',
+          msgText,
+          manageLoading: false,
+          originalName: name,
+        );
+      }
+    } catch (e) {
+      debugPrint('pick multiple media error: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _uploadLabel = null;
+          _uploadTotalBytes = null;
+          _uploadSentBytes = 0;
+        });
+      }
+    }
+  }
+
+  // --- UPLOAD & SAVE HELPERS ---
+  Future<void> _uploadAndSend(
+    dynamic fileSource,
+    String type,
+    String folder,
+    String text, {
+    Map<String, dynamic>? extraData,
+    bool manageLoading = true,
+    String? originalName,
+  }) async {
+    if (manageLoading) {
+      setState(() {
+        _isLoading = true;
+        _uploadLabel = 'Envoi ${type == "video" ? "vidéo" : (type == "image" ? "photo" : "média")}';
+        _uploadTotalBytes = null;
+        _uploadSentBytes = 0;
+      });
+    }
+    try {
+      // On Web, JS bit ops can turn `1 << 32` into 0, which breaks nextInt().
+      // Use a safe max that works everywhere.
+      final nonce = Random().nextInt(0x7fffffff).toRadixString(16).padLeft(8, '0');
+      String fileName = '${DateTime.now().microsecondsSinceEpoch}_$nonce';
       // Support XFile (camera/gallery) on web and mobile: use bytes on web, File on mobile
       Uint8List? bytes;
       File? file;
+      String? localName;
       if (fileSource is XFile) {
+        localName = fileSource.name;
         if (kIsWeb) {
           bytes = await fileSource.readAsBytes();
         } else {
@@ -184,7 +289,28 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         }
       } else {
         file = fileSource as File;
+        try {
+          localName = file.path.split(Platform.pathSeparator).last;
+        } catch (_) {}
       }
+
+      final ext = _safeExtFromName(originalName) != ''
+          ? _safeExtFromName(originalName)
+          : (_safeExtFromName(localName) != '' ? _safeExtFromName(localName) : _safeExtFromName(file?.path));
+      if (ext.isNotEmpty) fileName = '$fileName$ext';
+
+      int? sizeBytes;
+      try {
+        if (bytes != null) {
+          sizeBytes = bytes.length;
+        } else if (file != null) {
+          sizeBytes = await file.length();
+        }
+      } catch (_) {}
+      if (sizeBytes != null && manageLoading && mounted) {
+        setState(() => _uploadTotalBytes = sizeBytes);
+      }
+
       String url;
       try {
         // Ensure Supabase is initialized (try to init from --dart-define if missing)
@@ -207,10 +333,33 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         final supabaseBucket = folder;
         debugPrint('SupabaseService.isInitialized = ${SupabaseService.isInitialized}');
         if (SupabaseService.isInitialized) {
+          int lastTick = 0;
+          void onProgress(int sent, int total) {
+            if (!manageLoading || !mounted) return;
+            final now = DateTime.now().millisecondsSinceEpoch;
+            if (now - lastTick < 90 && sent < total) return;
+            lastTick = now;
+            setState(() {
+              _uploadSentBytes = sent;
+              _uploadTotalBytes = total > 0 ? total : _uploadTotalBytes;
+            });
+          }
+
+          String? contentType;
+          if (type == 'image') {
+            contentType = 'image/jpeg';
+          } else if (type == 'video') {
+            contentType = 'video/mp4';
+          } else if (type == 'audio' || type == 'voice') {
+            contentType = 'audio/mpeg';
+          } else {
+            contentType = 'application/octet-stream';
+          }
+
           if (bytes != null) {
-            url = await SupabaseService.uploadBytes(bytes, fileName, supabaseBucket);
+            url = await SupabaseService.uploadBytesNamed(bytes, fileName, supabaseBucket, onProgress: onProgress, contentType: contentType);
           } else if (file != null) {
-            url = await SupabaseService.uploadFile(file, supabaseBucket);
+            url = await SupabaseService.uploadFileNamed(file, fileName, supabaseBucket, onProgress: onProgress, contentType: contentType);
           } else {
             throw Exception('No file data to upload');
           }
@@ -221,11 +370,16 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       } catch (e) {
         debugPrint('Supabase upload failed or unavailable: $e — falling back to Firebase Storage');
         Reference ref = FirebaseStorage.instance.ref().child(folder).child(fileName);
-        if (bytes != null) {
-          await ref.putData(bytes);
-        } else {
-          await ref.putFile(file!);
-        }
+        final UploadTask task = bytes != null ? ref.putData(bytes) : ref.putFile(file!);
+        final sub = task.snapshotEvents.listen((snap) {
+          if (!mounted) return;
+          setState(() {
+            _uploadSentBytes = snap.bytesTransferred;
+            _uploadTotalBytes = snap.totalBytes > 0 ? snap.totalBytes : _uploadTotalBytes;
+          });
+        });
+        await task;
+        await sub.cancel();
         url = await ref.getDownloadURL();
       }
 
@@ -233,6 +387,8 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         'type': type,
         'url': url,
         'text': text,
+        if (sizeBytes != null) 'size': sizeBytes,
+        if ((originalName ?? localName)?.trim().isNotEmpty == true) 'fileName': (originalName ?? localName)!.trim(),
         if (extraData != null) ...extraData,
       });
       // play send sfx
@@ -240,7 +396,14 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     } catch (e) {
       debugPrint("Erreur upload: $e");
     }
-    setState(() => _isLoading = false);
+    if (manageLoading && mounted) {
+      setState(() {
+        _isLoading = false;
+        _uploadLabel = null;
+        _uploadTotalBytes = null;
+        _uploadSentBytes = 0;
+      });
+    }
   }
 
   Future<void> _onMessageOpen(QueryDocumentSnapshot doc, Map m) async {
@@ -258,19 +421,11 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
           if (snap.exists) await pendingRef.delete();
         } catch (_) {}
       }
-      // mark message read and decrement unread count for this user
+      // mark message read (avoid per-message decrement that can become inconsistent)
       try {
-        final alreadyRead = (m['isRead'] == true);
-        if (!alreadyRead) {
-          await doc.reference.update({'isRead': true});
-          try {
-            await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).update({
-              'unreadCounts.${currentUser!.uid}': FieldValue.increment(-1),
-            });
-          } catch (e) {
-            // fallback: try setting to 0 if decrement failed
-            try { await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).update({'unreadCounts.${currentUser!.uid}': 0}); } catch (_) {}
-          }
+        final senderId = (m['senderId'] ?? '').toString();
+        if (senderId.isNotEmpty && senderId != currentUser!.uid && (m['isRead'] != true)) {
+          await _markMessagesAsDeliveredAndRead([doc]);
         }
       } catch (_) {}
     } catch (e) {
@@ -783,6 +938,23 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     return dir;
   }
 
+  // Stable, short cache key for a media URL.
+  // Note: We intentionally avoid truncating encoded URLs because that can collide and show the wrong media.
+  String _mediaCacheKey(String url) {
+    // FNV-1a 64-bit (fast, stable, no extra deps).
+    // On Web, large `int` literals (> 2^53) can't be represented exactly in JS,
+    // so we use BigInt to keep it deterministic across platforms.
+    final fnvPrime = BigInt.parse('100000001b3', radix: 16);
+    final mask64 = BigInt.parse('ffffffffffffffff', radix: 16);
+    BigInt hash = BigInt.parse('cbf29ce484222325', radix: 16);
+    final bytes = utf8.encode(url);
+    for (final b in bytes) {
+      hash = (hash ^ BigInt.from(b)) & mask64;
+      hash = (hash * fnvPrime) & mask64;
+    }
+    return hash.toRadixString(16).padLeft(16, '0');
+  }
+
   String _mediaExtFromUrl(String url) {
     try {
       final uri = Uri.parse(url);
@@ -801,32 +973,27 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     final dir = await _mediaCacheDir();
     if (dir == null) return null;
     final ext = _mediaExtFromUrl(url);
-    var name = base64UrlEncode(utf8.encode(url));
-    if (name.length > 80) name = name.substring(0, 80);
+    final name = 'v2_${_mediaCacheKey(url)}';
     final file = File('${dir.path}${Platform.pathSeparator}$name$ext');
     if (file.existsSync()) return file;
     return null;
   }
 
-  Future<File?> _downloadMediaToCache(String url) async {
+  Future<File?> _downloadMediaToCache(String url, {int? expectedBytes}) async {
     try {
       if (url.isEmpty) return null;
-      if (mounted) setState(() => _downloadingMedia.add(url));
+      if (kIsWeb) return null;
+
       final dir = await _mediaCacheDir();
       if (dir == null) return null;
       final ext = _mediaExtFromUrl(url);
-      var name = base64UrlEncode(utf8.encode(url));
-      if (name.length > 80) name = name.substring(0, 80);
+      final name = 'v2_${_mediaCacheKey(url)}';
       final file = File('${dir.path}${Platform.pathSeparator}$name$ext');
-      final res = await http.get(Uri.parse(url));
-      if (res.statusCode >= 200 && res.statusCode < 300) {
-        await file.writeAsBytes(res.bodyBytes, flush: true);
-        return file;
-      }
+      if (file.existsSync()) return file;
+
+      return await _mediaTransfers.downloadToFile(url: url, dest: file, expectedBytes: expectedBytes);
     } catch (e) {
       debugPrint('download media err: $e');
-    } finally {
-      if (mounted) setState(() => _downloadingMedia.remove(url));
     }
     return null;
   }
@@ -2132,7 +2299,7 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     );
   }
 
-  Future<void> _openMediaViewer(String url, String type, {String? messageId, String? senderId}) async {
+  Future<void> _openMediaViewer(String url, String type, {String? messageId, String? senderId, int? sizeBytes}) async {
     if (url.isEmpty) return;
     File? local;
     if (!kIsWeb) {
@@ -2140,7 +2307,7 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       if (local == null) {
         final ok = await _askDownloadMedia();
         if (ok) {
-          local = await _downloadMediaToCache(url);
+          local = await _downloadMediaToCache(url, expectedBytes: sizeBytes);
         }
       }
     }
@@ -2944,6 +3111,7 @@ Future<void> _blockContact(String otherId) async {
         final parts = (chatData['participants'] is List) ? List.from(chatData['participants']) : [];
         if (currentUser != null && parts.isNotEmpty) {
           for (var p in parts) {
+            updateData['hiddenFor.$p'] = FieldValue.delete();
             if (p != currentUser!.uid) {
               updateData['unreadCounts.$p'] = FieldValue.increment(1);
             }
@@ -3041,30 +3209,82 @@ Future<void> _blockContact(String otherId) async {
 
   Future<void> _markMessagesAsDeliveredAndRead(List<QueryDocumentSnapshot> docs) async {
     if (currentUser == null) return;
-    WriteBatch batch = FirebaseFirestore.instance.batch();
+    if (_markingReceipts) return;
+    _markingReceipts = true;
+
+    final String uid = currentUser!.uid;
     bool shouldClearUnread = false;
-    for (var d in docs) {
-      var m = d.data() as Map<String, dynamic>;
-      try {
-        if (m['senderId'] != currentUser!.uid) {
-          if (m['delivered'] != true) {
-            batch.update(d.reference, {'delivered': true, 'deliveredAt': FieldValue.serverTimestamp()});
-          }
-          if (m['isRead'] != true) {
-            batch.update(d.reference, {'isRead': true});
-            shouldClearUnread = true;
-          }
-        }
-      } catch (_) {}
-    }
-    if (shouldClearUnread) {
-      var chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
-      batch.update(chatRef, {'unreadCounts.${currentUser!.uid}': 0});
-    }
-    try {
+    int pendingOps = 0;
+    WriteBatch batch = FirebaseFirestore.instance.batch();
+
+    Future<void> commitBatch() async {
+      if (pendingOps == 0) return;
       await batch.commit();
+      batch = FirebaseFirestore.instance.batch();
+      pendingOps = 0;
+    }
+
+    try {
+      for (final d in docs) {
+        Map<String, dynamic> m;
+        try {
+          m = Map<String, dynamic>.from(d.data() as Map);
+        } catch (_) {
+          continue;
+        }
+
+        final senderId = (m['senderId'] ?? '').toString();
+        if (senderId.isEmpty || senderId == uid) continue;
+
+        final Map<String, dynamic> update = {};
+        if (m['delivered'] != true) {
+          update['delivered'] = true;
+          update['deliveredAt'] = FieldValue.serverTimestamp();
+        }
+        if (m['isRead'] != true) {
+          update['isRead'] = true;
+          update['readAt'] = FieldValue.serverTimestamp();
+          shouldClearUnread = true;
+        }
+        if (update.isEmpty) continue;
+
+        batch.update(d.reference, update);
+        pendingOps++;
+
+        // Firestore batch limit is 500 operations. Commit earlier to stay safe.
+        if (pendingOps >= 450) {
+          await commitBatch();
+        }
+      }
+
+      await commitBatch();
+
+      if (shouldClearUnread) {
+        final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+        try {
+          await chatRef.update({
+            'unreadCounts.$uid': 0,
+            'lastReadAt.$uid': FieldValue.serverTimestamp(),
+          });
+        } catch (e) {
+          // fallback merge if the doc shape is different/missing
+          try {
+            await chatRef.set({
+              'unreadCounts': {uid: 0},
+              'lastReadAt': {uid: FieldValue.serverTimestamp()},
+            }, SetOptions(merge: true));
+          } catch (_) {}
+        }
+
+        // Best effort: clear notifications so "push" doesn't stay visible after opening/reading.
+        try {
+          await NotificationService.clearNotificationsForChat(widget.chatId, clearPush: true);
+        } catch (_) {}
+      }
     } catch (e) {
       debugPrint('Erreur maj accusés: $e');
+    } finally {
+      _markingReceipts = false;
     }
   }
 
@@ -3156,8 +3376,7 @@ Future<void> _blockContact(String otherId) async {
         },
         onGalleryTap: () async {
           Navigator.pop(parentContext);
-          final XFile? file = await ImagePicker().pickImage(source: ImageSource.gallery);
-          if (file != null) _uploadAndSend(file, 'image', 'chat_media', '📸 Photo');
+          await _pickAndSendMultipleMedia();
         },
         onFileTap: () async {
           Navigator.pop(parentContext);
@@ -3316,7 +3535,48 @@ Future<void> _editContactLocal(String otherId) async {
       if (!chatSnap.exists) return;
       final data = chatSnap.data() ?? {};
       List participants = (data['participants'] is List) ? List.from(data['participants']) : [];
-      String otherId = participants.firstWhere((id) => id != FirebaseAuth.instance.currentUser?.uid, orElse: () => "");
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      final bool isGroup = data['isGroup'] == true || participants.length > 2;
+
+      // Group call: invite everyone in the group except me.
+      if (isGroup) {
+        final ids = participants.map((e) => e.toString()).where((e) => e.trim().isNotEmpty).toSet().toList();
+        final others = ids.where((e) => e != uid).toList();
+        if (others.isEmpty) return;
+        final groupName = (data['groupName'] ?? data['name'] ?? widget.chatName).toString();
+        showModalBottomSheet(
+          context: context,
+          backgroundColor: Colors.transparent,
+          builder: (ctx) {
+            final isDark = _isDark(ctx);
+            return Container(
+              decoration: BoxDecoration(color: _modalBg(ctx), borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
+              padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Container(width: 48, height: 6, decoration: BoxDecoration(color: isDark ? Colors.white12 : Colors.black12, borderRadius: BorderRadius.circular(6))),
+                ]),
+                const SizedBox(height: 12),
+                Text('Appel de groupe', style: TextStyle(color: _modalText(ctx), fontSize: 16, fontWeight: FontWeight.w700)),
+                if (groupName.trim().isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Text(groupName, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: _modalSub(ctx), fontSize: 13)),
+                ],
+                const SizedBox(height: 12),
+                Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                  _actionTile(icon: Icons.call, label: 'Audio', color: Colors.green, onTap: () { Navigator.pop(ctx); _startGroupCall(others, false, title: groupName); }),
+                  _actionTile(icon: Icons.videocam, label: 'Vidéo', color: Colors.purple, onTap: () { Navigator.pop(ctx); _startGroupCall(others, true, title: groupName); }),
+                  _actionTile(icon: Icons.schedule, label: 'Planifier', color: Colors.orange, onTap: () { Navigator.pop(ctx); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Planifier un appel — bientôt'))); }),
+                ]),
+                const SizedBox(height: 16),
+              ]),
+            );
+          },
+        );
+        return;
+      }
+
+      String otherId = participants.firstWhere((id) => id != uid, orElse: () => "");
       if (otherId == "") return;
 
       showModalBottomSheet(
@@ -3349,6 +3609,52 @@ Future<void> _editContactLocal(String otherId) async {
     }
   }
 
+  Future<void> _startGroupCall(List<String> otherIds, bool video, {String? title}) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final ids = otherIds.where((e) => e.trim().isNotEmpty && e != user.uid).toSet().toList();
+      if (ids.isEmpty) return;
+
+      final participants = <String>[user.uid, ...ids];
+      final callRef = await FirebaseFirestore.instance.collection('calls').add({
+        'isGroup': true,
+        'chatId': widget.chatId,
+        'chatName': title ?? widget.chatName,
+        'groupName': title ?? widget.chatName,
+        'caller': user.uid,
+        'callerName': user.displayName ?? '',
+        'participants': participants,
+        'invited': ids,
+        'status': 'ringing',
+        'type': video ? 'video' : 'audio',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      await _sendIncomingGroupCallPush(
+        calleeIds: ids,
+        callId: callRef.id,
+        isVideo: video,
+        title: title ?? widget.chatName,
+      );
+
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => GroupCallWebRTCPage(
+            callId: callRef.id,
+            name: (title ?? widget.chatName).toString(),
+            isVideo: video,
+            isCaller: true,
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Start group call error: $e');
+    }
+  }
+
   Future<void> _startCall(String otherId, bool video) async {
     try {
       final callRef = await FirebaseFirestore.instance.collection('calls').add({
@@ -3375,11 +3681,61 @@ Future<void> _editContactLocal(String otherId) async {
       isCaller: true,
       name: widget.chatName,
       avatarLetter: widget.chatName.isNotEmpty ? widget.chatName[0].toUpperCase() : '?',
+      isVideo: video,
     ),
   ),
 );
 
     } catch (e) { debugPrint('Start call error: $e'); }
+  }
+
+  Future<void> _sendIncomingGroupCallPush({
+    required List<String> calleeIds,
+    required String callId,
+    required bool isVideo,
+    required String title,
+  }) async {
+    try {
+      final ids = calleeIds.where((e) => e.trim().isNotEmpty).toSet().toList();
+      if (ids.isEmpty) return;
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+
+      final idToken = await user.getIdToken();
+      final url = Uri.parse(kNotifierUrl);
+
+      final meta = await _resolveSenderMeta(user);
+      final String senderPhoto = (user.photoURL != null && user.photoURL!.trim().isNotEmpty)
+          ? user.photoURL!.trim()
+          : (meta['photo'] ?? 'https://cdn-icons-png.flaticon.com/512/149/149071.png');
+
+      final resp = await http.post(
+        url,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $idToken',
+        },
+        body: jsonEncode({
+          'recipients': ids,
+          'title': title,
+          'body': isVideo ? 'Appel vidéo de groupe' : 'Appel audio de groupe',
+          'senderAvatarUrl': senderPhoto,
+          'existing_android_channel_id': 'lualaba_channel_v2',
+          'android_sound': 'lualaba_pop',
+          'data': {
+            'type': 'incoming_call',
+            'isGroup': true,
+            'callId': callId,
+            'isVideo': isVideo,
+            'chatId': widget.chatId,
+            'chatName': widget.chatName,
+          },
+        }),
+      );
+      debugPrint('[Notifier][incoming_group_call] status=${resp.statusCode} body=${resp.body}');
+    } catch (e) {
+      debugPrint('Send incoming group call push error: $e');
+    }
   }
 
   Future<void> _sendIncomingCallPush({
@@ -3834,7 +4190,44 @@ Future<void> _editContactLocal(String otherId) async {
                   Column(
                 children: [
                   Expanded(child: _buildMessageList()),
-                  if (_isLoading) LinearProgressIndicator(color: tgAccent, backgroundColor: isDark ? tgBar : Colors.black12),
+                  if (_isLoading) ...[
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              [
+                                _uploadLabel ?? 'Envoi en cours',
+                                if (_uploadTotalBytes != null) _fmtBytes(_uploadTotalBytes!),
+                                if (_uploadTotalBytes != null && _uploadTotalBytes! > 0 && _uploadSentBytes > 0)
+                                  '${((_uploadSentBytes / _uploadTotalBytes!) * 100).clamp(0, 100).toStringAsFixed(0)}%',
+                              ].join(' • '),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: isDark ? Colors.white70 : Colors.black54,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          if (_uploadTotalBytes != null && _uploadTotalBytes! > 0 && _uploadSentBytes > 0)
+                            Text(
+                              '${_fmtBytes(_uploadSentBytes)}/${_fmtBytes(_uploadTotalBytes!)}',
+                              style: TextStyle(color: isDark ? Colors.white54 : Colors.black45, fontSize: 11),
+                            ),
+                        ],
+                      ),
+                    ),
+                    LinearProgressIndicator(
+                      value: (_uploadTotalBytes != null && _uploadTotalBytes! > 0 && _uploadSentBytes > 0)
+                          ? (_uploadSentBytes / _uploadTotalBytes!).clamp(0.0, 1.0)
+                          : null,
+                      color: tgAccent,
+                      backgroundColor: isDark ? tgBar : Colors.black12,
+                    ),
+                  ],
                   _buildInputArea(),
                 ],
                   ),
@@ -4047,7 +4440,7 @@ Future<void> _editContactLocal(String otherId) async {
           ];
 
     // --- Telegram-like grouping (dynamic bubble shape) ---
-    DateTime? _dtFrom(Map<String, dynamic> x) {
+    DateTime? dtFrom(Map<String, dynamic> x) {
       try {
         final ts = x['timestamp'];
         if (ts is Timestamp) return ts.toDate();
@@ -4055,7 +4448,7 @@ Future<void> _editContactLocal(String otherId) async {
       return null;
     }
 
-    bool _sameSender(QueryDocumentSnapshot? d) {
+    bool sameSender(QueryDocumentSnapshot? d) {
       if (d == null) return false;
       try {
         final md = d.data() as Map<String, dynamic>;
@@ -4065,8 +4458,8 @@ Future<void> _editContactLocal(String otherId) async {
         final String t = (md['type'] ?? 'text').toString();
         if (t == 'system') return false;
         // Group only if close in time (keeps grouping natural like Telegram).
-        final a = _dtFrom(m);
-        final b = _dtFrom(md);
+        final a = dtFrom(m);
+        final b = dtFrom(md);
         if (a == null || b == null) return true;
         return a.difference(b).abs().inMinutes <= 5;
       } catch (_) {
@@ -4075,8 +4468,8 @@ Future<void> _editContactLocal(String otherId) async {
     }
 
     final bool canGroup = type != 'system';
-    final bool sameAbove = canGroup && _sameSender(olderDoc);
-    final bool sameBelow = canGroup && _sameSender(newerDoc);
+    final bool sameAbove = canGroup && sameSender(olderDoc);
+    final bool sameBelow = canGroup && sameSender(newerDoc);
     final bool showTail = canGroup && !sameBelow; // only on last bubble of a run (bottom-most)
 
     BorderRadius bubbleRadius() {
@@ -4731,17 +5124,21 @@ Future<void> _showAvatarActions(
             ? FutureBuilder<File?>(
                 future: _getCachedMediaFile(m['url'].toString()),
                 builder: (c, snap) {
+                  final int? expected = (m['size'] is int) ? (m['size'] as int) : null;
                   final local = snap.data;
                   if (local != null && local.existsSync()) {
                     return GestureDetector(
-                      onTap: () => _openMediaViewer(m['url'].toString(), 'image'),
+                      onTap: () => _openMediaViewer(m['url'].toString(), 'image', sizeBytes: expected),
                       child: Image.file(local, width: 220, fit: BoxFit.contain),
                     );
                   }
                   final url = m['url'].toString();
-                  final downloading = _downloadingMedia.contains(url);
+                  final downloading = _mediaTransfers.isDownloading(url);
+                  final int received = _mediaTransfers.receivedBytes(url);
+                  final int? total = _mediaTransfers.totalBytes(url) ?? expected;
+                  final double? progress = (total != null && total > 0) ? (received / total).clamp(0.0, 1.0) : null;
                   return GestureDetector(
-                    onTap: () => _openMediaViewer(url, 'image'),
+                    onTap: () => _openMediaViewer(url, 'image', sizeBytes: expected),
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
@@ -4752,17 +5149,60 @@ Future<void> _showAvatarActions(
                           placeholder: (c, s) => Center(child: CircularProgressIndicator(color: Theme.of(c).colorScheme.primary)),
                           errorWidget: (c, s, e) => Icon(Icons.broken_image, color: iconMuted, size: 50),
                         ),
-                        Positioned(
-                          right: 6,
-                          bottom: 6,
-                          child: Container(
-                            padding: const EdgeInsets.all(4),
-                            decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(12)),
-                            child: downloading
-                                ? SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: iconColor))
-                                : Icon(Icons.download, size: 14, color: iconColor),
+                        if (!kIsWeb)
+                          Positioned(
+                            right: 6,
+                            bottom: 6,
+                            child: GestureDetector(
+                              onTap: downloading
+                                  ? null
+                                  : () async {
+                                      final ok = await _askDownloadMedia();
+                                      if (ok) await _downloadMediaToCache(url, expectedBytes: expected);
+                                    },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(14)),
+                                child: downloading
+                                    ? Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          SizedBox(
+                                            width: 14,
+                                            height: 14,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: iconColor,
+                                              value: progress,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            progress != null ? '${(progress * 100).toStringAsFixed(0)}%' : _fmtBytes(received),
+                                            style: TextStyle(color: iconColor, fontSize: 11, fontWeight: FontWeight.w700),
+                                          ),
+                                          if (total != null) ...[
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              '${_fmtBytes(received)}/${_fmtBytes(total)}',
+                                              style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+                                            ),
+                                          ],
+                                        ],
+                                      )
+                                    : Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.download, size: 14, color: iconColor),
+                                          if (expected != null) ...[
+                                            const SizedBox(width: 6),
+                                            Text(_fmtBytes(expected), style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600)),
+                                          ],
+                                        ],
+                                      ),
+                              ),
+                            ),
                           ),
-                        ),
                       ],
                     ),
                   );
@@ -4777,9 +5217,13 @@ Future<void> _showAvatarActions(
                 builder: (c, snap) {
                   final local = snap.data;
                   final url = m['url'].toString();
-                  final downloading = _downloadingMedia.contains(url);
+                  final downloading = _mediaTransfers.isDownloading(url);
+                  final int? expected = (m['size'] is int) ? (m['size'] as int) : null;
+                  final int received = _mediaTransfers.receivedBytes(url);
+                  final int? total = _mediaTransfers.totalBytes(url) ?? expected;
+                  final double? progress = (total != null && total > 0) ? (received / total).clamp(0.0, 1.0) : null;
                   return GestureDetector(
-                    onTap: () => _openMediaViewer(url, 'video'),
+                    onTap: () => _openMediaViewer(url, 'video', sizeBytes: expected),
                     child: Container(
                       width: 220,
                       height: 140,
@@ -4791,17 +5235,60 @@ Future<void> _showAvatarActions(
                             Icon(Icons.play_circle_fill, color: subText, size: 48)
                           else
                             Icon(Icons.play_circle_fill, color: mutedText, size: 48),
-                          Positioned(
-                            right: 6,
-                            bottom: 6,
-                            child: Container(
-                              padding: const EdgeInsets.all(4),
-                              decoration: BoxDecoration(color: Colors.black45, borderRadius: BorderRadius.circular(12)),
-                              child: downloading
-                                  ? SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: iconColor))
-                                  : Icon(Icons.download, size: 14, color: iconColor),
+                          if (!kIsWeb && (local == null || !local.existsSync()))
+                            Positioned(
+                              right: 6,
+                              bottom: 6,
+                              child: GestureDetector(
+                                onTap: downloading
+                                    ? null
+                                    : () async {
+                                        final ok = await _askDownloadMedia();
+                                        if (ok) await _downloadMediaToCache(url, expectedBytes: expected);
+                                      },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                  decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(14)),
+                                  child: downloading
+                                      ? Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            SizedBox(
+                                              width: 14,
+                                              height: 14,
+                                              child: CircularProgressIndicator(
+                                                strokeWidth: 2,
+                                                color: iconColor,
+                                                value: progress,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              progress != null ? '${(progress * 100).toStringAsFixed(0)}%' : _fmtBytes(received),
+                                              style: TextStyle(color: iconColor, fontSize: 11, fontWeight: FontWeight.w700),
+                                            ),
+                                            if (total != null) ...[
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                '${_fmtBytes(received)}/${_fmtBytes(total)}',
+                                                style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+                                              ),
+                                            ],
+                                          ],
+                                        )
+                                      : Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.download, size: 14, color: iconColor),
+                                            if (expected != null) ...[
+                                              const SizedBox(width: 6),
+                                              Text(_fmtBytes(expected), style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600)),
+                                            ],
+                                          ],
+                                        ),
+                                ),
+                              ),
                             ),
-                          ),
                         ],
                       ),
                     ),
@@ -4816,7 +5303,11 @@ Future<void> _showAvatarActions(
           builder: (c, snap) {
             final url = (m['url'] ?? '').toString();
             final local = snap.data;
-            final downloading = _downloadingMedia.contains(url);
+            final downloading = _mediaTransfers.isDownloading(url);
+            final int? expected = (m['size'] is int) ? (m['size'] as int) : null;
+            final int received = _mediaTransfers.receivedBytes(url);
+            final int? total = _mediaTransfers.totalBytes(url) ?? expected;
+            final double? progress = (total != null && total > 0) ? (received / total).clamp(0.0, 1.0) : null;
             return GestureDetector(
               onTap: () async {
                 if (url.isEmpty) return;
@@ -4826,9 +5317,16 @@ Future<void> _showAvatarActions(
                   if (await canLaunchUrl(uri)) await launchUrl(uri);
                   return;
                 }
-                final ok = await _askDownloadMedia();
-                if (ok) {
-                  await _downloadMediaToCache(url);
+                if (!kIsWeb) {
+                  final ok = await _askDownloadMedia();
+                  if (ok) {
+                    await _downloadMediaToCache(url, expectedBytes: expected);
+                  }
+                } else {
+                  final uri = Uri.tryParse(url);
+                  if (uri != null) {
+                    try { await launchUrl(uri, mode: LaunchMode.externalApplication); } catch (_) {}
+                  }
                 }
               },
               child: Row(
@@ -4837,10 +5335,36 @@ Future<void> _showAvatarActions(
                   Icon(Icons.insert_drive_file, color: iconColor),
                   const SizedBox(width: 8),
                   Flexible(child: Text(m['fileName'] ?? "Fichier", style: TextStyle(color: textColor))),
-                  const SizedBox(width: 8),
-                  downloading
-                      ? SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: iconColor))
-                      : Icon(Icons.download, color: subText, size: 16),
+                  if (expected != null) ...[
+                    const SizedBox(width: 8),
+                    Text(_fmtBytes(expected), style: TextStyle(color: subText, fontSize: 12, fontWeight: FontWeight.w600)),
+                  ],
+                  const SizedBox(width: 10),
+                  if (!kIsWeb)
+                    downloading
+                        ? Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: iconColor, value: progress),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                progress != null ? '${(progress * 100).toStringAsFixed(0)}%' : _fmtBytes(received),
+                                style: TextStyle(color: subText, fontSize: 12, fontWeight: FontWeight.w700),
+                              ),
+                              if (total != null) ...[
+                                const SizedBox(width: 6),
+                                Text(
+                                  '${_fmtBytes(received)}/${_fmtBytes(total)}',
+                                  style: TextStyle(color: subText, fontSize: 11, fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ],
+                          )
+                        : Icon(Icons.download, color: subText, size: 16),
                 ],
               ),
             );
@@ -4853,7 +5377,11 @@ Future<void> _showAvatarActions(
           builder: (c, snap) {
             final url = (m['url'] ?? '').toString();
             final local = snap.data;
-            final downloading = _downloadingMedia.contains(url);
+            final downloading = _mediaTransfers.isDownloading(url);
+            final int? expected = (m['size'] is int) ? (m['size'] as int) : null;
+            final int received = _mediaTransfers.receivedBytes(url);
+            final int? total = _mediaTransfers.totalBytes(url) ?? expected;
+            final double? progress = (total != null && total > 0) ? (received / total).clamp(0.0, 1.0) : null;
             return Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -4864,17 +5392,47 @@ Future<void> _showAvatarActions(
                     onDarkBubble: onDarkBubble,
                   ),
                 ),
-                if (url.isNotEmpty && (local == null || !local.existsSync()))
-                  IconButton(
-                    icon: downloading
-                        ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: iconColor))
-                        : Icon(Icons.download, color: subText, size: 18),
-                    onPressed: downloading
-                        ? null
-                        : () async {
-                            final ok = await _askDownloadMedia();
-                            if (ok) await _downloadMediaToCache(url);
-                          },
+                if (!kIsWeb && url.isNotEmpty && (local == null || !local.existsSync()))
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: downloading
+                            ? SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: iconColor, value: progress),
+                              )
+                            : Icon(Icons.download, color: subText, size: 18),
+                        onPressed: downloading
+                            ? null
+                            : () async {
+                                final ok = await _askDownloadMedia();
+                                if (ok) await _downloadMediaToCache(url, expectedBytes: expected);
+                              },
+                      ),
+                      if (downloading)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: Text(
+                            progress != null ? '${(progress * 100).toStringAsFixed(0)}%' : _fmtBytes(received),
+                            style: TextStyle(color: subText, fontSize: 10, fontWeight: FontWeight.w700),
+                          ),
+                        )
+                      else if (expected != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: Text(_fmtBytes(expected), style: TextStyle(color: subText, fontSize: 10, fontWeight: FontWeight.w600)),
+                        ),
+                      if (downloading && total != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
+                          child: Text(
+                            '${_fmtBytes(received)}/${_fmtBytes(total)}',
+                            style: TextStyle(color: subText, fontSize: 10, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                    ],
                   ),
               ],
             );
@@ -4974,8 +5532,8 @@ Future<void> _showAvatarActions(
       if (currentUser == null) return;
       final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
       await chatRef.set({
-        'hiddenFor': {currentUser!.uid: true},
-        'unreadCounts': {currentUser!.uid: 0},
+        'hiddenFor.${currentUser!.uid}': true,
+        'unreadCounts.${currentUser!.uid}': 0,
       }, SetOptions(merge: true));
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Conversation supprimée pour vous')));
       if (mounted) Navigator.pop(context);
@@ -5365,12 +5923,21 @@ Future<void> _showAvatarActions(
     _setPresence(true);
     // clear any pending alerts for this chat (stop header blinking)
     _clearPendingAlertsForChat();
+    // clear local notifications for this chat (foreground banners)
+    try { NotificationService.clearNotificationsForChat(widget.chatId); } catch (_) {}
     // lazy init recorder to avoid constructor side-effects during widget construction
     _recorder ??= fs.FlutterSoundRecorder();
     // animated background cycling
     _bgTimer = Timer.periodic(const Duration(seconds: 6), (_) {
       if (mounted) setState(() => _bgIndex = (_bgIndex + 1) % _bgGradients.length);
     });
+
+    _mediaTransferListener = () {
+      if (!mounted) return;
+      setState(() {});
+    };
+    _mediaTransfers.revision.addListener(_mediaTransferListener);
+
     // listen for incoming messages to play sfx and detect delivered-state transitions
     _messagesSub = FirebaseFirestore.instance
         .collection('chats')
@@ -5463,6 +6030,7 @@ Future<void> _showAvatarActions(
     _msgController.removeListener(_msgListener);
     _msgController.dispose();
     _lockHintCtrl.dispose();
+    try { _mediaTransfers.revision.removeListener(_mediaTransferListener); } catch (_) {}
     if (_recorderInitialized) {
       try {
         _recorder?.closeRecorder();

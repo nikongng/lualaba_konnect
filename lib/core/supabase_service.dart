@@ -1,9 +1,12 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SupabaseService {
   static bool _initialized = false;
+  static String? _url;
+  static String? _anonKey;
 
   // Public getter to check whether Supabase was initialized
   static bool get isInitialized => _initialized;
@@ -12,11 +15,35 @@ class SupabaseService {
     if (_initialized) return;
     debugPrint('SupabaseService.init: url=$url anonKey=${anonKey.substring(0,8)}...');
     await Supabase.initialize(url: url, anonKey: anonKey);
+    _url = url;
+    _anonKey = anonKey;
     _initialized = true;
     debugPrint('SupabaseService: initialized');
   }
 
   static SupabaseClient get client => Supabase.instance.client;
+
+  static String get supabaseUrl {
+    final u = _url;
+    if (u == null || u.isEmpty) throw Exception('Supabase url is missing');
+    return u;
+  }
+
+  static String get anonKey {
+    final k = _anonKey;
+    if (k == null || k.isEmpty) throw Exception('Supabase anon key is missing');
+    return k;
+  }
+
+  static Map<String, String> _storageHeaders({String? contentType}) {
+    final token = client.auth.currentSession?.accessToken;
+    return <String, String>{
+      'apikey': anonKey,
+      'Authorization': 'Bearer ${token ?? anonKey}',
+      if (contentType != null && contentType.trim().isNotEmpty) 'Content-Type': contentType.trim(),
+      'x-upsert': 'true',
+    };
+  }
 
   /// Ensure the storage bucket exists. Tries to create it if missing.
   /// Note: creating buckets may require elevated (service_role) privileges.
@@ -69,6 +96,58 @@ class SupabaseService {
     return public.toString();
   }
 
+  /// Upload a file to the given bucket with a provided object path (filename).
+  /// Can report progress (best-effort) on mobile/desktop. On Web, progress is not available.
+  static Future<String> uploadFileNamed(
+    File file,
+    String objectPath,
+    String bucket, {
+    void Function(int sentBytes, int totalBytes)? onProgress,
+    String? contentType,
+  }) async {
+    if (!_initialized) throw Exception('Supabase not initialized');
+    if (objectPath.trim().isEmpty) throw Exception('objectPath is empty');
+
+    await ensureBucketExists(bucket);
+
+    if (kIsWeb) {
+      final bytes = await file.readAsBytes();
+      await client.storage.from(bucket).uploadBinary(objectPath, bytes);
+      return client.storage.from(bucket).getPublicUrl(objectPath).toString();
+    }
+
+    final totalBytes = await file.length();
+    onProgress?.call(0, totalBytes);
+
+    final uri = Uri.parse('$supabaseUrl/storage/v1/object/$bucket/$objectPath');
+    final req = http.StreamedRequest('POST', uri);
+    req.contentLength = totalBytes;
+    req.headers.addAll(_storageHeaders(contentType: contentType));
+
+    int sent = 0;
+    int lastTick = DateTime.now().millisecondsSinceEpoch;
+    await for (final chunk in file.openRead()) {
+      req.sink.add(chunk);
+      sent += chunk.length;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - lastTick > 90 || sent >= totalBytes) {
+        lastTick = now;
+        onProgress?.call(sent, totalBytes);
+      }
+    }
+    await req.sink.close();
+
+    final resp = await req.send();
+    final ok = resp.statusCode >= 200 && resp.statusCode < 300;
+    if (!ok) {
+      final body = await resp.stream.bytesToString();
+      throw Exception('Supabase upload failed (${resp.statusCode}): $body');
+    }
+
+    onProgress?.call(totalBytes, totalBytes);
+    return client.storage.from(bucket).getPublicUrl(objectPath).toString();
+  }
+
   /// Upload raw bytes to Supabase storage. Returns public URL or throws.
   static Future<String> uploadBytes(Uint8List bytes, String filename, String bucket) async {
     if (!_initialized) throw Exception('Supabase not initialized');
@@ -99,5 +178,60 @@ class SupabaseService {
     final public = client.storage.from(bucket).getPublicUrl(filename);
     debugPrint('SupabaseService.uploadBytes: publicUrl=$public');
     return public.toString();
+  }
+
+  /// Upload raw bytes to Supabase storage with provided object path and optional progress.
+  /// Note: On most platforms, this reports only coarse progress unless the bytes are chunked.
+  static Future<String> uploadBytesNamed(
+    Uint8List bytes,
+    String objectPath,
+    String bucket, {
+    void Function(int sentBytes, int totalBytes)? onProgress,
+    String? contentType,
+  }) async {
+    if (!_initialized) throw Exception('Supabase not initialized');
+    if (objectPath.trim().isEmpty) throw Exception('objectPath is empty');
+
+    await ensureBucketExists(bucket);
+
+    if (kIsWeb) {
+      await client.storage.from(bucket).uploadBinary(objectPath, bytes);
+      onProgress?.call(bytes.length, bytes.length);
+      return client.storage.from(bucket).getPublicUrl(objectPath).toString();
+    }
+
+    final totalBytes = bytes.length;
+    onProgress?.call(0, totalBytes);
+
+    final uri = Uri.parse('$supabaseUrl/storage/v1/object/$bucket/$objectPath');
+    final req = http.StreamedRequest('POST', uri);
+    req.contentLength = totalBytes;
+    req.headers.addAll(_storageHeaders(contentType: contentType));
+
+    // Chunk to provide progress updates.
+    const chunkSize = 64 * 1024;
+    int sent = 0;
+    int lastTick = DateTime.now().millisecondsSinceEpoch;
+    while (sent < totalBytes) {
+      final end = (sent + chunkSize) > totalBytes ? totalBytes : (sent + chunkSize);
+      req.sink.add(bytes.sublist(sent, end));
+      sent = end;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - lastTick > 90 || sent >= totalBytes) {
+        lastTick = now;
+        onProgress?.call(sent, totalBytes);
+      }
+    }
+    await req.sink.close();
+
+    final resp = await req.send();
+    final ok = resp.statusCode >= 200 && resp.statusCode < 300;
+    if (!ok) {
+      final body = await resp.stream.bytesToString();
+      throw Exception('Supabase upload failed (${resp.statusCode}): $body');
+    }
+
+    onProgress?.call(totalBytes, totalBytes);
+    return client.storage.from(bucket).getPublicUrl(objectPath).toString();
   }
 }

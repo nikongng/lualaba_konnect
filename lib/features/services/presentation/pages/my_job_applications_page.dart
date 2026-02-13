@@ -15,6 +15,14 @@ class MyJobApplicationsPage extends StatefulWidget {
 class _MyJobApplicationsPageState extends State<MyJobApplicationsPage> {
   String _filter = 'all';
 
+  String _friendlyFirestoreError(Object? error) {
+    final s = (error ?? '').toString();
+    if (s.contains('cloud_firestore/failed-precondition') && s.toLowerCase().contains('requires an index')) {
+      return "Erreur Firestore: index manquant. (Solution: créer l'index dans Firebase console)";
+    }
+    return 'Erreur: $s';
+  }
+
   Map<String, int> _countByStatus(List<QueryDocumentSnapshot<Map<String, dynamic>>> docs) {
     final out = <String, int>{};
     for (final d in docs) {
@@ -134,11 +142,11 @@ class _MyJobApplicationsPageState extends State<MyJobApplicationsPage> {
 
     final statsQ = FirebaseFirestore.instance.collection('job_applications').where('applicantUid', isEqualTo: user.uid);
 
-    Query<Map<String, dynamic>> q = FirebaseFirestore.instance
+    // Avoid composite-index requirements by doing ordering/filtering client-side.
+    // (Firestore would require a composite index for `where(applicantUid)` + `orderBy(createdAt)` and even more with status filters.)
+    final Query<Map<String, dynamic>> q = FirebaseFirestore.instance
         .collection('job_applications')
-        .where('applicantUid', isEqualTo: user.uid)
-        .orderBy('createdAt', descending: true);
-    if (_filter != 'all') q = q.where('statusKey', isEqualTo: _filter);
+        .where('applicantUid', isEqualTo: user.uid);
 
     return Scaffold(
       backgroundColor: bg,
@@ -155,6 +163,12 @@ class _MyJobApplicationsPageState extends State<MyJobApplicationsPage> {
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: statsQ.snapshots(),
               builder: (context, snap) {
+                if (snap.hasError) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Text(_friendlyFirestoreError(snap.error), style: TextStyle(color: sub, fontWeight: FontWeight.w700)),
+                  );
+                }
                 final docs = snap.data?.docs ?? const [];
                 final by = _countByStatus(docs);
                 final total = docs.length;
@@ -235,8 +249,19 @@ class _MyJobApplicationsPageState extends State<MyJobApplicationsPage> {
             child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: q.snapshots(),
               builder: (context, snap) {
-                if (snap.hasError) return Center(child: Text('Erreur: ${snap.error}', style: TextStyle(color: sub)));
-                final docs = snap.data?.docs ?? const [];
+                if (snap.hasError) return Center(child: Text(_friendlyFirestoreError(snap.error), style: TextStyle(color: sub)));
+                final docs = (snap.data?.docs ?? const []).toList();
+
+                if (_filter != 'all') {
+                  docs.removeWhere((d) => (d.data()['statusKey'] ?? '').toString().trim() != _filter);
+                }
+
+                // newest first
+                docs.sort((a, b) {
+                  final da = _dateFrom(a.data(), 'createdAt', 'createdAtMs') ?? DateTime.fromMillisecondsSinceEpoch(0);
+                  final db = _dateFrom(b.data(), 'createdAt', 'createdAtMs') ?? DateTime.fromMillisecondsSinceEpoch(0);
+                  return db.compareTo(da);
+                });
                 if (docs.isEmpty) {
                   return Center(child: Text('Aucune candidature', style: TextStyle(color: sub, fontWeight: FontWeight.w700)));
                 }

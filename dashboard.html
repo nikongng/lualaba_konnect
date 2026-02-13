@@ -147,6 +147,43 @@
         .bulk-actions button:hover {
             background: #e0a800;
         }
+        .validation-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .validation-toolbar input {
+            padding: 10px 14px;
+            border: 1px solid #ccc;
+            border-radius: 20px;
+            min-width: 240px;
+        }
+        .validation-toolbar button {
+            padding: 8px 12px;
+            border: none;
+            background: #00cba9;
+            color: white;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .validation-toolbar button.secondary {
+            background: #6c757d;
+        }
+        .validation-status {
+            font-size: 12px;
+            color: #6c757d;
+        }
+        body.dark .validation-toolbar input {
+            background: #2c3e50;
+            color: #ecf0f1;
+            border: 1px solid #7f8c8d;
+        }
+        body.dark .validation-status {
+            color: #bdc3c7;
+        }
         .theme-toggle {
             padding: 8px 12px;
             border: none;
@@ -663,6 +700,7 @@
             <button class="tablinks" data-tab="Classic">Classiques</button>
             <button class="tablinks" data-tab="Pro">Professionnels</button>
             <button class="tablinks" data-tab="Enterprise">Entreprises</button>
+            <button class="tablinks" data-tab="Validation">Validation ID</button>
             <button class="tablinks" data-tab="Services">Services rapides</button>
             <button class="tablinks" data-tab="Food">Repas</button>
             <button class="tablinks" data-tab="Freelance">Freelance & Pros</button>
@@ -688,6 +726,17 @@
             <h3>Utilisateurs Entreprises</h3>
             <div id="enterprise-users" class="user-grid"></div>
             <div class="pagination" id="enterprise-pagination"></div>
+        </div>
+
+        <div id="Validation" class="tabcontent">
+            <h3>Validation identitÃ©</h3>
+            <div class="validation-toolbar">
+                <input type="text" id="identitySearchInput" placeholder="UID, email ou tÃ©lÃ©phone">
+                <button id="identitySearchBtn">Rechercher</button>
+                <button id="identityRefreshBtn" class="secondary">Actualiser</button>
+                <span id="identityStatus" class="validation-status"></span>
+            </div>
+            <div id="identity-validation-list" class="user-grid"></div>
         </div>
 
         <div id="Services" class="tabcontent">
@@ -830,6 +879,9 @@
         let selectedUsers = new Set();
         let listeners = {};
         let certificationChart;
+        let identityUsers = [];
+        let identityFiltered = [];
+        let identityLoading = false;
 
         // Horloge temps réel
         setInterval(() => {
@@ -839,6 +891,7 @@
         // Collections list (kept for listener initialization)
         // NOTE: service providers are certified separately (not classic/pro/enterprise user badges).
         const collections = ['classic_users', 'pro_users', 'enterprise_users', 'service_providers', 'food_places', 'freelance_pros', 'car_rentals', 'training_offers', 'job_posts', 'classified_ads'];
+        const identityCollections = ['classic_users', 'pro_users', 'enterprise_users', 'users'];
 
         // Initialize Firestore listeners only after successful auth and admin claim verified
         function initFirestoreListeners() {
@@ -925,13 +978,21 @@
                 document.getElementById('userLabel').textContent = user.displayName || user.email || '';
                 try {
                     const idTokenResult = await getIdTokenResult(user);
-                    const isAdmin = !!(idTokenResult && idTokenResult.claims && idTokenResult.claims.admin === true);
+                    let isAdmin = !!(idTokenResult && idTokenResult.claims && idTokenResult.claims.admin === true);
+                    if (!isAdmin) {
+                        try {
+                            const adminSnap = await getDoc(doc(db, 'admin_users', user.uid));
+                            isAdmin = adminSnap.exists() && ((adminSnap.data() || {}).enabled !== false);
+                        } catch (_) {}
+                    }
                     window.__isAdmin = isAdmin;
                     // Show request admin button when logged in but not admin
                     if (!isAdmin) {
                         document.getElementById('requestAdminBtn')?.style.setProperty('display', 'inline-block');
+                        document.getElementById('manageRequestsBtn')?.style.setProperty('display', 'none');
                     } else {
                         document.getElementById('requestAdminBtn')?.style.setProperty('display', 'none');
+                        document.getElementById('manageRequestsBtn')?.style.setProperty('display', 'inline-block');
                     }
                     if (!isAdmin) {
                         showToast('Accès refusé : compte non administrateur', true);
@@ -949,6 +1010,7 @@
                 document.getElementById('userLabel').textContent = '';
                 window.__isAdmin = false;
                 document.getElementById('requestAdminBtn')?.style.setProperty('display', 'none');
+                document.getElementById('manageRequestsBtn')?.style.setProperty('display', 'none');
             }
         });
 
@@ -1210,6 +1272,177 @@
             } else {
                 // Sinon, afficher squelettes en attendant
                 container.innerHTML = '<div class="skeleton"></div>'.repeat(6);
+            }
+        }
+
+        function toMillis(value) {
+            if (!value) return null;
+            if (typeof value === 'number') return value;
+            if (typeof value === 'string') {
+                const d = Date.parse(value);
+                return isNaN(d) ? null : d;
+            }
+            if (value.seconds) return value.seconds * 1000;
+            if (typeof value.toDate === 'function') return value.toDate().getTime();
+            return null;
+        }
+
+        function collectionLabel(col) {
+            if (col === 'pro_users') return 'Pro';
+            if (col === 'enterprise_users') return 'Entreprise';
+            if (col === 'classic_users') return 'Classique';
+            return col || 'Utilisateur';
+        }
+
+        function profileTypeLabel(val) {
+            if (val === 1) return 'Pro';
+            if (val === 2) return 'Entreprise';
+            return 'Classique';
+        }
+
+        function escapeHtml(str) {
+            return String(str ?? '').replace(/[&<>"']/g, (m) => ({
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            }[m]));
+        }
+
+        async function loadIdentityPending() {
+            const container = document.getElementById('identity-validation-list');
+            const status = document.getElementById('identityStatus');
+            if (!container) return;
+            if (!window.__dashboardAuthReady) {
+                container.innerHTML = `<div class="no-users">Veuillez vous connecter pour voir les validations.</div>`;
+                return;
+            }
+            if (!window.__isAdmin) {
+                container.innerHTML = `<div class="no-users">AccÃ¨s refusÃ© : compte non administrateur.</div>`;
+                return;
+            }
+            identityLoading = true;
+            if (status) status.textContent = 'Chargement...';
+            container.innerHTML = '<div class="skeleton"></div>'.repeat(6);
+            const items = [];
+            for (const col of identityCollections) {
+                try {
+                    const q = query(collection(db, col), where('isValidated', '==', false));
+                    const snap = await getDocs(q);
+                    snap.forEach((docSnap) => {
+                        items.push({ id: docSnap.id, collection: col, data: docSnap.data() });
+                    });
+                } catch (e) {
+                    console.error('identity pending error', col, e);
+                }
+            }
+            items.sort((a, b) => (toMillis(b.data?.createdAt) || 0) - (toMillis(a.data?.createdAt) || 0));
+            identityUsers = items;
+            identityFiltered = items;
+            identityLoading = false;
+            if (status) status.textContent = `${items.length} en attente`;
+            renderIdentityList(identityFiltered);
+        }
+
+        function renderIdentityList(list) {
+            const container = document.getElementById('identity-validation-list');
+            if (!container) return;
+            container.innerHTML = '';
+            if (!list || list.length === 0) {
+                container.innerHTML = `<div class="no-users">Aucun dossier en attente.</div>`;
+                return;
+            }
+            list.forEach((item) => {
+                const d = item.data || {};
+                const fullName = `${d.firstName || ''} ${d.lastName || ''}`.trim() || item.id;
+                const birthMs = toMillis(d.birthDate);
+                const createdMs = toMillis(d.createdAt);
+                const docs = d.documents || {};
+                const identityPdf = docs.identityPdf || '';
+                const selfie = docs.selfie || '';
+                const hasDocs = !!(identityPdf || selfie);
+                const phone = d.phone || '';
+                const email = d.email || '';
+                const status = d.uploadStatus || '';
+
+                const card = document.createElement('div');
+                card.className = 'user-card';
+                card.innerHTML = `
+                    <h4>${escapeHtml(fullName)} <span class="badge" style="background:linear-gradient(45deg,#ffc107,#fd7e14)">En attente</span></h4>
+                    <p><strong>Collection:</strong> ${escapeHtml(collectionLabel(item.collection))} â€¢ ${escapeHtml(profileTypeLabel(d.profileType))}</p>
+                    ${email ? `<p><strong>Email:</strong> ${escapeHtml(email)}</p>` : ''}
+                    ${phone ? `<p><strong>TÃ©lÃ©phone:</strong> ${escapeHtml(phone)}</p>` : ''}
+                    <p><strong>Naissance:</strong> ${birthMs ? new Date(birthMs).toLocaleDateString('fr-FR') : 'N/A'}</p>
+                    ${createdMs ? `<p><strong>CrÃ©Ã©:</strong> ${new Date(createdMs).toLocaleDateString('fr-FR')}</p>` : ''}
+                    ${status ? `<p><strong>Upload:</strong> ${escapeHtml(status)}</p>` : ''}
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;">
+                        <button class="identity-validate-btn" data-collection="${item.collection}" data-userid="${item.id}">Valider</button>
+                        ${hasDocs ? `<button class="identity-docs-btn" data-selfie="${encodeURIComponent(selfie)}" data-identity="${encodeURIComponent(identityPdf)}" data-name="${encodeURIComponent(fullName)}">Documents</button>` : ''}
+                    </div>
+                `;
+                const validateBtn = card.querySelector('.identity-validate-btn');
+                if (validateBtn) {
+                    validateBtn.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        await validateIdentity(item);
+                    });
+                }
+                const docsBtn = card.querySelector('.identity-docs-btn');
+                if (docsBtn) {
+                    docsBtn.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        viewDocuments(docsBtn.dataset.selfie, docsBtn.dataset.identity, docsBtn.dataset.name);
+                    });
+                }
+                container.appendChild(card);
+            });
+        }
+
+        function filterIdentityList() {
+            const input = document.getElementById('identitySearchInput');
+            const status = document.getElementById('identityStatus');
+            const q = (input?.value || '').toLowerCase().trim();
+            if (!q) {
+                identityFiltered = identityUsers;
+                if (status) status.textContent = `${identityFiltered.length} en attente`;
+                renderIdentityList(identityFiltered);
+                return;
+            }
+            identityFiltered = identityUsers.filter((item) => {
+                const d = item.data || {};
+                const hay = [
+                    item.id,
+                    d.firstName,
+                    d.lastName,
+                    d.email,
+                    d.phone
+                ].filter(Boolean).join(' ').toLowerCase();
+                return hay.includes(q);
+            });
+            if (status) status.textContent = `${identityFiltered.length} rÃ©sultat(s)`;
+            renderIdentityList(identityFiltered);
+        }
+
+        async function validateIdentity(item) {
+            if (!item || !item.id || !item.collection) return;
+            if (!confirm('Valider ce compte ?')) return;
+            try {
+                const payload = {
+                    isValidated: true,
+                    validatedAt: serverTimestamp(),
+                    validatedBy: auth.currentUser ? auth.currentUser.uid : null,
+                    uploadStatus: 'validated',
+                };
+                await updateDoc(doc(db, item.collection, item.id), payload);
+                identityUsers = identityUsers.filter((u) => !(u.id === item.id && u.collection === item.collection));
+                identityFiltered = identityFiltered.filter((u) => !(u.id === item.id && u.collection === item.collection));
+                renderIdentityList(identityFiltered);
+                const status = document.getElementById('identityStatus');
+                if (status) status.textContent = `${identityFiltered.length} en attente`;
+                showToast('Validation effectuÃ©e');
+            } catch (e) {
+                showToast('Erreur validation: ' + e.message, true);
             }
         }
 
@@ -2518,6 +2751,10 @@
             const activeTab = document.querySelector('.tabcontent[style*=\"display: block\"]');
             if (!activeTab) return;
             const containerId = activeTab.querySelector('.user-grid').id;
+            if (containerId === 'identity-validation-list') {
+                filterIdentityList();
+                return;
+            }
             renderUsers(containerId);
         }
 
@@ -2660,6 +2897,8 @@
                 displayUsers('pro_users', 'pro-users');
             } else if (tabName === 'Enterprise') {
                 displayUsers('enterprise_users', 'enterprise-users');
+            } else if (tabName === 'Validation') {
+                loadIdentityPending();
             } else if (tabName === 'Services') {
                 displayUsers('service_providers', 'service-providers');
             } else if (tabName === 'Food') {
@@ -2705,6 +2944,9 @@
         document.getElementById('statusFilter').addEventListener('change', filterUsers);
         document.getElementById('startDate').addEventListener('change', filterUsers);
         document.getElementById('endDate').addEventListener('change', filterUsers);
+        document.getElementById('identitySearchBtn')?.addEventListener('click', filterIdentityList);
+        document.getElementById('identityRefreshBtn')?.addEventListener('click', loadIdentityPending);
+        document.getElementById('identitySearchInput')?.addEventListener('input', debounce(filterIdentityList, 300));
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
