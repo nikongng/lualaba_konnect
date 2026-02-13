@@ -209,12 +209,16 @@
             background: #218838;
         }
         .tab {
-            overflow: hidden;
+            overflow-x: auto;
+            overflow-y: hidden;
             background: #343a40;
             display: flex;
+            gap: 6px;
+            scrollbar-width: thin;
+            -webkit-overflow-scrolling: touch;
         }
         .tab button {
-            flex: 1;
+            flex: 0 0 auto;
             background: inherit;
             border: none;
             outline: none;
@@ -224,6 +228,14 @@
             color: #adb5bd;
             font-weight: 500;
             position: relative;
+            white-space: nowrap;
+        }
+        .tab::-webkit-scrollbar {
+            height: 6px;
+        }
+        .tab::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.2);
+            border-radius: 999px;
         }
         .tab button:hover {
             background: rgba(255,255,255,0.1);
@@ -2947,6 +2959,47 @@
         document.getElementById('identitySearchBtn')?.addEventListener('click', filterIdentityList);
         document.getElementById('identityRefreshBtn')?.addEventListener('click', loadIdentityPending);
         document.getElementById('identitySearchInput')?.addEventListener('input', debounce(filterIdentityList, 300));
+
+        // Horizontal drag scroll for tabs (mouse + touch)
+        (function enableTabDrag() {
+            const tab = document.querySelector('.tab');
+            if (!tab) return;
+            let isDown = false;
+            let startX = 0;
+            let scrollLeft = 0;
+
+            const start = (pageX) => {
+                isDown = true;
+                startX = pageX - tab.offsetLeft;
+                scrollLeft = tab.scrollLeft;
+                tab.classList.add('dragging');
+            };
+            const end = () => {
+                isDown = false;
+                tab.classList.remove('dragging');
+            };
+            const move = (pageX) => {
+                if (!isDown) return;
+                const x = pageX - tab.offsetLeft;
+                const walk = (x - startX) * 1.2;
+                tab.scrollLeft = scrollLeft - walk;
+            };
+
+            tab.addEventListener('mousedown', (e) => start(e.pageX));
+            tab.addEventListener('mouseleave', end);
+            tab.addEventListener('mouseup', end);
+            tab.addEventListener('mousemove', (e) => move(e.pageX));
+
+            tab.addEventListener('touchstart', (e) => {
+                if (e.touches.length !== 1) return;
+                start(e.touches[0].pageX);
+            }, { passive: true });
+            tab.addEventListener('touchend', end);
+            tab.addEventListener('touchmove', (e) => {
+                if (e.touches.length !== 1) return;
+                move(e.touches[0].pageX);
+            }, { passive: true });
+        })();
 
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
