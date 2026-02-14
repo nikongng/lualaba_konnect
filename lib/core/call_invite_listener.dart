@@ -18,11 +18,15 @@ class CallInviteListener {
   static bool _showingIncoming = false;
   static String? _uid;
 
+  static bool get isActive => _uid != null && _uid!.isNotEmpty;
+  static bool get isShowingIncoming => _showingIncoming;
+
   static void start(String uid) {
     if (uid.trim().isEmpty) return;
     if (_uid == uid && _sub != null) return;
     stop();
     _uid = uid;
+    debugPrint('[CallInvite] start uid=$_uid');
 
     _sub = FirebaseFirestore.instance
         .collection('calls')
@@ -75,6 +79,7 @@ class CallInviteListener {
   }
 
   static void stop() {
+    debugPrint('[CallInvite] stop');
     _uid = null;
     _showingIncoming = false;
     _sub?.cancel();
@@ -88,12 +93,16 @@ class CallInviteListener {
     try {
       final snap = await FirebaseFirestore.instance.collection('calls').doc(callId.trim()).get();
       if (!snap.exists) return;
+      debugPrint('[CallInvite] show by id call=$callId uid=${uid ?? ''}');
       await _handleIncoming(snap, selfUidOverride: uid);
     } catch (_) {}
   }
 
   static Future<void> _handleIncoming(DocumentSnapshot doc, {String? selfUidOverride}) async {
-    if (_showingIncoming) return;
+    if (_showingIncoming) {
+      debugPrint('[CallInvite] skip call ${doc.id} (already showing)');
+      return;
+    }
 
     final ctx = appNavigatorKey.currentContext;
     if (ctx == null) return; // no UI context available
@@ -106,20 +115,23 @@ class CallInviteListener {
     final selfUid = (selfUidOverride ?? _uid)?.toString();
     if (isGroup && selfUid != null && selfUid.isNotEmpty && callerId == selfUid) {
       // Don't show an incoming sheet to the caller of a group call.
+      debugPrint('[CallInvite] skip call ${doc.id} (caller is self)');
       return;
     }
     final displayTitle =
         isGroup ? (data['groupName'] ?? data['chatName'] ?? 'Appel de groupe').toString() : callerName;
 
     _showingIncoming = true;
+    debugPrint('[CallInvite] show incoming call=${doc.id} caller=$callerId self=$selfUid isGroup=$isGroup isVideo=$isVideo');
     NotificationService.playRingtone();
 
     bool closed = false;
     StreamSubscription<DocumentSnapshot>? callSub;
 
-    void closeSheet(BuildContext mCtx) {
+    void closeSheet(BuildContext mCtx, {String reason = ''}) {
       if (closed) return;
       closed = true;
+      debugPrint('[CallInvite] close sheet call=${doc.id}${reason.isNotEmpty ? ' reason=$reason' : ''}');
       try { NotificationService.stopRingtone(); } catch (_) {}
       try { Navigator.pop(mCtx); } catch (_) {}
       _showingIncoming = false;
@@ -137,33 +149,38 @@ class CallInviteListener {
         // Close the incoming sheet if another device accepted/rejected.
         callSub ??= FirebaseFirestore.instance.collection('calls').doc(doc.id).snapshots().listen((snap) {
           if (!snap.exists) {
-            closeSheet(mCtx);
+            debugPrint('[CallInvite] call ${doc.id} missing -> close sheet');
+            closeSheet(mCtx, reason: 'missing');
             return;
           }
           final d = (snap.data() is Map) ? Map<String, dynamic>.from(snap.data() as Map) : <String, dynamic>{};
           final status = (d['status'] ?? '').toString();
+          debugPrint('[CallInvite] call ${doc.id} status=$status self=$selfUid acceptedBy=${d['acceptedBy']} declinedBy=${d['declinedBy']}');
           if (status.isNotEmpty && status != 'ringing') {
-            closeSheet(mCtx);
+            closeSheet(mCtx, reason: 'status_not_ringing');
             return;
           }
           if (selfUid != null && selfUid.isNotEmpty) {
             if (d['acceptedBy'] is List) {
               final a = (d['acceptedBy'] as List).map((e) => e.toString()).toSet();
               if (a.contains(selfUid)) {
-                closeSheet(mCtx);
+                debugPrint('[CallInvite] call ${doc.id} acceptedBy self -> close sheet');
+                closeSheet(mCtx, reason: 'accepted_by_self');
                 return;
               }
             } else if (!isGroup && d['acceptedBy'] != null && d['acceptedBy'].toString().isNotEmpty) {
               final accepted = d['acceptedBy'].toString();
               if (accepted != selfUid) {
-                closeSheet(mCtx);
+                debugPrint('[CallInvite] call ${doc.id} acceptedBy other=$accepted -> close sheet');
+                closeSheet(mCtx, reason: 'accepted_by_other');
                 return;
               }
             }
             if (d['declinedBy'] is List) {
               final r = (d['declinedBy'] as List).map((e) => e.toString()).toSet();
               if (r.contains(selfUid)) {
-                closeSheet(mCtx);
+                debugPrint('[CallInvite] call ${doc.id} declinedBy self -> close sheet');
+                closeSheet(mCtx, reason: 'declined_by_self');
                 return;
               }
             }
@@ -192,6 +209,7 @@ class CallInviteListener {
                 children: [
                   ElevatedButton.icon(
                     onPressed: () async {
+                      debugPrint('[CallInvite] reject pressed call=${doc.id}');
                       try {
                         if (isGroup && selfUid != null && selfUid.isNotEmpty) {
                           await FirebaseFirestore.instance.collection('calls').doc(doc.id).set({
@@ -200,8 +218,10 @@ class CallInviteListener {
                         } else {
                           await FirebaseFirestore.instance.collection('calls').doc(doc.id).update({'status': 'rejected'});
                         }
-                      } catch (_) {}
-                      closeSheet(mCtx);
+                      } catch (e) {
+                        debugPrint('[CallInvite] reject error call=${doc.id} err=$e');
+                      }
+                      closeSheet(mCtx, reason: 'rejected');
                     },
                     icon: const Icon(Icons.call_end),
                     label: const Text('Refuser'),
@@ -209,6 +229,7 @@ class CallInviteListener {
                   ),
                   ElevatedButton.icon(
                     onPressed: () async {
+                      debugPrint('[CallInvite] accept pressed call=${doc.id}');
                       try {
                         if (isGroup && selfUid != null && selfUid.isNotEmpty) {
                           await FirebaseFirestore.instance.collection('calls').doc(doc.id).set({
@@ -229,8 +250,10 @@ class CallInviteListener {
                             });
                           });
                         }
-                      } catch (_) {}
-                      closeSheet(mCtx);
+                      } catch (e) {
+                        debugPrint('[CallInvite] accept error call=${doc.id} err=$e');
+                      }
+                      closeSheet(mCtx, reason: 'accepted');
                       if (isGroup) {
                         AppNavigator.pushWhenReady(
                           MaterialPageRoute(

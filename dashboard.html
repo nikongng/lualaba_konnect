@@ -850,7 +850,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-app.js";
-        import { getFirestore, collection, onSnapshot, updateDoc, doc, deleteDoc, addDoc, serverTimestamp, query, where, orderBy, getDoc, getDocs } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
+        import { getFirestore, collection, onSnapshot, updateDoc, doc, deleteDoc, addDoc, serverTimestamp, query, where, orderBy, getDoc, getDocs, deleteField } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore.js";
         import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, getIdTokenResult, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/9.22.0/firebase-auth.js";
         import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
@@ -1241,12 +1241,56 @@
             }
         };
 
+        window.setAdultPin = async function(collectionName, userId) {
+            const raw = prompt('Définir un PIN adulte (4 chiffres)');
+            if (raw === null) return;
+            const pin = String(raw).trim();
+            if (!/^\d{4}$/.test(pin)) {
+                showToast('PIN invalide. Utilisez 4 chiffres.', true);
+                return;
+            }
+            if (!confirm('Confirmer le nouveau PIN adulte ?')) return;
+            updateUserCardButton(collectionName, userId, true);
+            try {
+                await updateDoc(doc(db, collectionName, userId), {
+                    adultPin: pin,
+                    adultPinHash: null,
+                    adultPinUpdatedAt: serverTimestamp(),
+                    adultPinSetBy: auth.currentUser ? auth.currentUser.uid : null,
+                });
+                showToast('PIN adulte mis à jour.');
+            } catch (error) {
+                showToast('Erreur mise à jour PIN: ' + error.message, true);
+            }
+            updateUserCardButton(collectionName, userId, false);
+        };
+
+        window.clearAdultPin = async function(collectionName, userId) {
+            if (!confirm('Révoquer le PIN adulte pour cet utilisateur ?')) return;
+            updateUserCardButton(collectionName, userId, true);
+            try {
+                await updateDoc(doc(db, collectionName, userId), {
+                    adultPinHash: deleteField(),
+                    adultPin: deleteField(),
+                    adultPinUpdatedAt: serverTimestamp(),
+                    adultPinSetBy: auth.currentUser ? auth.currentUser.uid : null,
+                });
+                showToast('PIN adulte révoqué.');
+            } catch (error) {
+                showToast('Erreur révocation PIN: ' + error.message, true);
+            }
+            updateUserCardButton(collectionName, userId, false);
+        };
+
         function updateUserCardButton(collectionName, userId, loading) {
             // Buttons are rendered with data-collection + data-userid (not concatenated).
             const btns = document.querySelectorAll(`button[data-collection="${collectionName}"][data-userid="${userId}"]`);
             btns.forEach(btn => {
+                if (!btn.getAttribute('data-original')) {
+                    btn.setAttribute('data-original', btn.textContent || '');
+                }
                 btn.disabled = loading;
-                btn.textContent = loading ? 'Chargement...' : (btn.getAttribute('data-original') || btn.textContent);
+                btn.textContent = loading ? 'Chargement...' : (btn.getAttribute('data-original') || '');
             });
         }
 
@@ -1340,11 +1384,20 @@
             const items = [];
             for (const col of identityCollections) {
                 try {
-                    const q = query(collection(db, col), where('isValidated', '==', false));
-                    const snap = await getDocs(q);
-                    snap.forEach((docSnap) => {
-                        items.push({ id: docSnap.id, collection: col, data: docSnap.data() });
-                    });
+                    const map = new Map();
+                    const qFalse = query(collection(db, col), where('isValidated', '==', false));
+                    const qNull = query(collection(db, col), where('isValidated', '==', null));
+                    const [snapFalse, snapNull] = await Promise.all([getDocs(qFalse), getDocs(qNull)]);
+                    const addSnap = (snap) => {
+                        snap.forEach((docSnap) => {
+                            const key = `${col}:${docSnap.id}`;
+                            if (map.has(key)) return;
+                            map.set(key, { id: docSnap.id, collection: col, data: docSnap.data() });
+                        });
+                    };
+                    addSnap(snapFalse);
+                    addSnap(snapNull);
+                    map.forEach(v => items.push(v));
                 } catch (e) {
                     console.error('identity pending error', col, e);
                 }
@@ -2039,6 +2092,10 @@
             userCard.setAttribute('data-date', user.lastUpdated ? new Date(user.lastUpdated.seconds * 1000).getTime() : 0);
             userCard.setAttribute('data-status', user.isCertified ? 'certified' : 'pending');
             userCard.onclick = () => openModal(user);
+            const hasAdultPin = !!(
+                (user.adultPinHash && String(user.adultPinHash).trim()) ||
+                (user.adultPin && String(user.adultPin).trim())
+            );
             // Attempt to show selfie/identity links if present in user document
             // Support nested `documents` structure written by the registration flow and tolerate variant key names
             const docs = (user.documents && typeof user.documents === 'object') ? user.documents : {};
@@ -2085,6 +2142,9 @@
                 : `<button class="certify-btn" data-collection="${collectionName}" data-userid="${userId}" data-original="Certifier">Certifier</button>`;
 
             const deleteBtnHtml = `<button class="delete-btn" data-collection="${collectionName}" data-userid="${userId}">Supprimer</button>`;
+            const pinBtnLabel = hasAdultPin ? 'Modifier PIN' : 'Définir PIN';
+            const pinBtnHtml = `<button class="adult-pin-btn" data-collection="${collectionName}" data-userid="${userId}" data-original="${pinBtnLabel}">${pinBtnLabel}</button>`;
+            const pinClearHtml = hasAdultPin ? `<button class="adult-pin-clear-btn" data-collection="${collectionName}" data-userid="${userId}" data-original="Révoquer PIN">Révoquer PIN</button>` : '';
 
             userCard.innerHTML = `
                 <div style="display: flex; align-items: center;">
@@ -2093,6 +2153,7 @@
                         <h4>
                             ${user.firstName || ''} ${user.lastName || ''}
                             ${user.isCertified === true ? '<span class="badge">Certifié</span>' : ''}
+                            ${hasAdultPin ? '<span class="badge" style="background:linear-gradient(45deg,#20c997,#0ea5e9)">PIN adulte</span>' : ''}
                         </h4>
                         <p><strong>Email:</strong> ${user.email || ''}</p>
                         <p><strong>Téléphone:</strong> ${user.phone || ''}</p>
@@ -2102,6 +2163,8 @@
                         <p><strong>Statut upload:</strong> <span class="${statusOk ? 'status-complete' : 'status-error'}">${user.uploadStatus || 'N/A'}</span></p>
                         ${certifyBtnHtml}
                         ${deleteBtnHtml}
+                        ${pinBtnHtml}
+                        ${pinClearHtml}
                         <div style="margin-top:10px;">${filesHtml}${viewBtnHtml}</div>
                     </div>
                 </div>
@@ -2144,6 +2207,20 @@
                 deleteBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
                     deleteUser(deleteBtn.dataset.collection, deleteBtn.dataset.userid);
+                });
+            }
+            const pinBtn = userCard.querySelector('.adult-pin-btn');
+            if (pinBtn) {
+                pinBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    setAdultPin(pinBtn.dataset.collection, pinBtn.dataset.userid);
+                });
+            }
+            const clearPinBtn = userCard.querySelector('.adult-pin-clear-btn');
+            if (clearPinBtn) {
+                clearPinBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    clearAdultPin(clearPinBtn.dataset.collection, clearPinBtn.dataset.userid);
                 });
             }
 

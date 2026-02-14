@@ -20,6 +20,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:lualaba_konnect/core/supabase_service.dart';
 import 'package:lualaba_konnect/core/notification_service.dart';
 import 'package:lualaba_konnect/core/config.dart';
+import 'package:lualaba_konnect/core/call_invite_listener.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter_contacts/flutter_contacts.dart';
 import '../../../auth/presentation/pages/ModernDashboard.dart';
@@ -386,6 +387,10 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
   VideoPlayerController? _videoController;
 
   void _listenIncomingCalls() {
+    if (CallInviteListener.isActive) {
+      debugPrint('[ChatList] Incoming call UI handled by CallInviteListener');
+      return;
+    }
     final uid = currentUser?.uid;
     if (uid == null) return;
     _incomingCallSub = FirebaseFirestore.instance.collection('calls')

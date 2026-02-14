@@ -7,6 +7,7 @@ class SupabaseService {
   static bool _initialized = false;
   static String? _url;
   static String? _anonKey;
+  static bool _bucketCreateWarningShown = false;
 
   // Public getter to check whether Supabase was initialized
   static bool get isInitialized => _initialized;
@@ -48,14 +49,14 @@ class SupabaseService {
   /// Ensure the storage bucket exists. Tries to create it if missing.
   /// Note: creating buckets may require elevated (service_role) privileges.
   static Future<void> ensureBucketExists(String bucket) async {
-    try {
-      debugPrint('SupabaseService.ensureBucketExists: checking/creating bucket "$bucket"');
-      // attempt to create the bucket; if the method is not permitted or already exists,
-      // Supabase will return an error which we catch and log.
-      await client.storage.createBucket(bucket);
-      debugPrint('SupabaseService.ensureBucketExists: createBucket returned (ok) for $bucket');
-    } catch (e) {
-      debugPrint('SupabaseService.ensureBucketExists: createBucket error (may already exist or insufficient permissions): $e');
+    // Buckets should be provisioned in Supabase dashboard (or server-side).
+    // Client-side bucket creation requires elevated privileges and is expected to fail.
+    if (!_bucketCreateWarningShown) {
+      _bucketCreateWarningShown = true;
+      debugPrint(
+        'SupabaseService.ensureBucketExists: skipped on client. '
+        'Create bucket "$bucket" in Supabase dashboard.',
+      );
     }
   }
 

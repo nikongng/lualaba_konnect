@@ -199,7 +199,7 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       final res = await FilePicker.platform.pickFiles(
         type: FileType.media,
         allowMultiple: true,
-        withData: kIsWeb,
+        withData: true,
       );
       if (res == null || res.files.isEmpty) return;
 
@@ -219,16 +219,7 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
           });
         }
 
-        dynamic source;
-        if (kIsWeb) {
-          final bytes = pf.bytes;
-          if (bytes == null) continue;
-          source = XFile.fromData(bytes, name: name);
-        } else {
-          final path = pf.path;
-          if (path == null || path.isEmpty) continue;
-          source = File(path);
-        }
+        dynamic source = pf;
 
         await _uploadAndSend(
           source,
@@ -276,17 +267,45 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       // Use a safe max that works everywhere.
       final nonce = Random().nextInt(0x7fffffff).toRadixString(16).padLeft(8, '0');
       String fileName = '${DateTime.now().microsecondsSinceEpoch}_$nonce';
-      // Support XFile (camera/gallery) on web and mobile: use bytes on web, File on mobile
+      // Support XFile/PlatformFile/File/bytes across web and mobile
       Uint8List? bytes;
       File? file;
       String? localName;
       if (fileSource is XFile) {
         localName = fileSource.name;
-        if (kIsWeb) {
-          bytes = await fileSource.readAsBytes();
-        } else {
-          file = File(fileSource.path);
+        try {
+          if (kIsWeb) {
+            bytes = await fileSource.readAsBytes();
+          } else {
+            final p = fileSource.path;
+            if (p.isNotEmpty) {
+              file = File(p);
+              if (!(await file.exists())) {
+                file = null;
+                bytes = await fileSource.readAsBytes();
+              }
+            } else {
+              bytes = await fileSource.readAsBytes();
+            }
+          }
+        } catch (_) {}
+      } else if (fileSource is PlatformFile) {
+        localName = fileSource.name;
+        bytes = fileSource.bytes;
+        if (bytes == null) {
+          final path = fileSource.path;
+          if (path != null && path.isNotEmpty) {
+            file = File(path);
+            try {
+              if (!(await file.exists())) file = null;
+            } catch (_) {}
+          }
+          if (file == null && fileSource.readStream != null) {
+            bytes = await _readStreamToBytes(fileSource.readStream!);
+          }
         }
+      } else if (fileSource is Uint8List) {
+        bytes = fileSource;
       } else {
         file = fileSource as File;
         try {
@@ -367,10 +386,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         } else {
           throw Exception('Supabase not initialized');
         }
-      } catch (e) {
-        debugPrint('Supabase upload failed or unavailable: $e — falling back to Firebase Storage');
-        Reference ref = FirebaseStorage.instance.ref().child(folder).child(fileName);
-        final UploadTask task = bytes != null ? ref.putData(bytes) : ref.putFile(file!);
+        } catch (e) {
+          debugPrint('Supabase upload failed or unavailable: $e — falling back to Firebase Storage');
+          Reference ref = FirebaseStorage.instance.ref().child(folder).child(fileName);
+          final UploadTask task = bytes != null ? ref.putData(bytes) : ref.putFile(file!);
         final sub = task.snapshotEvents.listen((snap) {
           if (!mounted) return;
           setState(() {
@@ -396,15 +415,23 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     } catch (e) {
       debugPrint("Erreur upload: $e");
     }
-    if (manageLoading && mounted) {
-      setState(() {
-        _isLoading = false;
-        _uploadLabel = null;
-        _uploadTotalBytes = null;
-        _uploadSentBytes = 0;
-      });
+      if (manageLoading && mounted) {
+        setState(() {
+          _isLoading = false;
+          _uploadLabel = null;
+          _uploadTotalBytes = null;
+          _uploadSentBytes = 0;
+        });
+      }
     }
-  }
+
+    Future<Uint8List> _readStreamToBytes(Stream<List<int>> stream) async {
+      final buffer = BytesBuilder(copy: false);
+      await for (final chunk in stream) {
+        buffer.add(chunk);
+      }
+      return buffer.toBytes();
+    }
 
   Future<void> _onMessageOpen(QueryDocumentSnapshot doc, Map m) async {
     try {
@@ -3380,9 +3407,16 @@ Future<void> _blockContact(String otherId) async {
         },
         onFileTap: () async {
           Navigator.pop(parentContext);
-          FilePickerResult? res = await FilePicker.platform.pickFiles();
+          FilePickerResult? res = await FilePicker.platform.pickFiles(withData: true);
           if (res != null) {
-            _uploadAndSend(File(res.files.single.path!), 'file', 'chat_media', '📄 Fichier', extraData: {'fileName': res.files.single.name});
+            _uploadAndSend(
+              res.files.single,
+              'file',
+              'chat_media',
+              '📄 Fichier',
+              extraData: {'fileName': res.files.single.name},
+              originalName: res.files.single.name,
+            );
           }
         },
         onLocationTap: () async {
@@ -3395,9 +3429,16 @@ Future<void> _blockContact(String otherId) async {
         },
         onMusicTap: () async {
           Navigator.pop(context);
-          FilePickerResult? res = await FilePicker.platform.pickFiles(type: FileType.audio);
+          FilePickerResult? res = await FilePicker.platform.pickFiles(type: FileType.audio, withData: true);
           if (res != null) {
-            _uploadAndSend(File(res.files.single.path!), 'audio', 'chat_media', '🎵 Musique', extraData: {'fileName': res.files.single.name});
+            _uploadAndSend(
+              res.files.single,
+              'audio',
+              'chat_media',
+              '🎵 Musique',
+              extraData: {'fileName': res.files.single.name},
+              originalName: res.files.single.name,
+            );
           }
         },
         onContactTap: () async {
