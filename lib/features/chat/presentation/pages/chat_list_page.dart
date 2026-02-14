@@ -1984,7 +1984,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
   Widget _buildCategoryTabs() {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final Color sub = isDark ? Colors.white38 : Colors.black38;
-    final tabs = ["TOUS", "PRO", "ENTERPRISE", "NON LUS", "GROUPES"];
+    final tabs = ["TOUS", "PRO", "ENTERPRISE", "NON LUS", "GROUPES", "APPELS"];
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 10),
       child: SingleChildScrollView(
@@ -2028,6 +2028,9 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
   }
 
   Widget _buildChatList() {
+    if (selectedCategory == "APPELS") {
+      return _buildCallsList();
+    }
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final Color text = isDark ? Colors.white : Colors.black87;
     final Color sub = isDark ? Colors.white70 : Colors.black54;
@@ -2286,6 +2289,123 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
     );
   }
 
+  Widget _buildCallsList() {
+    final uid = currentUser?.uid;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final text = isDark ? Colors.white : Colors.black87;
+    final sub = isDark ? Colors.white70 : Colors.black54;
+    final muted = isDark ? Colors.white38 : Colors.black38;
+
+    if (uid == null) {
+      return Center(
+        child: Text('Connectez-vous pour voir vos appels', style: TextStyle(color: muted)),
+      );
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('calls')
+          .orderBy('createdAt', descending: true)
+          .limit(300)
+          .snapshots(),
+      builder: (context, snap) {
+        if (!snap.hasData) {
+          return const Center(child: CircularProgressIndicator(color: Colors.orange));
+        }
+        final docs = snap.data!.docs.where((d) => _isCallForUser(d.data(), uid)).toList();
+        if (docs.isEmpty) {
+          return Center(child: Text('Aucun appel', style: TextStyle(color: muted)));
+        }
+
+        return ListView.separated(
+          padding: const EdgeInsets.only(bottom: 140),
+          itemCount: docs.length,
+          separatorBuilder: (_, __) => Divider(color: isDark ? Colors.white10 : Colors.black12, height: 1),
+          itemBuilder: (context, index) {
+            final data = docs[index].data();
+            final bool isGroup = data['isGroup'] == true;
+            final bool isVideo =
+                (data['isVideo'] == true) || ((data['type'] ?? '').toString().toLowerCase() == 'video');
+            final String caller = (data['caller'] ?? '').toString();
+            final bool outgoing = caller == uid;
+            final String status = (data['status'] ?? '').toString();
+
+            final String name = isGroup
+                ? ((data['groupName'] ?? data['chatName'] ?? data['callerName'] ?? 'Appel de groupe').toString())
+                : outgoing
+                    ? ((data['calleeName'] ?? data['peerName'] ?? data['callee'] ?? 'Appel sortant').toString())
+                    : ((data['callerName'] ?? data['peerName'] ?? data['caller'] ?? 'Appel entrant').toString());
+
+            final String subtitle = '${isVideo ? 'Vidéo' : 'Audio'} • ${_callStatusLabel(status, outgoing)}';
+            final DateTime? at = _callDateFromMap(data);
+            final IconData leadIcon = isGroup
+                ? Icons.groups_2_outlined
+                : outgoing
+                    ? Icons.call_made_rounded
+                    : Icons.call_received_rounded;
+            final Color leadColor = (status == 'rejected' || status == 'missed')
+                ? Colors.redAccent
+                : (outgoing ? Colors.green : Colors.lightBlueAccent);
+
+            return ListTile(
+              leading: CircleAvatar(
+                backgroundColor: isDark ? Colors.white10 : Colors.black12,
+                child: Icon(leadIcon, color: leadColor),
+              ),
+              title: Text(name, style: TextStyle(color: text, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text(subtitle, style: TextStyle(color: sub), maxLines: 1, overflow: TextOverflow.ellipsis),
+              trailing: Text(_formatCallTime(at), style: TextStyle(color: muted, fontSize: 11)),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  bool _isCallForUser(Map<String, dynamic> data, String uid) {
+    final caller = (data['caller'] ?? '').toString();
+    final callee = (data['callee'] ?? '').toString();
+    if (caller == uid || callee == uid) return true;
+    final participants = (data['participants'] is List)
+        ? List<String>.from((data['participants'] as List).map((e) => e.toString()))
+        : const <String>[];
+    if (participants.contains(uid)) return true;
+    final invited = (data['invited'] is List)
+        ? List<String>.from((data['invited'] as List).map((e) => e.toString()))
+        : const <String>[];
+    if (invited.contains(uid)) return true;
+    final acceptedBy = (data['acceptedBy'] ?? '').toString();
+    return acceptedBy == uid;
+  }
+
+  DateTime? _callDateFromMap(Map<String, dynamic> data) {
+    final dynamic candidate = data['updatedAt'] ?? data['endedAt'] ?? data['acceptedAt'] ?? data['createdAt'];
+    if (candidate is Timestamp) return candidate.toDate();
+    return null;
+  }
+
+  String _callStatusLabel(String status, bool outgoing) {
+    final s = status.toLowerCase();
+    if (s == 'accepted') return 'Connecté';
+    if (s == 'ended') return outgoing ? 'Terminé' : 'Reçu';
+    if (s == 'rejected') return outgoing ? 'Refusé' : 'Manqué';
+    if (s == 'ringing') return outgoing ? 'En cours…' : 'Entrant';
+    if (s == 'missed') return 'Manqué';
+    return s.isEmpty ? 'Inconnu' : s;
+  }
+
+  String _formatCallTime(DateTime? dt) {
+    if (dt == null) return '';
+    final now = DateTime.now();
+    final sameDay = dt.year == now.year && dt.month == now.month && dt.day == now.day;
+    final h = dt.hour.toString().padLeft(2, '0');
+    final m = dt.minute.toString().padLeft(2, '0');
+    if (sameDay) return '$h:$m';
+    final d = dt.day.toString().padLeft(2, '0');
+    final mo = dt.month.toString().padLeft(2, '0');
+    return '$d/$mo $h:$m';
+  }
+
   Widget _buildTimeAndBadge(Map chat) {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final Color timeColor = isDark ? Colors.white38 : Colors.black38;
@@ -2370,7 +2490,7 @@ void _startChatWithUser(String targetUid, String targetName, [String? targetCol]
           if (fallbackName.isEmpty && data['display_name']?.toString().trim().isNotEmpty == true) fallbackName = data['display_name'];
           if (fallbackName.isEmpty && data['name']?.toString().trim().isNotEmpty == true) fallbackName = data['name'];
           if (fallbackName.isEmpty && data['username']?.toString().trim().isNotEmpty == true) fallbackName = data['username'];
-          if (fallbackName.isEmpty && (email ?? '').toString().trim().isNotEmpty) fallbackName = email;
+          if (fallbackName.isEmpty && email.trim().isNotEmpty) fallbackName = email;
           if (fallbackName.isEmpty) fallbackName = d.id;
 
           appUsers.add({

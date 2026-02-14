@@ -1602,6 +1602,7 @@ class _PopTheBalloonPageState extends State<PopTheBalloonPage> with SingleTicker
                               : () => _toggleVoicePlayback(
                                     url: _voiceIntroUrl,
                                     previewBytes: _voiceIntroBytes,
+                                    previewExt: _voiceIntroExt,
                                   ),
                           icon: Icon(_voicePlaying ? Icons.stop : Icons.play_arrow),
                           label: Text(_voicePlaying ? 'Stop' : 'Ecouter'),
@@ -1966,6 +1967,7 @@ class _PopTheBalloonPageState extends State<PopTheBalloonPage> with SingleTicker
   Future<void> _toggleVoicePlayback({
     String? url,
     Uint8List? previewBytes,
+    String? previewExt,
   }) async {
     try {
       if (_voicePlaying) {
@@ -1974,19 +1976,37 @@ class _PopTheBalloonPageState extends State<PopTheBalloonPage> with SingleTicker
         return;
       }
       if (previewBytes != null && previewBytes.isNotEmpty) {
-        await _voicePlayer.play(BytesSource(previewBytes), volume: 1.0);
+        try {
+          await _voicePlayer.play(BytesSource(previewBytes), volume: 1.0);
+        } catch (e) {
+          final ext = (previewExt ?? _voiceIntroExt).trim().isNotEmpty
+              ? (previewExt ?? _voiceIntroExt).trim().toLowerCase()
+              : 'm4a';
+          final mime = _audioContentType(ext);
+          final dataUrl = Uri.dataFromBytes(previewBytes, mimeType: mime).toString();
+          debugPrint('Voice bytes direct play failed, fallback data-uri: $e');
+          await _voicePlayer.play(UrlSource(dataUrl), volume: 1.0);
+        }
         if (mounted) setState(() => _voicePlaying = true);
         return;
       }
       if (url != null && url.trim().isNotEmpty) {
-        await _voicePlayer.play(UrlSource(url.trim()), volume: 1.0);
+        final clean = url.trim();
+        await _voicePlayer.play(UrlSource(clean), volume: 1.0);
         if (mounted) setState(() => _voicePlaying = true);
+        return;
       }
-    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _profileError = 'Aucun audio disponible.';
+        });
+      }
+    } catch (e) {
+      debugPrint('Voice playback failed: $e');
       if (mounted) {
         setState(() {
           _voicePlaying = false;
-          _profileError = 'Impossible de lire la note vocale.';
+          _profileError = 'Impossible de lire la note vocale (format ou accès URL).';
         });
       }
     }
@@ -2003,6 +2023,7 @@ class _PopTheBalloonPageState extends State<PopTheBalloonPage> with SingleTicker
       title: 'Mon profil',
       previewBytes: _adultPhotoBytes,
       previewVoiceBytes: _voiceIntroBytes,
+      previewVoiceExt: _voiceIntroExt,
     );
   }
 
@@ -2035,6 +2056,7 @@ class _PopTheBalloonPageState extends State<PopTheBalloonPage> with SingleTicker
     required String title,
     Uint8List? previewBytes,
     Uint8List? previewVoiceBytes,
+    String? previewVoiceExt,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final text = isDark ? Colors.white : Colors.black87;
@@ -2182,6 +2204,7 @@ class _PopTheBalloonPageState extends State<PopTheBalloonPage> with SingleTicker
                             : () => _toggleVoicePlayback(
                                   url: candidate.voiceIntroUrl,
                                   previewBytes: previewVoiceBytes,
+                                  previewExt: previewVoiceExt,
                                 ),
                         icon: Icon(_voicePlaying ? Icons.stop : Icons.play_arrow),
                         label: Text(_voicePlaying ? 'Stop' : 'Ecouter'),

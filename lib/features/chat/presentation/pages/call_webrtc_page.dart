@@ -296,30 +296,132 @@ class _CallWebRTCPageState extends State<CallWebRTCPage> with SingleTickerProvid
   Future<String?> _pickContactUid() async {
     final self = FirebaseAuth.instance.currentUser;
     if (self == null) return null;
+    final blocked = <String>{self.uid, widget.otherId};
+    try {
+      final callSnap = await FirebaseFirestore.instance.collection('calls').doc(widget.callId).get();
+      final data = callSnap.data() ?? <String, dynamic>{};
+      final participants = (data['participants'] is List)
+          ? List<String>.from((data['participants'] as List).map((e) => e.toString()))
+          : const <String>[];
+      blocked.addAll(participants.where((e) => e.trim().isNotEmpty));
+    } catch (_) {}
 
-    // Find the user's profile collection, then read its contacts subcollection.
-    final cols = ['classic_users', 'enterprise_users', 'pro_users'];
-    DocumentReference? baseRef;
-    for (final c in cols) {
+    final Map<String, Map<String, String>> byUid = {};
+    void addCandidate({
+      required String uid,
+      required String name,
+      required String phone,
+    }) {
+      final id = uid.trim();
+      if (id.isEmpty || blocked.contains(id)) return;
+      final existing = byUid[id];
+      if (existing != null) {
+        if ((existing['name'] ?? '').trim().isEmpty && name.trim().isNotEmpty) {
+          existing['name'] = name.trim();
+        }
+        if ((existing['phone'] ?? '').trim().isEmpty && phone.trim().isNotEmpty) {
+          existing['phone'] = phone.trim();
+        }
+        return;
+      }
+      byUid[id] = {
+        'uid': id,
+        'name': name.trim(),
+        'phone': phone.trim(),
+      };
+    }
+
+    try {
+      final profileCols = ['classic_users', 'enterprise_users', 'pro_users', 'users'];
+      DocumentReference<Map<String, dynamic>>? baseRef;
+      for (final c in profileCols) {
+        try {
+          final ref = FirebaseFirestore.instance.collection(c).doc(self.uid);
+          final snap = await ref.get();
+          if (snap.exists) {
+            baseRef = ref;
+            break;
+          }
+        } catch (_) {}
+      }
+      if (baseRef != null) {
+        final contactsSnap = await baseRef.collection('contacts').get();
+        for (final d in contactsSnap.docs) {
+          final data = d.data();
+          final name = (data['displayName'] ?? data['name'] ?? data['username'] ?? '').toString();
+          final phone = (data['phone'] ?? data['phoneNumber'] ?? '').toString();
+          addCandidate(uid: d.id, name: name.isNotEmpty ? name : d.id, phone: phone);
+        }
+      }
+    } catch (_) {}
+
+    try {
+      final chats = await FirebaseFirestore.instance
+          .collection('chats')
+          .where('participants', arrayContains: self.uid)
+          .get();
+      final fromChats = <String>{};
+      for (final chat in chats.docs) {
+        final data = chat.data();
+        final participants = (data['participants'] is List)
+            ? List<String>.from((data['participants'] as List).map((e) => e.toString()))
+            : const <String>[];
+        for (final p in participants) {
+          if (p.trim().isNotEmpty && !blocked.contains(p)) fromChats.add(p);
+        }
+      }
+      for (final uid in fromChats) {
+        if (byUid.containsKey(uid)) continue;
+        for (final col in ['classic_users', 'pro_users', 'enterprise_users', 'users']) {
+          try {
+            final doc = await FirebaseFirestore.instance.collection(col).doc(uid).get();
+            if (!doc.exists) continue;
+            final data = doc.data() ?? <String, dynamic>{};
+            final display = (data['displayName'] ??
+                    data['display_name'] ??
+                    data['name'] ??
+                    '${(data['firstName'] ?? '').toString()} ${(data['lastName'] ?? '').toString()}')
+                .toString()
+                .trim();
+            addCandidate(
+              uid: uid,
+              name: display.isNotEmpty ? display : uid,
+              phone: (data['phone'] ?? data['phoneNumber'] ?? '').toString(),
+            );
+            break;
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
+
+    final cols = ['classic_users', 'pro_users', 'enterprise_users', 'users'];
+    for (final col in cols) {
       try {
-        final ref = FirebaseFirestore.instance.collection(c).doc(self.uid);
-        final snap = await ref.get();
-        if (snap.exists) {
-          baseRef = ref;
-          break;
+        final snap = await FirebaseFirestore.instance.collection(col).limit(400).get();
+        for (final doc in snap.docs) {
+          final d = doc.data();
+          final display = (d['displayName'] ??
+                  d['display_name'] ??
+                  d['name'] ??
+                  '${(d['firstName'] ?? '').toString()} ${(d['lastName'] ?? '').toString()}')
+              .toString()
+              .trim();
+          addCandidate(
+            uid: doc.id,
+            name: display.isNotEmpty ? display : doc.id,
+            phone: (d['phone'] ?? d['phoneNumber'] ?? '').toString(),
+          );
         }
       } catch (_) {}
     }
-    baseRef ??= FirebaseFirestore.instance.collection('classic_users').doc(self.uid);
 
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs = [];
-    try {
-      final snap = await baseRef.collection('contacts').get();
-      docs = snap.docs;
-    } catch (_) {}
     if (!mounted) return null;
+    final searchCtrl = TextEditingController();
+    String search = '';
+    final items = byUid.values.toList()
+      ..sort((a, b) => (a['name'] ?? '').toLowerCase().compareTo((b['name'] ?? '').toLowerCase()));
 
-    return await showModalBottomSheet<String>(
+    final selected = await showModalBottomSheet<String>(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
@@ -328,53 +430,68 @@ class _CallWebRTCPageState extends State<CallWebRTCPage> with SingleTickerProvid
         final bg = isDark ? const Color(0xFF17212B) : Colors.white;
         final fg = isDark ? Colors.white : Colors.black87;
         final sub = isDark ? Colors.white70 : Colors.black54;
-
-        final items = docs
-            .map((d) => {
-                  'uid': d.id,
-                  'name': (d.data()['displayName'] ?? d.data()['name'] ?? '').toString(),
-                  'phone': (d.data()['phone'] ?? '').toString(),
-                })
-            .where((m) => (m['uid'] ?? '').toString().isNotEmpty && (m['uid'] as String) != self.uid)
-            .toList()
-          ..sort((a, b) => (a['name'] as String).compareTo(b['name'] as String));
-
-        return Container(
-          height: MediaQuery.of(ctx).size.height * 0.7,
-          decoration: BoxDecoration(color: bg, borderRadius: const BorderRadius.vertical(top: Radius.circular(18))),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Column(
-            children: [
-              Container(width: 44, height: 5, decoration: BoxDecoration(color: isDark ? Colors.white12 : Colors.black12, borderRadius: BorderRadius.circular(5))),
-              const SizedBox(height: 10),
-              Text('Ajouter une personne', style: TextStyle(color: fg, fontSize: 16, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 10),
-              Expanded(
-                child: items.isEmpty
-                    ? Center(child: Text('Aucun contact', style: TextStyle(color: sub)))
-                    : ListView.separated(
-                        itemCount: items.length,
-                        separatorBuilder: (_, __) => Divider(color: isDark ? Colors.white10 : Colors.black12),
-                        itemBuilder: (c, i) {
-                          final it = items[i];
-                          final uid = (it['uid'] ?? '').toString();
-                          final name = (it['name'] ?? '').toString();
-                          final phone = (it['phone'] ?? '').toString();
-                          final letter = (name.isNotEmpty ? name[0] : '?').toUpperCase();
-                          return ListTile(
-                            leading: CircleAvatar(backgroundColor: Colors.white10, child: Text(letter, style: TextStyle(color: fg))),
-                            title: Text(name.isNotEmpty ? name : uid, style: TextStyle(color: fg)),
-                            subtitle: phone.isNotEmpty ? Text(phone, style: TextStyle(color: sub)) : null,
-                            onTap: () => Navigator.pop(c, uid),
-                          );
-                        },
-                      ),
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final filtered = items.where((m) {
+              if (search.trim().isEmpty) return true;
+              final q = search.toLowerCase();
+              final hay = '${m['name'] ?? ''} ${m['phone'] ?? ''} ${m['uid'] ?? ''}'.toLowerCase();
+              return hay.contains(q);
+            }).toList();
+            return Container(
+              height: MediaQuery.of(ctx).size.height * 0.75,
+              decoration: BoxDecoration(color: bg, borderRadius: const BorderRadius.vertical(top: Radius.circular(18))),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Column(
+                children: [
+                  Container(width: 44, height: 5, decoration: BoxDecoration(color: isDark ? Colors.white12 : Colors.black12, borderRadius: BorderRadius.circular(5))),
+                  const SizedBox(height: 10),
+                  Text('Ajouter une personne', style: TextStyle(color: fg, fontSize: 16, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: searchCtrl,
+                    style: TextStyle(color: fg),
+                    onChanged: (v) => setModalState(() => search = v),
+                    decoration: InputDecoration(
+                      hintText: 'Rechercher utilisateur...',
+                      hintStyle: TextStyle(color: sub),
+                      prefixIcon: Icon(Icons.search, color: sub),
+                      filled: true,
+                      fillColor: isDark ? Colors.white10 : Colors.black12,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? Center(child: Text('Aucun utilisateur', style: TextStyle(color: sub)))
+                        : ListView.separated(
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, __) => Divider(color: isDark ? Colors.white10 : Colors.black12),
+                            itemBuilder: (c, i) {
+                              final it = filtered[i];
+                              final uid = (it['uid'] ?? '').toString();
+                              final name = (it['name'] ?? '').toString();
+                              final phone = (it['phone'] ?? '').toString();
+                              final letter = (name.isNotEmpty ? name[0] : '?').toUpperCase();
+                              return ListTile(
+                                leading: CircleAvatar(backgroundColor: Colors.white10, child: Text(letter, style: TextStyle(color: fg))),
+                                title: Text(name.isNotEmpty ? name : uid, style: TextStyle(color: fg)),
+                                subtitle: phone.isNotEmpty ? Text(phone, style: TextStyle(color: sub)) : null,
+                                onTap: () => Navigator.pop(c, uid),
+                              );
+                            },
+                          ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
+    searchCtrl.dispose();
+    return selected;
   }
 
   Future<void> _upgradeToGroupCall({required String addUid}) async {

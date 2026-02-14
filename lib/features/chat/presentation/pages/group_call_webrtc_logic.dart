@@ -335,27 +335,23 @@ class GroupCallWebRTCLogic {
 
     final docRef = _db.collection('calls').doc(callId).collection('pairs').doc(id);
     _pairDocSubs[id] = docRef.snapshots().listen((snap) async {
-      if (!snap.exists) return;
-      final data = snap.data() ?? <String, dynamic>{};
       final pc = _pcs[id];
       if (pc == null) return;
+      if (!snap.exists) {
+        if (_isOfferer(remoteId)) {
+          await _publishOffer(remoteId, docRef, pc);
+        }
+        return;
+      }
+      final data = snap.data() ?? <String, dynamic>{};
 
       final offer = data['offer'];
       final answer = data['answer'];
 
       try {
         if (_isOfferer(remoteId)) {
-          // Create offer if not present yet.
-          if (offer == null && (await pc.getLocalDescription()) == null) {
-            final created = await pc.createOffer();
-            await pc.setLocalDescription(created);
-            await docRef.set({
-              'a': selfId.compareTo(remoteId) <= 0 ? selfId : remoteId,
-              'b': selfId.compareTo(remoteId) <= 0 ? remoteId : selfId,
-              'offerer': selfId,
-              'offer': {'sdp': created.sdp, 'type': created.type},
-              'updatedAt': FieldValue.serverTimestamp(),
-            }, SetOptions(merge: true));
+          if (offer == null) {
+            await _publishOffer(remoteId, docRef, pc);
           }
           if (answer != null && (await pc.getRemoteDescription()) == null) {
             await pc.setRemoteDescription(RTCSessionDescription(answer['sdp'], answer['type']));
@@ -379,6 +375,26 @@ class GroupCallWebRTCLogic {
         _log('pair doc handling error[$remoteId]: $e');
       }
     });
+  }
+
+  Future<void> _publishOffer(
+    String remoteId,
+    DocumentReference<Map<String, dynamic>> docRef,
+    RTCPeerConnection pc,
+  ) async {
+    if (!_isOfferer(remoteId)) return;
+    final local = await pc.getLocalDescription();
+    if (local != null) return;
+    final created = await pc.createOffer();
+    await pc.setLocalDescription(created);
+    await docRef.set({
+      'a': selfId.compareTo(remoteId) <= 0 ? selfId : remoteId,
+      'b': selfId.compareTo(remoteId) <= 0 ? remoteId : selfId,
+      'offerer': selfId,
+      'offer': {'sdp': created.sdp, 'type': created.type},
+      'answer': FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   Future<void> _closePeer(String remoteId) async {
