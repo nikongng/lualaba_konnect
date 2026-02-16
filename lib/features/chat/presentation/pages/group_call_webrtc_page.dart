@@ -33,7 +33,8 @@ class GroupCallWebRTCPage extends StatefulWidget {
   State<GroupCallWebRTCPage> createState() => _GroupCallWebRTCPageState();
 }
 
-class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final RTCVideoRenderer _localRenderer = RTCVideoRenderer();
   final Map<String, RTCVideoRenderer> _remoteRenderers = {};
 
@@ -45,6 +46,8 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
   bool _isConnected = false;
   bool _videoPausedByBackground = false;
   bool _isLiveMode = false;
+  bool _isLeavingPage = false;
+  bool _isDisposing = false;
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _callMetaSub;
   final TextEditingController _liveChatCtrl = TextEditingController();
   bool _sendingLiveChat = false;
@@ -58,12 +61,17 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _stopwatch = Stopwatch();
-    _pulseController = AnimationController(vsync: this, duration: const Duration(seconds: 2))..repeat(reverse: true);
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
     _muted = widget.startMuted || !widget.publishAudio;
 
     OngoingCallService.start(
       title: widget.name.isNotEmpty ? widget.name : 'Appel de groupe',
-      subtitle: widget.isVideo ? 'Appel vidéo (audio en arrière-plan)' : 'Appel audio en cours',
+      subtitle: widget.isVideo
+          ? 'Appel vidéo (audio en arrière-plan)'
+          : 'Appel audio en cours',
     );
 
     if (widget.isVideo || !widget.publishAudio) {
@@ -75,21 +83,28 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
 
     // detect "Live" mode to show chat overlay
     try {
-      _callMetaSub = FirebaseFirestore.instance.collection('calls').doc(widget.callId).snapshots().listen((snap) {
-        final data = snap.data() ?? <String, dynamic>{};
-        final kind = (data['kind'] ?? '').toString().trim().toLowerCase();
-        final mode = (data['mode'] ?? '').toString().trim().toLowerCase();
-        final live = kind == 'live' || mode == 'broadcast';
-        if (mounted && live != _isLiveMode) setState(() => _isLiveMode = live);
-      });
+      _callMetaSub = FirebaseFirestore.instance
+          .collection('calls')
+          .doc(widget.callId)
+          .snapshots()
+          .listen((snap) {
+            final data = snap.data() ?? <String, dynamic>{};
+            final kind = (data['kind'] ?? '').toString().trim().toLowerCase();
+            final mode = (data['mode'] ?? '').toString().trim().toLowerCase();
+            final live = kind == 'live' || mode == 'broadcast';
+            if (mounted && live != _isLiveMode)
+              setState(() => _isLiveMode = live);
+          });
     } catch (_) {}
   }
 
   Future<void> _init() async {
     await _localRenderer.initialize();
+    if (!mounted || _isDisposing) return;
     await _initLogicAndStart();
+    if (!mounted || _isDisposing) return;
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
+      if (mounted && !_isDisposing) setState(() {});
     });
   }
 
@@ -100,19 +115,19 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
       return;
     }
 
-    _logic = GroupCallWebRTCLogic(
+    final logic = GroupCallWebRTCLogic(
       callId: widget.callId,
       selfId: uid,
       isCaller: widget.isCaller,
       onLocalStream: (s) {
-        if (!mounted) return;
+        if (!mounted || _isDisposing) return;
         try {
           s?.getAudioTracks().forEach((t) => t.enabled = !_muted);
         } catch (_) {}
         setState(() => _localRenderer.srcObject = s);
       },
       onRemoteStream: (remoteId, stream) async {
-        if (!mounted) return;
+        if (!mounted || _isDisposing) return;
         if (stream == null) {
           final r = _remoteRenderers.remove(remoteId);
           try {
@@ -121,7 +136,10 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
           setState(() {});
           return;
         }
-        final renderer = _remoteRenderers.putIfAbsent(remoteId, () => RTCVideoRenderer());
+        final renderer = _remoteRenderers.putIfAbsent(
+          remoteId,
+          () => RTCVideoRenderer(),
+        );
         if (renderer.textureId == null) {
           await renderer.initialize();
         }
@@ -129,7 +147,7 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
         setState(() {});
       },
       onStateChanged: (st) {
-        if (!mounted) return;
+        if (!mounted || _isDisposing) return;
         if (st == 'connected') {
           _isConnected = true;
           if (!_stopwatch.isRunning) _stopwatch.start();
@@ -139,18 +157,25 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
         if (st == 'ended' || st == 'failed') {
           _stopwatch.stop();
           NotificationService.stopRingtone();
-          Future.delayed(const Duration(milliseconds: 400), () {
-            if (mounted) Navigator.of(context).pop();
-          });
+          _scheduleLeaveAfterEnd();
         }
-        setState(() {});
+        if (mounted && !_isDisposing) setState(() {});
       },
       onLog: (m) => debugPrint('[GroupWebRTC_UI] $m'),
     );
+    _logic = logic;
 
     await _requestPermissions();
-    await _logic!.openUserMedia(video: widget.isVideo, audio: widget.publishAudio);
-    await _logic!.start(isVideo: widget.isVideo, audioEnabled: widget.publishAudio);
+    if (_isDisposing || !mounted) return;
+    await logic.openUserMedia(
+      video: widget.isVideo,
+      audio: widget.publishAudio,
+    );
+    if (_isDisposing || !mounted) return;
+    await logic.start(
+      isVideo: widget.isVideo,
+      audioEnabled: widget.publishAudio,
+    );
   }
 
   Future<String?> _currentUid() async {
@@ -169,48 +194,71 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
     if (widget.isVideo) {
       final cam = statuses[Permission.camera];
       if (cam == null || !cam.isGranted) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Permission caméra requise')));
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Permission caméra requise')),
+          );
       }
     }
     if (widget.publishAudio) {
       final mic = statuses[Permission.microphone];
       if (mic == null || !mic.isGranted) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Permission microphone requise')));
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Permission microphone requise')),
+          );
       }
     }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted || _isDisposing) return;
     if (!widget.isVideo) return;
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
       if (_camera) {
         _videoPausedByBackground = true;
-        _localRenderer.srcObject?.getVideoTracks().forEach((t) => t.enabled = false);
-        setState(() {});
+        _localRenderer.srcObject?.getVideoTracks().forEach(
+          (t) => t.enabled = false,
+        );
+        if (mounted && !_isDisposing) setState(() {});
       }
     } else if (state == AppLifecycleState.resumed) {
       if (_videoPausedByBackground) {
         _videoPausedByBackground = false;
         if (_camera) {
-          _localRenderer.srcObject?.getVideoTracks().forEach((t) => t.enabled = true);
+          _localRenderer.srcObject?.getVideoTracks().forEach(
+            (t) => t.enabled = true,
+          );
         }
-        setState(() {});
+        if (mounted && !_isDisposing) setState(() {});
       }
     }
   }
 
   @override
   void dispose() {
+    _isDisposing = true;
     WidgetsBinding.instance.removeObserver(this);
-    try { _callMetaSub?.cancel(); } catch (_) {}
+    try {
+      _callMetaSub?.cancel();
+    } catch (_) {}
     _callMetaSub = null;
     _liveChatCtrl.dispose();
     OngoingCallService.stop();
     _timer?.cancel();
     _stopwatch.stop();
     _pulseController.dispose();
-    _logic?.dispose();
+    final logic = _logic;
+    _logic = null;
+    if (logic != null) {
+      logic.onLocalStream = null;
+      logic.onRemoteStream = null;
+      logic.onStateChanged = null;
+      logic.onLog = null;
+      logic.dispose();
+    }
     _localRenderer.dispose();
     for (final r in _remoteRenderers.values) {
       try {
@@ -221,6 +269,31 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
     super.dispose();
   }
 
+  void _scheduleLeaveAfterEnd() {
+    if (_isLeavingPage || _isDisposing) return;
+    _isLeavingPage = true;
+    Future.delayed(const Duration(milliseconds: 350), () {
+      _popIfPossible();
+    });
+  }
+
+  Future<void> _leaveCallFromUi() async {
+    if (_isLeavingPage || _isDisposing) return;
+    _isLeavingPage = true;
+    try {
+      await _logic?.hangup(endForAll: widget.isCaller);
+    } catch (_) {}
+    _popIfPossible();
+  }
+
+  void _popIfPossible() {
+    if (!mounted || _isDisposing) return;
+    final nav = Navigator.of(context);
+    if (nav.canPop()) {
+      nav.pop();
+    }
+  }
+
   Future<void> _sendLiveChat() async {
     if (_sendingLiveChat) return;
     final user = FirebaseAuth.instance.currentUser;
@@ -229,13 +302,17 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
     if (text.isEmpty) return;
     setState(() => _sendingLiveChat = true);
     try {
-      await FirebaseFirestore.instance.collection('calls').doc(widget.callId).collection('live_comments').add({
-        'uid': user.uid,
-        'name': (user.displayName ?? '').toString(),
-        'text': text,
-        'createdAt': FieldValue.serverTimestamp(),
-        'createdAtMs': DateTime.now().millisecondsSinceEpoch,
-      });
+      await FirebaseFirestore.instance
+          .collection('calls')
+          .doc(widget.callId)
+          .collection('live_comments')
+          .add({
+            'uid': user.uid,
+            'name': (user.displayName ?? '').toString(),
+            'text': text,
+            'createdAt': FieldValue.serverTimestamp(),
+            'createdAtMs': DateTime.now().millisecondsSinceEpoch,
+          });
       _liveChatCtrl.clear();
     } catch (_) {
     } finally {
@@ -246,7 +323,9 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
   void _toggleMute() {
     if (!widget.publishAudio) return;
     _muted = !_muted;
-    _localRenderer.srcObject?.getAudioTracks().forEach((t) => t.enabled = !_muted);
+    _localRenderer.srcObject?.getAudioTracks().forEach(
+      (t) => t.enabled = !_muted,
+    );
     // Best-effort: reflect state in participants doc
     try {
       final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -264,7 +343,9 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
 
   void _toggleCamera() {
     _camera = !_camera;
-    _localRenderer.srcObject?.getVideoTracks().forEach((t) => t.enabled = _camera);
+    _localRenderer.srcObject?.getVideoTracks().forEach(
+      (t) => t.enabled = _camera,
+    );
     setState(() {});
   }
 
@@ -275,7 +356,9 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
   }
 
   void _switchCamera() {
-    _localRenderer.srcObject?.getVideoTracks().forEach((t) => Helper.switchCamera(t));
+    _localRenderer.srcObject?.getVideoTracks().forEach(
+      (t) => Helper.switchCamera(t),
+    );
   }
 
   String _formatElapsed() {
@@ -314,10 +397,7 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
               children: [
                 IconButton(
                   icon: const Icon(Icons.arrow_back, color: Colors.white),
-                  onPressed: () async {
-                    await _logic?.hangup(endForAll: widget.isCaller);
-                    if (mounted) Navigator.pop(context);
-                  },
+                  onPressed: _leaveCallFromUi,
                 ),
                 const SizedBox(width: 6),
                 Expanded(
@@ -325,27 +405,50 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        widget.name.isNotEmpty ? widget.name : 'Appel de groupe',
+                        widget.name.isNotEmpty
+                            ? widget.name
+                            : 'Appel de groupe',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         _isConnected ? _formatElapsed() : 'Connexion...',
-                        style: TextStyle(color: Colors.white.withOpacity(0.8), fontSize: 12, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.8),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(18)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white10,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
                   child: Row(
                     children: [
-                      Icon(Icons.people, size: 16, color: Colors.white.withOpacity(0.85)),
+                      Icon(
+                        Icons.people,
+                        size: 16,
+                        color: Colors.white.withOpacity(0.85),
+                      ),
                       const SizedBox(width: 6),
-                      Text('${_remoteRenderers.length + 1}', style: const TextStyle(color: Colors.white70)),
+                      Text(
+                        '${_remoteRenderers.length + 1}',
+                        style: const TextStyle(color: Colors.white70),
+                      ),
                     ],
                   ),
                 ),
@@ -379,27 +482,43 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
   }
 
   Widget _buildLiveChatOverlay() {
-    final chatRef = FirebaseFirestore.instance.collection('calls').doc(widget.callId).collection('live_comments');
+    final chatRef = FirebaseFirestore.instance
+        .collection('calls')
+        .doc(widget.callId)
+        .collection('live_comments');
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
         child: Container(
           padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(color: Colors.black.withOpacity(0.35), borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white12)),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.35),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.white12),
+          ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               SizedBox(
                 height: 120,
                 child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-                  stream: chatRef.orderBy('createdAtMs', descending: true).limit(30).snapshots(),
+                  stream: chatRef
+                      .orderBy('createdAtMs', descending: true)
+                      .limit(30)
+                      .snapshots(),
                   builder: (context, snap) {
                     final docs = snap.data?.docs ?? const [];
                     if (docs.isEmpty) {
                       return const Align(
                         alignment: Alignment.centerLeft,
-                        child: Text('Soyez le premier à commenter...', style: TextStyle(color: Colors.white70, fontWeight: FontWeight.w600)),
+                        child: Text(
+                          'Soyez le premier à commenter...',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       );
                     }
                     return ListView.builder(
@@ -410,14 +529,33 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
                         final name = (d['name'] ?? '').toString().trim();
                         final uid = (d['uid'] ?? '').toString();
                         final text = (d['text'] ?? '').toString();
-                        final who = name.isNotEmpty ? name : (uid.isNotEmpty ? uid.substring(0, uid.length < 6 ? uid.length : 6) : '?');
+                        final who = name.isNotEmpty
+                            ? name
+                            : (uid.isNotEmpty
+                                  ? uid.substring(
+                                      0,
+                                      uid.length < 6 ? uid.length : 6,
+                                    )
+                                  : '?');
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 6),
                           child: RichText(
                             text: TextSpan(
                               children: [
-                                TextSpan(text: '$who: ', style: const TextStyle(color: Colors.orange, fontWeight: FontWeight.w900)),
-                                TextSpan(text: text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                                TextSpan(
+                                  text: '$who: ',
+                                  style: const TextStyle(
+                                    color: Colors.orange,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                TextSpan(
+                                  text: text,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                               ],
                             ),
                           ),
@@ -441,7 +579,10 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
                         border: OutlineInputBorder(borderSide: BorderSide.none),
                         filled: true,
                         fillColor: Colors.black26,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                       ),
                       onSubmitted: (_) => _sendLiveChat(),
                     ),
@@ -449,7 +590,10 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
                   const SizedBox(width: 8),
                   IconButton(
                     onPressed: _sendingLiveChat ? null : _sendLiveChat,
-                    icon: Icon(Icons.send, color: _sendingLiveChat ? Colors.white30 : Colors.orange),
+                    icon: Icon(
+                      Icons.send,
+                      color: _sendingLiveChat ? Colors.white30 : Colors.orange,
+                    ),
                   ),
                 ],
               ),
@@ -461,11 +605,14 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
   }
 
   Widget _buildRemoteGrid() {
-    final ids = _remoteRenderers.entries
-        .where((e) => (e.value.srcObject?.getVideoTracks().isNotEmpty ?? false))
-        .map((e) => e.key)
-        .toList()
-      ..sort();
+    final ids =
+        _remoteRenderers.entries
+            .where(
+              (e) => (e.value.srcObject?.getVideoTracks().isNotEmpty ?? false),
+            )
+            .map((e) => e.key)
+            .toList()
+          ..sort();
 
     if (ids.isNotEmpty) {
       final count = ids.length;
@@ -482,7 +629,10 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
           final r = _remoteRenderers[ids[i]]!;
           return Container(
             color: Colors.black,
-            child: RTCVideoView(r, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+            child: RTCVideoView(
+              r,
+              objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+            ),
           );
         },
       );
@@ -493,7 +643,12 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
         Container(color: Colors.black),
         Center(
           child: ScaleTransition(
-            scale: Tween(begin: 1.0, end: 1.07).animate(CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut)),
+            scale: Tween(begin: 1.0, end: 1.07).animate(
+              CurvedAnimation(
+                parent: _pulseController,
+                curve: Curves.easeInOut,
+              ),
+            ),
             child: Container(
               width: 110,
               height: 110,
@@ -513,7 +668,10 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
           child: Text(
             'En attente des participants...',
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.white.withOpacity(0.8), fontWeight: FontWeight.w600),
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.8),
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
       ],
@@ -525,11 +683,17 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: Colors.white24),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 10)],
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 10),
+        ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(14),
-        child: RTCVideoView(_localRenderer, mirror: true, objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover),
+        child: RTCVideoView(
+          _localRenderer,
+          mirror: true,
+          objectFit: RTCVideoViewObjectFit.RTCVideoViewObjectFitCover,
+        ),
       ),
     );
   }
@@ -550,22 +714,36 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               if (widget.publishAudio)
-                _circleBtn(icon: _muted ? Icons.mic_off : Icons.mic, color: _muted ? Colors.redAccent : Colors.white10, onTap: _toggleMute)
+                _circleBtn(
+                  icon: _muted ? Icons.mic_off : Icons.mic,
+                  color: _muted ? Colors.redAccent : Colors.white10,
+                  onTap: _toggleMute,
+                )
               else
                 const SizedBox(width: 50, height: 50),
-              _circleBtn(icon: _isSpeakerOn ? Icons.volume_up : Icons.volume_down, color: _isSpeakerOn ? Colors.blueAccent : Colors.white10, onTap: _toggleSpeaker),
+              _circleBtn(
+                icon: _isSpeakerOn ? Icons.volume_up : Icons.volume_down,
+                color: _isSpeakerOn ? Colors.blueAccent : Colors.white10,
+                onTap: _toggleSpeaker,
+              ),
               _circleBtn(
                 icon: Icons.call_end,
                 color: Colors.red,
                 size: 65,
-                onTap: () async {
-                  await _logic?.hangup(endForAll: widget.isCaller);
-                  if (mounted) Navigator.pop(context);
-                },
+                onTap: _leaveCallFromUi,
               ),
               if (widget.isVideo) ...[
-                _circleBtn(icon: _camera ? Icons.videocam : Icons.videocam_off, color: _camera ? Colors.white10 : Colors.grey, onTap: _toggleCamera),
-                if (_camera) _circleBtn(icon: Icons.flip_camera_ios, color: Colors.white10, onTap: _switchCamera),
+                _circleBtn(
+                  icon: _camera ? Icons.videocam : Icons.videocam_off,
+                  color: _camera ? Colors.white10 : Colors.grey,
+                  onTap: _toggleCamera,
+                ),
+                if (_camera)
+                  _circleBtn(
+                    icon: Icons.flip_camera_ios,
+                    color: Colors.white10,
+                    onTap: _switchCamera,
+                  ),
               ],
             ],
           ),
@@ -574,17 +752,22 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage> with WidgetsB
     );
   }
 
-  Widget _circleBtn({required IconData icon, required Color color, required VoidCallback onTap, double size = 50}) => Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          customBorder: const CircleBorder(),
-          child: Container(
-            width: size,
-            height: size,
-            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-            child: Icon(icon, color: Colors.white, size: size * 0.5),
-          ),
-        ),
-      );
+  Widget _circleBtn({
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+    double size = 50,
+  }) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: onTap,
+      customBorder: const CircleBorder(),
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        child: Icon(icon, color: Colors.white, size: size * 0.5),
+      ),
+    ),
+  );
 }

@@ -19,6 +19,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:video_player/video_player.dart';
+import 'package:photo_manager/photo_manager.dart';
 import 'attachment_menu.dart';
 import 'call_webrtc_page.dart';
 import 'group_call_webrtc_page.dart';
@@ -74,6 +75,12 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
   String? _uploadLabel;
   int? _uploadTotalBytes;
   int _uploadSentBytes = 0;
+  bool _uploadVisualSuccess = false;
+  double _uploadVisualProgress = 0.0;
+  Timer? _uploadProgressPulseTimer;
+  String? _uploadPreviewType;
+  String? _uploadPreviewPath;
+  Uint8List? _uploadPreviewBytes;
   bool _isRecording = false;
   bool _recordLocked = false;
   bool _recordCanceled = false;
@@ -194,6 +201,63 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     return vids.contains(ext);
   }
 
+  Map<String, dynamic> _extractUploadPreview(dynamic fileSource, String type) {
+    String? previewPath;
+    Uint8List? previewBytes;
+    if (type == 'image') {
+      if (fileSource is XFile) {
+        final p = fileSource.path;
+        if (!kIsWeb && p.isNotEmpty) previewPath = p;
+      } else if (fileSource is PlatformFile) {
+        if (!kIsWeb) {
+          final p = fileSource.path;
+          if (p != null && p.isNotEmpty) {
+            previewPath = p;
+          }
+        }
+        if (previewPath == null &&
+            fileSource.bytes != null &&
+            fileSource.bytes!.isNotEmpty &&
+            fileSource.bytes!.lengthInBytes <= (2 * 1024 * 1024)) {
+          previewBytes = fileSource.bytes;
+        }
+      } else if (fileSource is File) {
+        if (!kIsWeb) previewPath = fileSource.path;
+      } else if (fileSource is Uint8List) {
+        if (fileSource.isNotEmpty && fileSource.lengthInBytes <= (2 * 1024 * 1024)) {
+          previewBytes = fileSource;
+        }
+      }
+    }
+    return <String, dynamic>{
+      'type': type,
+      'path': previewPath,
+      'bytes': previewBytes,
+    };
+  }
+
+  void _startUploadVisualProgressPulse() {
+    _uploadProgressPulseTimer?.cancel();
+    _uploadProgressPulseTimer = Timer.periodic(const Duration(milliseconds: 140), (_) {
+      if (!mounted || !_isLoading || _uploadVisualSuccess) return;
+      final int total = (_uploadTotalBytes != null && _uploadTotalBytes! > 0) ? _uploadTotalBytes! : 0;
+      final double rawProgress = total > 0 ? (_uploadSentBytes / total).clamp(0.0, 1.0) : 0.0;
+      final double cap = rawProgress > 0 ? 0.96 : 0.90;
+      final double current = max(_uploadVisualProgress, rawProgress);
+      if (current >= cap) return;
+      final double step = current < 0.35 ? 0.030 : (current < 0.72 ? 0.018 : 0.010);
+      final double next = (current + step).clamp(0.0, cap);
+      setState(() {
+        _uploadVisualProgress = next;
+      });
+    });
+  }
+
+  void _stopUploadVisualProgressPulse() {
+    _uploadProgressPulseTimer?.cancel();
+    _uploadProgressPulseTimer = null;
+  }
+
   Future<void> _pickAndSendMultipleMedia() async {
     try {
       final res = await FilePicker.platform.pickFiles(
@@ -203,7 +267,15 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       );
       if (res == null || res.files.isEmpty) return;
 
-      setState(() => _isLoading = true);
+      setState(() {
+        _isLoading = true;
+        _uploadVisualSuccess = false;
+        _uploadVisualProgress = 0.03;
+        _uploadPreviewType = null;
+        _uploadPreviewPath = null;
+        _uploadPreviewBytes = null;
+      });
+      _startUploadVisualProgressPulse();
       for (var i = 0; i < res.files.length; i++) {
         final pf = res.files[i];
         final name = pf.name;
@@ -212,11 +284,12 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         final msgText = isVideo ? '🎬 Vidéo' : '📸 Photo';
 
         if (mounted) {
-          setState(() {
-            _uploadLabel = 'Envoi ${i + 1}/${res.files.length} • ${isVideo ? "vidéo" : "photo"}';
-            _uploadTotalBytes = pf.size > 0 ? pf.size : null;
-            _uploadSentBytes = 0;
-          });
+        setState(() {
+          _uploadLabel = 'Envoi ${i + 1}/${res.files.length} • ${isVideo ? "vidéo" : "photo"}';
+          _uploadTotalBytes = pf.size > 0 ? pf.size : null;
+          _uploadSentBytes = 0;
+          _uploadVisualProgress = max(_uploadVisualProgress, 0.03);
+        });
         }
 
         dynamic source = pf;
@@ -236,10 +309,16 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       if (mounted) {
         setState(() {
           _isLoading = false;
+          _uploadVisualSuccess = false;
+          _uploadVisualProgress = 0.0;
           _uploadLabel = null;
           _uploadTotalBytes = null;
           _uploadSentBytes = 0;
+          _uploadPreviewType = null;
+          _uploadPreviewPath = null;
+          _uploadPreviewBytes = null;
         });
+        _stopUploadVisualProgressPulse();
       }
     }
   }
@@ -254,13 +333,29 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     bool manageLoading = true,
     String? originalName,
   }) async {
+    final preview = _extractUploadPreview(fileSource, type);
     if (manageLoading) {
       setState(() {
         _isLoading = true;
+        _uploadVisualSuccess = false;
+        _uploadVisualProgress = 0.03;
         _uploadLabel = 'Envoi ${type == "video" ? "vidéo" : (type == "image" ? "photo" : "média")}';
         _uploadTotalBytes = null;
         _uploadSentBytes = 0;
+        _uploadPreviewType = preview['type'] as String?;
+        _uploadPreviewPath = preview['path'] as String?;
+        _uploadPreviewBytes = preview['bytes'] as Uint8List?;
       });
+      _startUploadVisualProgressPulse();
+    } else if (mounted) {
+      setState(() {
+        if (_uploadVisualSuccess) _uploadVisualSuccess = false;
+        _uploadVisualProgress = max(_uploadVisualProgress, 0.03);
+        _uploadPreviewType = preview['type'] as String?;
+        _uploadPreviewPath = preview['path'] as String?;
+        _uploadPreviewBytes = preview['bytes'] as Uint8List?;
+      });
+      _startUploadVisualProgressPulse();
     }
     try {
       // On Web, JS bit ops can turn `1 << 32` into 0, which breaks nextInt().
@@ -293,12 +388,14 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         localName = fileSource.name;
         bytes = fileSource.bytes;
         if (bytes == null) {
-          final path = fileSource.path;
-          if (path != null && path.isNotEmpty) {
-            file = File(path);
-            try {
-              if (!(await file.exists())) file = null;
-            } catch (_) {}
+          if (!kIsWeb) {
+            final path = fileSource.path;
+            if (path != null && path.isNotEmpty) {
+              file = File(path);
+              try {
+                if (!(await file.exists())) file = null;
+              } catch (_) {}
+            }
           }
           if (file == null && fileSource.readStream != null) {
             bytes = await _readStreamToBytes(fileSource.readStream!);
@@ -327,7 +424,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         }
       } catch (_) {}
       if (sizeBytes != null && manageLoading && mounted) {
-        setState(() => _uploadTotalBytes = sizeBytes);
+        setState(() {
+          _uploadTotalBytes = sizeBytes;
+          _uploadVisualProgress = max(_uploadVisualProgress, 0.03);
+        });
       }
 
       String url;
@@ -361,16 +461,31 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
             setState(() {
               _uploadSentBytes = sent;
               _uploadTotalBytes = total > 0 ? total : _uploadTotalBytes;
+              final int t = (_uploadTotalBytes != null && _uploadTotalBytes! > 0) ? _uploadTotalBytes! : total;
+              if (t > 0) {
+                final double rp = (sent / t).clamp(0.0, 1.0);
+                _uploadVisualProgress = max(_uploadVisualProgress, rp.clamp(0.0, 0.97));
+              }
             });
           }
 
+          final String extLower = ext.toLowerCase();
           String? contentType;
           if (type == 'image') {
-            contentType = 'image/jpeg';
+            if (extLower == '.png') contentType = 'image/png';
+            else if (extLower == '.webp') contentType = 'image/webp';
+            else if (extLower == '.gif') contentType = 'image/gif';
+            else if (extLower == '.heic' || extLower == '.heif') contentType = 'image/heic';
+            else contentType = 'image/jpeg';
           } else if (type == 'video') {
-            contentType = 'video/mp4';
+            if (extLower == '.mov') contentType = 'video/quicktime';
+            else if (extLower == '.webm') contentType = 'video/webm';
+            else contentType = 'video/mp4';
           } else if (type == 'audio' || type == 'voice') {
-            contentType = 'audio/mpeg';
+            if (extLower == '.wav') contentType = 'audio/wav';
+            else if (extLower == '.m4a') contentType = 'audio/mp4';
+            else if (extLower == '.ogg' || extLower == '.oga') contentType = 'audio/ogg';
+            else contentType = 'audio/mpeg';
           } else {
             contentType = 'application/octet-stream';
           }
@@ -395,6 +510,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
           setState(() {
             _uploadSentBytes = snap.bytesTransferred;
             _uploadTotalBytes = snap.totalBytes > 0 ? snap.totalBytes : _uploadTotalBytes;
+            if (_uploadTotalBytes != null && _uploadTotalBytes! > 0) {
+              final double rp = (_uploadSentBytes / _uploadTotalBytes!).clamp(0.0, 1.0);
+              _uploadVisualProgress = max(_uploadVisualProgress, rp.clamp(0.0, 0.97));
+            }
           });
         });
         await task;
@@ -410,19 +529,51 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         if ((originalName ?? localName)?.trim().isNotEmpty == true) 'fileName': (originalName ?? localName)!.trim(),
         if (extraData != null) ...extraData,
       });
+      await _markUploadUiSuccess(
+        fallbackTotal: sizeBytes,
+        hold: manageLoading
+            ? const Duration(milliseconds: 1300)
+            : const Duration(milliseconds: 900),
+      );
       // play send sfx
       try { await _playSfx('sounds/pop.mp3'); } catch (_) {}
     } catch (e) {
       debugPrint("Erreur upload: $e");
+      _stopUploadVisualProgressPulse();
     }
       if (manageLoading && mounted) {
         setState(() {
           _isLoading = false;
+          _uploadVisualSuccess = false;
+          _uploadVisualProgress = 0.0;
           _uploadLabel = null;
           _uploadTotalBytes = null;
           _uploadSentBytes = 0;
+          _uploadPreviewType = null;
+          _uploadPreviewPath = null;
+          _uploadPreviewBytes = null;
         });
+        _stopUploadVisualProgressPulse();
       }
+    }
+
+    Future<void> _markUploadUiSuccess({
+      int? fallbackTotal,
+      Duration hold = const Duration(milliseconds: 220),
+    }) async {
+      if (!mounted) return;
+      final int resolvedTotal = (_uploadTotalBytes != null && _uploadTotalBytes! > 0)
+          ? _uploadTotalBytes!
+          : ((fallbackTotal != null && fallbackTotal > 0) ? fallbackTotal : 100);
+      setState(() {
+        _uploadTotalBytes = resolvedTotal;
+        _uploadSentBytes = resolvedTotal;
+        _uploadVisualProgress = 1.0;
+        _uploadLabel = 'Envoi réussi';
+        _uploadVisualSuccess = true;
+      });
+      _stopUploadVisualProgressPulse();
+      await Future.delayed(hold);
     }
 
     Future<Uint8List> _readStreamToBytes(Stream<List<int>> stream) async {
@@ -4231,44 +4382,7 @@ Future<void> _editContactLocal(String otherId) async {
                   Column(
                 children: [
                   Expanded(child: _buildMessageList()),
-                  if (_isLoading) ...[
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              [
-                                _uploadLabel ?? 'Envoi en cours',
-                                if (_uploadTotalBytes != null) _fmtBytes(_uploadTotalBytes!),
-                                if (_uploadTotalBytes != null && _uploadTotalBytes! > 0 && _uploadSentBytes > 0)
-                                  '${((_uploadSentBytes / _uploadTotalBytes!) * 100).clamp(0, 100).toStringAsFixed(0)}%',
-                              ].join(' • '),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: isDark ? Colors.white70 : Colors.black54,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          if (_uploadTotalBytes != null && _uploadTotalBytes! > 0 && _uploadSentBytes > 0)
-                            Text(
-                              '${_fmtBytes(_uploadSentBytes)}/${_fmtBytes(_uploadTotalBytes!)}',
-                              style: TextStyle(color: isDark ? Colors.white54 : Colors.black45, fontSize: 11),
-                            ),
-                        ],
-                      ),
-                    ),
-                    LinearProgressIndicator(
-                      value: (_uploadTotalBytes != null && _uploadTotalBytes! > 0 && _uploadSentBytes > 0)
-                          ? (_uploadSentBytes / _uploadTotalBytes!).clamp(0.0, 1.0)
-                          : null,
-                      color: tgAccent,
-                      backgroundColor: isDark ? tgBar : Colors.black12,
-                    ),
-                  ],
+                  if (_isLoading) _buildUploadingMediaBubble(isDark: isDark),
                   _buildInputArea(),
                 ],
                   ),
@@ -4278,6 +4392,202 @@ Future<void> _editContactLocal(String otherId) async {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildUploadingMediaBubble({required bool isDark}) {
+    final bool done = _uploadVisualSuccess;
+    final int total = (_uploadTotalBytes != null && _uploadTotalBytes! > 0)
+        ? _uploadTotalBytes!
+        : (done ? 100 : 0);
+    final int sent = done ? total : _uploadSentBytes;
+    final double progressValue = done ? 1.0 : _uploadVisualProgress.clamp(0.0, 0.98);
+    final int displayedSent = total > 0
+        ? max(sent, (total * progressValue).round().clamp(0, total))
+        : sent;
+    final String percent = done
+        ? '100%'
+        : '${(progressValue * 100).clamp(0, 100).toStringAsFixed(0)}%';
+    final String mediaType = _uploadPreviewType ?? 'media';
+    final bool isImage = mediaType == 'image';
+    final bool isVideo = mediaType == 'video';
+    final double mediaWidth = MediaQuery.of(context).size.width * 0.56;
+    final double mediaHeight = isVideo ? (mediaWidth * 0.62) : (mediaWidth * 0.92);
+    final bool hasPreviewBytes = _uploadPreviewBytes != null && _uploadPreviewBytes!.isNotEmpty;
+    bool hasPreviewPath = false;
+    if (!kIsWeb && (_uploadPreviewPath?.isNotEmpty == true)) {
+      try {
+        hasPreviewPath = File(_uploadPreviewPath!).existsSync();
+      } catch (_) {
+        hasPreviewPath = false;
+      }
+    }
+
+    Widget preview;
+    if (isImage && hasPreviewPath) {
+      preview = Image.file(
+        File(_uploadPreviewPath!),
+        width: mediaWidth,
+        height: mediaHeight,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => Container(
+          width: mediaWidth,
+          height: mediaHeight,
+          color: Colors.black26,
+          alignment: Alignment.center,
+          child: const Icon(Icons.image_not_supported_rounded, color: Colors.white54, size: 34),
+        ),
+      );
+    } else if (isImage && hasPreviewBytes) {
+      preview = Image.memory(
+        _uploadPreviewBytes!,
+        width: mediaWidth,
+        height: mediaHeight,
+        fit: BoxFit.cover,
+      );
+    } else {
+      final IconData icon = isVideo
+          ? Icons.play_circle_fill_rounded
+          : (isImage ? Icons.image_rounded : Icons.insert_drive_file_rounded);
+      preview = Container(
+        width: mediaWidth,
+        height: mediaHeight,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              const Color(0xFF0C2340),
+              isVideo ? const Color(0xFF1D3557) : const Color(0xFF22324E),
+            ],
+          ),
+        ),
+        alignment: Alignment.center,
+        child: Icon(icon, color: Colors.white70, size: 52),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: Container(
+          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.72),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF0E3F75), Color(0xFF0A2B4F)],
+            ),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: done ? const Color(0xFF2ECC71).withOpacity(0.85) : Colors.white.withOpacity(0.18),
+            ),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(isDark ? 0.34 : 0.12), blurRadius: 12, offset: const Offset(0, 6)),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      done ? Icons.check_circle_rounded : Icons.file_upload_rounded,
+                      color: done ? const Color(0xFF2ECC71) : Colors.white70,
+                      size: 16,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        done
+                            ? 'Envoi terminé'
+                            : (_uploadLabel ?? (isVideo ? 'Envoi vidéo' : (isImage ? 'Envoi photo' : 'Envoi média'))),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    if (percent.isNotEmpty)
+                      Text(
+                        percent,
+                        style: TextStyle(
+                          color: done ? const Color(0xFF2ECC71) : Colors.white70,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 7),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      preview,
+                      Positioned.fill(
+                        child: IgnorePointer(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.black.withOpacity(0.06),
+                                  Colors.black.withOpacity(0.24),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (done)
+                        Container(
+                          padding: const EdgeInsets.all(9),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.35),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.done_rounded, color: Color(0xFF2ECC71), size: 22),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 7),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(999),
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween<double>(begin: 0.0, end: progressValue),
+                    duration: Duration(milliseconds: done ? 280 : 210),
+                    curve: Curves.easeOutCubic,
+                    builder: (context, value, _) => LinearProgressIndicator(
+                      value: value,
+                      minHeight: 5,
+                      color: done ? const Color(0xFF2ECC71) : tgAccent,
+                      backgroundColor: Colors.white24,
+                    ),
+                  ),
+                ),
+                if (total > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        '${_fmtBytes(displayedSent)}/${_fmtBytes(total)}',
+                        style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -4589,7 +4899,7 @@ Future<void> _editContactLocal(String otherId) async {
           margin: bubbleMargin,
           constraints: BoxConstraints(
             // Slightly narrower bubbles (less "big blocks")
-            maxWidth: MediaQuery.of(context).size.width * 0.72,
+            maxWidth: MediaQuery.of(context).size.width * (isMedia ? 0.78 : 0.72),
           ),
           // highlight when selected
           decoration: _selectedMessageIds.contains(doc.id) || isHighlighted
@@ -4671,8 +4981,12 @@ Future<void> _editContactLocal(String otherId) async {
                       ),
                     ),
                     Padding(
-                      // More compact padding (Telegram-ish)
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      padding: EdgeInsets.fromLTRB(
+                        isMedia ? 5 : 10,
+                        isMedia ? 5 : 8,
+                        isMedia ? 5 : 10,
+                        8,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
@@ -5150,6 +5464,74 @@ Future<void> _showAvatarActions(
     final Color mutedText = onDarkBubble ? Colors.white54 : Colors.black45;
     final Color iconMuted = onDarkBubble ? Colors.white24 : Colors.black26;
     final Color iconColor = onDarkBubble ? Colors.white : Colors.black87;
+    final double mediaWidth = MediaQuery.of(context).size.width * 0.66;
+    Widget telegramMediaShell({
+      required Widget child,
+      String? badge,
+      EdgeInsetsGeometry? badgePadding,
+    }) {
+      return DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(
+            color: onDarkBubble
+                ? Colors.white.withOpacity(0.16)
+                : Colors.black.withOpacity(0.10),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isDark ? 0.30 : 0.10),
+              blurRadius: 10,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: Stack(
+            children: [
+              child,
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.black.withOpacity(0.05),
+                          Colors.black.withOpacity(0.20),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (badge != null)
+                Positioned(
+                  left: 8,
+                  bottom: 8,
+                  child: Container(
+                    padding: badgePadding ?? const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(0.50),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      badge,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
     // Afficher message supprimé pour l'utilisateur courant
     try {
       if (currentUser != null && m['deletedFor'] is Map) {
@@ -5170,7 +5552,19 @@ Future<void> _showAvatarActions(
                   if (local != null && local.existsSync()) {
                     return GestureDetector(
                       onTap: () => _openMediaViewer(m['url'].toString(), 'image', sizeBytes: expected),
-                      child: Image.file(local, width: 220, fit: BoxFit.contain),
+                      child: telegramMediaShell(
+                        badge: 'Photo',
+                        child: ConstrainedBox(
+                          constraints: BoxConstraints(maxHeight: mediaWidth * 1.35),
+                          child: Image.file(
+                            local,
+                            width: mediaWidth,
+                            fit: BoxFit.fitWidth,
+                            filterQuality: FilterQuality.high,
+                            isAntiAlias: true,
+                          ),
+                        ),
+                      ),
                     );
                   }
                   final url = m['url'].toString();
@@ -5180,103 +5574,34 @@ Future<void> _showAvatarActions(
                   final double? progress = (total != null && total > 0) ? (received / total).clamp(0.0, 1.0) : null;
                   return GestureDetector(
                     onTap: () => _openMediaViewer(url, 'image', sizeBytes: expected),
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        CachedNetworkImage(
-                          imageUrl: url,
-                          width: 220,
-                          fit: BoxFit.contain,
-                          placeholder: (c, s) => Center(child: CircularProgressIndicator(color: Theme.of(c).colorScheme.primary)),
-                          errorWidget: (c, s, e) => Icon(Icons.broken_image, color: iconMuted, size: 50),
-                        ),
-                        if (!kIsWeb)
-                          Positioned(
-                            right: 6,
-                            bottom: 6,
-                            child: GestureDetector(
-                              onTap: downloading
-                                  ? null
-                                  : () async {
-                                      final ok = await _askDownloadMedia();
-                                      if (ok) await _downloadMediaToCache(url, expectedBytes: expected);
-                                    },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(14)),
-                                child: downloading
-                                    ? Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          SizedBox(
-                                            width: 14,
-                                            height: 14,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2,
-                                              color: iconColor,
-                                              value: progress,
-                                            ),
-                                          ),
-                                          const SizedBox(width: 6),
-                                          Text(
-                                            progress != null ? '${(progress * 100).toStringAsFixed(0)}%' : _fmtBytes(received),
-                                            style: TextStyle(color: iconColor, fontSize: 11, fontWeight: FontWeight.w700),
-                                          ),
-                                          if (total != null) ...[
-                                            const SizedBox(width: 6),
-                                            Text(
-                                              '${_fmtBytes(received)}/${_fmtBytes(total)}',
-                                              style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
-                                            ),
-                                          ],
-                                        ],
-                                      )
-                                    : Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.download, size: 14, color: iconColor),
-                                          if (expected != null) ...[
-                                            const SizedBox(width: 6),
-                                            Text(_fmtBytes(expected), style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600)),
-                                          ],
-                                        ],
-                                      ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    ),
-                  );
-                },
-              )
-            : Icon(Icons.image, color: iconMuted, size: 50);
-
-      case 'video':
-        return m['url'] != null
-            ? FutureBuilder<File?>(
-                future: _getCachedMediaFile(m['url'].toString()),
-                builder: (c, snap) {
-                  final local = snap.data;
-                  final url = m['url'].toString();
-                  final downloading = _mediaTransfers.isDownloading(url);
-                  final int? expected = (m['size'] is int) ? (m['size'] as int) : null;
-                  final int received = _mediaTransfers.receivedBytes(url);
-                  final int? total = _mediaTransfers.totalBytes(url) ?? expected;
-                  final double? progress = (total != null && total > 0) ? (received / total).clamp(0.0, 1.0) : null;
-                  return GestureDetector(
-                    onTap: () => _openMediaViewer(url, 'video', sizeBytes: expected),
-                    child: Container(
-                      width: 220,
-                      height: 140,
-                      decoration: BoxDecoration(color: Colors.black26, borderRadius: BorderRadius.circular(12)),
+                    child: telegramMediaShell(
+                      badge: 'Photo',
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
-                          if (local != null && local.existsSync())
-                            Icon(Icons.play_circle_fill, color: subText, size: 48)
-                          else
-                            Icon(Icons.play_circle_fill, color: mutedText, size: 48),
-                          if (!kIsWeb && (local == null || !local.existsSync()))
+                          CachedNetworkImage(
+                            imageUrl: url,
+                            imageBuilder: (context, provider) => Image(
+                              image: provider,
+                              width: mediaWidth,
+                              fit: BoxFit.fitWidth,
+                              filterQuality: FilterQuality.high,
+                              isAntiAlias: true,
+                            ),
+                            placeholder: (c, s) => SizedBox(
+                              width: mediaWidth,
+                              height: mediaWidth * 0.72,
+                              child: Center(
+                                child: CircularProgressIndicator(color: Theme.of(c).colorScheme.primary),
+                              ),
+                            ),
+                            errorWidget: (c, s, e) => SizedBox(
+                              width: mediaWidth,
+                              height: mediaWidth * 0.72,
+                              child: Icon(Icons.broken_image, color: iconMuted, size: 50),
+                            ),
+                          ),
+                          if (!kIsWeb)
                             Positioned(
                               right: 6,
                               bottom: 6,
@@ -5312,7 +5637,7 @@ Future<void> _showAvatarActions(
                                               const SizedBox(width: 6),
                                               Text(
                                                 '${_fmtBytes(received)}/${_fmtBytes(total)}',
-                                                style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+                                                style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
                                               ),
                                             ],
                                           ],
@@ -5331,6 +5656,105 @@ Future<void> _showAvatarActions(
                               ),
                             ),
                         ],
+                      ),
+                    ),
+                  );
+                },
+              )
+            : Icon(Icons.image, color: iconMuted, size: 50);
+
+      case 'video':
+        return m['url'] != null
+            ? FutureBuilder<File?>(
+                future: _getCachedMediaFile(m['url'].toString()),
+                builder: (c, snap) {
+                  final local = snap.data;
+                  final url = m['url'].toString();
+                  final downloading = _mediaTransfers.isDownloading(url);
+                  final int? expected = (m['size'] is int) ? (m['size'] as int) : null;
+                  final int received = _mediaTransfers.receivedBytes(url);
+                  final int? total = _mediaTransfers.totalBytes(url) ?? expected;
+                  final double? progress = (total != null && total > 0) ? (received / total).clamp(0.0, 1.0) : null;
+                  return GestureDetector(
+                    onTap: () => _openMediaViewer(url, 'video', sizeBytes: expected),
+                    child: telegramMediaShell(
+                      badge: 'Vidéo',
+                      child: SizedBox(
+                        width: mediaWidth,
+                        height: mediaWidth * 0.62,
+                        child: Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            DecoratedBox(
+                              decoration: const BoxDecoration(
+                                gradient: LinearGradient(
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                  colors: [Color(0xFF121A2A), Color(0xFF0B101C)],
+                                ),
+                              ),
+                              child: SizedBox(width: mediaWidth, height: mediaWidth * 0.62),
+                            ),
+                            if (local != null && local.existsSync())
+                              Icon(Icons.play_circle_fill_rounded, color: subText, size: 54)
+                            else
+                              Icon(Icons.play_circle_fill_rounded, color: mutedText, size: 54),
+                            if (!kIsWeb && (local == null || !local.existsSync()))
+                              Positioned(
+                                right: 6,
+                                bottom: 6,
+                                child: GestureDetector(
+                                  onTap: downloading
+                                      ? null
+                                      : () async {
+                                          final ok = await _askDownloadMedia();
+                                          if (ok) await _downloadMediaToCache(url, expectedBytes: expected);
+                                        },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(14)),
+                                    child: downloading
+                                        ? Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              SizedBox(
+                                                width: 14,
+                                                height: 14,
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2,
+                                                  color: iconColor,
+                                                  value: progress,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                progress != null ? '${(progress * 100).toStringAsFixed(0)}%' : _fmtBytes(received),
+                                                style: TextStyle(color: iconColor, fontSize: 11, fontWeight: FontWeight.w700),
+                                              ),
+                                              if (total != null) ...[
+                                                const SizedBox(width: 6),
+                                                Text(
+                                                  '${_fmtBytes(received)}/${_fmtBytes(total)}',
+                                                  style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+                                                ),
+                                              ],
+                                            ],
+                                          )
+                                        : Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.download, size: 14, color: iconColor),
+                                              if (expected != null) ...[
+                                                const SizedBox(width: 6),
+                                                Text(_fmtBytes(expected), style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600)),
+                                              ],
+                                            ],
+                                          ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   );
@@ -6081,6 +6505,7 @@ Future<void> _showAvatarActions(
     }
     _bgTimer?.cancel();
     _recordTimer?.cancel();
+    _stopUploadVisualProgressPulse();
     // clear typing and presence when leaving
     _typingTimer?.cancel();
     _setTyping(false);
@@ -6375,6 +6800,90 @@ class _MediaViewerPageState extends State<_MediaViewerPage> {
     super.dispose();
   }
 
+  String _inferMediaExtension() {
+    final lower = widget.url.toLowerCase();
+    if (widget.type == 'video') {
+      if (lower.contains('.mov')) return '.mov';
+      if (lower.contains('.webm')) return '.webm';
+      return '.mp4';
+    }
+    if (lower.contains('.png')) return '.png';
+    if (lower.contains('.webp')) return '.webp';
+    if (lower.contains('.gif')) return '.gif';
+    if (lower.contains('.heic') || lower.contains('.heif')) return '.heic';
+    return '.jpg';
+  }
+
+  Future<File> _ensureLocalMediaFile() async {
+    if (widget.localPath != null && widget.localPath!.isNotEmpty) {
+      final local = File(widget.localPath!);
+      if (await local.exists()) return local;
+    }
+    final uri = Uri.parse(widget.url);
+    final resp = await http.get(uri);
+    if (resp.statusCode < 200 || resp.statusCode >= 300) {
+      throw Exception('Téléchargement échoué (${resp.statusCode})');
+    }
+    final dir = await getTemporaryDirectory();
+    final ts = DateTime.now().millisecondsSinceEpoch;
+    final ext = _inferMediaExtension();
+    final file = File('${dir.path}${Platform.pathSeparator}lk_media_$ts$ext');
+    await file.writeAsBytes(resp.bodyBytes, flush: true);
+    return file;
+  }
+
+  Future<void> _saveMediaToGallery() async {
+    if (kIsWeb) {
+      try {
+        final uri = Uri.parse(widget.url);
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        } else {
+          Clipboard.setData(ClipboardData(text: widget.url));
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lien copié')));
+          }
+        }
+      } catch (_) {}
+      return;
+    }
+
+    try {
+      final ps = await PhotoManager.requestPermissionExtend();
+      if (!ps.hasAccess) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Autorisez l\'accès Photos/Galerie pour enregistrer le média')),
+        );
+        await PhotoManager.openSetting();
+        return;
+      }
+
+      final localFile = await _ensureLocalMediaFile();
+      if (widget.type == 'video') {
+        await PhotoManager.editor.saveVideo(
+          localFile,
+          title: 'LK_video_${DateTime.now().millisecondsSinceEpoch}',
+        );
+      } else {
+        await PhotoManager.editor.saveImageWithPath(
+          localFile.path,
+          title: 'LK_photo_${DateTime.now().millisecondsSinceEpoch}',
+        );
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Média enregistré dans la galerie')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Impossible d\'enregistrer: $e')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -6386,19 +6895,7 @@ class _MediaViewerPageState extends State<_MediaViewerPage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.download, color: Colors.white),
-            onPressed: () async {
-              try {
-                final uri = Uri.parse(widget.url);
-                if (await canLaunchUrl(uri)) {
-                  await launchUrl(uri, mode: LaunchMode.externalApplication);
-                } else {
-                  Clipboard.setData(ClipboardData(text: widget.url));
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lien copié')));
-                  }
-                }
-              } catch (_) {}
-            },
+            onPressed: _saveMediaToGallery,
           ),
           if (widget.messageId != null)
             IconButton(
@@ -6459,10 +6956,20 @@ class _MediaViewerPageState extends State<_MediaViewerPage> {
                 : const CircularProgressIndicator(color: Colors.white54))
             : InteractiveViewer(
                 child: widget.localPath != null && widget.localPath!.isNotEmpty
-                    ? Image.file(File(widget.localPath!), fit: BoxFit.contain)
+                    ? Image.file(
+                        File(widget.localPath!),
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                        isAntiAlias: true,
+                      )
                     : CachedNetworkImage(
                         imageUrl: widget.url,
-                        fit: BoxFit.contain,
+                        imageBuilder: (context, provider) => Image(
+                          image: provider,
+                          fit: BoxFit.contain,
+                          filterQuality: FilterQuality.high,
+                          isAntiAlias: true,
+                        ),
                       ),
               ),
       ),
