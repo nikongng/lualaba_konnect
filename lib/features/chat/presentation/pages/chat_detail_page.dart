@@ -276,7 +276,7 @@ class _ChatState extends State<ChatDetailPage>
         final double rawProgress = total > 0
             ? (_uploadSentBytes / total).clamp(0.0, 1.0)
             : 0.0;
-        final double cap = rawProgress > 0 ? 0.98 : 0.96;
+        final double cap = rawProgress > 0 ? 0.995 : 0.98;
         final double current = max(_uploadVisualProgress, rawProgress);
         if (current >= cap) return;
         final double step = current < 0.35
@@ -517,7 +517,7 @@ class _ChatState extends State<ChatDetailPage>
                 final double rp = (sent / t).clamp(0.0, 1.0);
                 _uploadVisualProgress = max(
                   _uploadVisualProgress,
-                  rp.clamp(0.0, 0.97),
+                  rp.clamp(0.0, 0.995),
                 );
               }
             });
@@ -604,7 +604,7 @@ class _ChatState extends State<ChatDetailPage>
               );
               _uploadVisualProgress = max(
                 _uploadVisualProgress,
-                rp.clamp(0.0, 0.97),
+                rp.clamp(0.0, 0.995),
               );
             }
           });
@@ -614,6 +614,7 @@ class _ChatState extends State<ChatDetailPage>
         url = await ref.getDownloadURL();
       }
 
+      _markUploadUiFinalizing(fallbackTotal: sizeBytes);
       await _saveToFirestore({
         'type': type,
         'url': url,
@@ -671,6 +672,24 @@ class _ChatState extends State<ChatDetailPage>
     });
     _stopUploadVisualProgressPulse();
     await Future.delayed(hold);
+  }
+
+  void _markUploadUiFinalizing({int? fallbackTotal}) {
+    if (!mounted) return;
+    final int resolvedTotal =
+        (_uploadTotalBytes != null && _uploadTotalBytes! > 0)
+        ? _uploadTotalBytes!
+        : ((fallbackTotal != null && fallbackTotal > 0) ? fallbackTotal : 100);
+    final int targetSent = max(
+      _uploadSentBytes,
+      (resolvedTotal * 0.995).round(),
+    );
+    setState(() {
+      _uploadTotalBytes = resolvedTotal;
+      _uploadSentBytes = targetSent;
+      _uploadVisualProgress = max(_uploadVisualProgress, 0.995);
+      _uploadLabel = 'Finalisation...';
+    });
   }
 
   Future<Uint8List> _readStreamToBytes(Stream<List<int>> stream) async {
@@ -6408,7 +6427,7 @@ class _ChatState extends State<ChatDetailPage>
     final int sent = done ? total : _uploadSentBytes;
     final double progressValue = done
         ? 1.0
-        : _uploadVisualProgress.clamp(0.0, 0.98);
+        : _uploadVisualProgress.clamp(0.0, 0.995);
     final int displayedSent = total > 0
         ? max(sent, (total * progressValue).round().clamp(0, total))
         : sent;
