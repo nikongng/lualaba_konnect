@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 import 'dart:math';
@@ -43,24 +43,29 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:lualaba_konnect/shared/widgets/account_badge.dart';
 
-
 const Color tgBg = Color(0xFF0B1418);
 const Color tgAccent = Color(0xFF00CBA9);
 // Outgoing bubble (dark blue, WhatsApp-ish vibe).
 const Color tgMyBubble = Color(0xFF0B3A6D);
 const Color tgOtherBubble = Color(0xFF2E2F4F);
 const Color tgBar = Color(0xFF071011);
+
 class ChatDetailPage extends StatefulWidget {
   final String chatId;
   final String chatName;
 
-  const ChatDetailPage({super.key, required this.chatId, required this.chatName});
+  const ChatDetailPage({
+    super.key,
+    required this.chatId,
+    required this.chatName,
+  });
 
   @override
   State<ChatDetailPage> createState() => _ChatState();
 }
 
-class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMixin {
+class _ChatState extends State<ChatDetailPage>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _msgController = TextEditingController();
   final currentUser = FirebaseAuth.instance.currentUser;
   String? _cachedSenderUid;
@@ -104,7 +109,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         _cachedSenderName!.trim().isNotEmpty &&
         _cachedSenderPhoto != null &&
         _cachedSenderPhoto!.trim().isNotEmpty) {
-      return {'name': _cachedSenderName!.trim(), 'photo': _cachedSenderPhoto!.trim()};
+      return {
+        'name': _cachedSenderName!.trim(),
+        'photo': _cachedSenderPhoto!.trim(),
+      };
     }
 
     String name = (user.displayName ?? '').trim();
@@ -114,7 +122,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     try {
       final cols = ['classic_users', 'pro_users', 'enterprise_users'];
       for (final col in cols) {
-        final snap = await FirebaseFirestore.instance.collection(col).doc(user.uid).get();
+        final snap = await FirebaseFirestore.instance
+            .collection(col)
+            .doc(user.uid)
+            .get();
         if (!snap.exists) continue;
         final d = snap.data() ?? <String, dynamic>{};
 
@@ -131,11 +142,17 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         name = name.isNotEmpty
             ? name
             : (pickString(['displayName', 'name', 'username']).isNotEmpty
-                ? pickString(['displayName', 'name', 'username'])
-                : '${pickString(['firstName'])} ${pickString(['lastName'])}'.trim());
+                  ? pickString(['displayName', 'name', 'username'])
+                  : '${pickString(['firstName'])} ${pickString(['lastName'])}'
+                        .trim());
 
         if (photo.isEmpty) {
-          photo = pickString(['photoUrl', 'avatarUrl', 'profileImageUrl', 'imageUrl']);
+          photo = pickString([
+            'photoUrl',
+            'avatarUrl',
+            'profileImageUrl',
+            'imageUrl',
+          ]);
         }
         break;
       }
@@ -144,13 +161,15 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     }
 
     if (name.isEmpty) name = 'Un utilisateur';
-    if (photo.isEmpty) photo = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+    if (photo.isEmpty)
+      photo = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
 
     _cachedSenderUid = user.uid;
     _cachedSenderName = name;
     _cachedSenderPhoto = photo;
     return {'name': name, 'photo': photo};
   }
+
   // tracked for potential use by other logic; keep but silence unused warning
   // ignore: unused_field
   String? _lastMessageId;
@@ -176,13 +195,19 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
   // --- REPLY (WhatsApp-style swipe-to-reply) ---
   Map<String, dynamic>? _replyTo; // persisted into Firestore as `replyTo`
 
-  bool _isDark(BuildContext context) => Theme.of(context).brightness == Brightness.dark;
-  Color _modalBg(BuildContext context) => _isDark(context) ? tgBar : Colors.white;
-  Color _modalText(BuildContext context) => _isDark(context) ? Colors.white : Colors.black87;
-  Color _modalSub(BuildContext context) => _isDark(context) ? Colors.white70 : Colors.black54;
-  Color _modalMuted(BuildContext context) => _isDark(context) ? Colors.white54 : Colors.black45;
-  Color _modalTileBg(BuildContext context) => _isDark(context) ? Colors.white10 : Colors.black12;
-  
+  bool _isDark(BuildContext context) =>
+      Theme.of(context).brightness == Brightness.dark;
+  Color _modalBg(BuildContext context) =>
+      _isDark(context) ? tgBar : Colors.white;
+  Color _modalText(BuildContext context) =>
+      _isDark(context) ? Colors.white : Colors.black87;
+  Color _modalSub(BuildContext context) =>
+      _isDark(context) ? Colors.white70 : Colors.black54;
+  Color _modalMuted(BuildContext context) =>
+      _isDark(context) ? Colors.white54 : Colors.black45;
+  Color _modalTileBg(BuildContext context) =>
+      _isDark(context) ? Colors.white10 : Colors.black12;
+
   String _safeExtFromName(String? name) {
     if (name == null) return '';
     final i = name.lastIndexOf('.');
@@ -196,7 +221,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
   bool _looksLikeVideo(String? nameOrExt) {
     if (nameOrExt == null || nameOrExt.trim().isEmpty) return false;
     final s = nameOrExt.toLowerCase();
-    final ext = s.startsWith('.') ? s.substring(1) : (s.contains('.') ? s.split('.').last : s);
+    final ext = s.startsWith('.')
+        ? s.substring(1)
+        : (s.contains('.') ? s.split('.').last : s);
     const vids = {'mp4', 'mov', 'm4v', '3gp', 'webm', 'mkv', 'avi'};
     return vids.contains(ext);
   }
@@ -224,7 +251,8 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       } else if (fileSource is File) {
         if (!kIsWeb) previewPath = fileSource.path;
       } else if (fileSource is Uint8List) {
-        if (fileSource.isNotEmpty && fileSource.lengthInBytes <= (2 * 1024 * 1024)) {
+        if (fileSource.isNotEmpty &&
+            fileSource.lengthInBytes <= (2 * 1024 * 1024)) {
           previewBytes = fileSource;
         }
       }
@@ -238,19 +266,28 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
 
   void _startUploadVisualProgressPulse() {
     _uploadProgressPulseTimer?.cancel();
-    _uploadProgressPulseTimer = Timer.periodic(const Duration(milliseconds: 140), (_) {
-      if (!mounted || !_isLoading || _uploadVisualSuccess) return;
-      final int total = (_uploadTotalBytes != null && _uploadTotalBytes! > 0) ? _uploadTotalBytes! : 0;
-      final double rawProgress = total > 0 ? (_uploadSentBytes / total).clamp(0.0, 1.0) : 0.0;
-      final double cap = rawProgress > 0 ? 0.96 : 0.90;
-      final double current = max(_uploadVisualProgress, rawProgress);
-      if (current >= cap) return;
-      final double step = current < 0.35 ? 0.030 : (current < 0.72 ? 0.018 : 0.010);
-      final double next = (current + step).clamp(0.0, cap);
-      setState(() {
-        _uploadVisualProgress = next;
-      });
-    });
+    _uploadProgressPulseTimer = Timer.periodic(
+      const Duration(milliseconds: 140),
+      (_) {
+        if (!mounted || !_isLoading || _uploadVisualSuccess) return;
+        final int total = (_uploadTotalBytes != null && _uploadTotalBytes! > 0)
+            ? _uploadTotalBytes!
+            : 0;
+        final double rawProgress = total > 0
+            ? (_uploadSentBytes / total).clamp(0.0, 1.0)
+            : 0.0;
+        final double cap = rawProgress > 0 ? 0.98 : 0.96;
+        final double current = max(_uploadVisualProgress, rawProgress);
+        if (current >= cap) return;
+        final double step = current < 0.35
+            ? 0.030
+            : (current < 0.72 ? 0.018 : 0.010);
+        final double next = (current + step).clamp(0.0, cap);
+        setState(() {
+          _uploadVisualProgress = next;
+        });
+      },
+    );
   }
 
   void _stopUploadVisualProgressPulse() {
@@ -284,12 +321,13 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         final msgText = isVideo ? '🎬 Vidéo' : '📸 Photo';
 
         if (mounted) {
-        setState(() {
-          _uploadLabel = 'Envoi ${i + 1}/${res.files.length} • ${isVideo ? "vidéo" : "photo"}';
-          _uploadTotalBytes = pf.size > 0 ? pf.size : null;
-          _uploadSentBytes = 0;
-          _uploadVisualProgress = max(_uploadVisualProgress, 0.03);
-        });
+          setState(() {
+            _uploadLabel =
+                'Envoi ${i + 1}/${res.files.length} • ${isVideo ? "vidéo" : "photo"}';
+            _uploadTotalBytes = pf.size > 0 ? pf.size : null;
+            _uploadSentBytes = 0;
+            _uploadVisualProgress = max(_uploadVisualProgress, 0.03);
+          });
         }
 
         dynamic source = pf;
@@ -339,7 +377,8 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         _isLoading = true;
         _uploadVisualSuccess = false;
         _uploadVisualProgress = 0.03;
-        _uploadLabel = 'Envoi ${type == "video" ? "vidéo" : (type == "image" ? "photo" : "média")}';
+        _uploadLabel =
+            'Envoi ${type == "video" ? "vidéo" : (type == "image" ? "photo" : "média")}';
         _uploadTotalBytes = null;
         _uploadSentBytes = 0;
         _uploadPreviewType = preview['type'] as String?;
@@ -360,7 +399,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     try {
       // On Web, JS bit ops can turn `1 << 32` into 0, which breaks nextInt().
       // Use a safe max that works everywhere.
-      final nonce = Random().nextInt(0x7fffffff).toRadixString(16).padLeft(8, '0');
+      final nonce = Random()
+          .nextInt(0x7fffffff)
+          .toRadixString(16)
+          .padLeft(8, '0');
       String fileName = '${DateTime.now().microsecondsSinceEpoch}_$nonce';
       // Support XFile/PlatformFile/File/bytes across web and mobile
       Uint8List? bytes;
@@ -412,7 +454,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
 
       final ext = _safeExtFromName(originalName) != ''
           ? _safeExtFromName(originalName)
-          : (_safeExtFromName(localName) != '' ? _safeExtFromName(localName) : _safeExtFromName(file?.path));
+          : (_safeExtFromName(localName) != ''
+                ? _safeExtFromName(localName)
+                : _safeExtFromName(file?.path));
       if (ext.isNotEmpty) fileName = '$fileName$ext';
 
       int? sizeBytes;
@@ -441,7 +485,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
               await SupabaseService.init(url: su, anonKey: sk);
               debugPrint('SupabaseService init attempted in uploadAndSend.');
             } else {
-              debugPrint('Supabase keys not provided at runtime (upload will fallback to Firebase).');
+              debugPrint(
+                'Supabase keys not provided at runtime (upload will fallback to Firebase).',
+              );
             }
           } catch (ie) {
             debugPrint('Error trying to init SupabaseService on demand: $ie');
@@ -450,7 +496,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
 
         // try Supabase - use provided folder as bucket (chat media -> 'chat_media', stories -> 'stories')
         final supabaseBucket = folder;
-        debugPrint('SupabaseService.isInitialized = ${SupabaseService.isInitialized}');
+        debugPrint(
+          'SupabaseService.isInitialized = ${SupabaseService.isInitialized}',
+        );
         if (SupabaseService.isInitialized) {
           int lastTick = 0;
           void onProgress(int sent, int total) {
@@ -461,10 +509,16 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
             setState(() {
               _uploadSentBytes = sent;
               _uploadTotalBytes = total > 0 ? total : _uploadTotalBytes;
-              final int t = (_uploadTotalBytes != null && _uploadTotalBytes! > 0) ? _uploadTotalBytes! : total;
+              final int t =
+                  (_uploadTotalBytes != null && _uploadTotalBytes! > 0)
+                  ? _uploadTotalBytes!
+                  : total;
               if (t > 0) {
                 final double rp = (sent / t).clamp(0.0, 1.0);
-                _uploadVisualProgress = max(_uploadVisualProgress, rp.clamp(0.0, 0.97));
+                _uploadVisualProgress = max(
+                  _uploadVisualProgress,
+                  rp.clamp(0.0, 0.97),
+                );
               }
             });
           }
@@ -472,28 +526,52 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
           final String extLower = ext.toLowerCase();
           String? contentType;
           if (type == 'image') {
-            if (extLower == '.png') contentType = 'image/png';
-            else if (extLower == '.webp') contentType = 'image/webp';
-            else if (extLower == '.gif') contentType = 'image/gif';
-            else if (extLower == '.heic' || extLower == '.heif') contentType = 'image/heic';
-            else contentType = 'image/jpeg';
+            if (extLower == '.png')
+              contentType = 'image/png';
+            else if (extLower == '.webp')
+              contentType = 'image/webp';
+            else if (extLower == '.gif')
+              contentType = 'image/gif';
+            else if (extLower == '.heic' || extLower == '.heif')
+              contentType = 'image/heic';
+            else
+              contentType = 'image/jpeg';
           } else if (type == 'video') {
-            if (extLower == '.mov') contentType = 'video/quicktime';
-            else if (extLower == '.webm') contentType = 'video/webm';
-            else contentType = 'video/mp4';
+            if (extLower == '.mov')
+              contentType = 'video/quicktime';
+            else if (extLower == '.webm')
+              contentType = 'video/webm';
+            else
+              contentType = 'video/mp4';
           } else if (type == 'audio' || type == 'voice') {
-            if (extLower == '.wav') contentType = 'audio/wav';
-            else if (extLower == '.m4a') contentType = 'audio/mp4';
-            else if (extLower == '.ogg' || extLower == '.oga') contentType = 'audio/ogg';
-            else contentType = 'audio/mpeg';
+            if (extLower == '.wav')
+              contentType = 'audio/wav';
+            else if (extLower == '.m4a')
+              contentType = 'audio/mp4';
+            else if (extLower == '.ogg' || extLower == '.oga')
+              contentType = 'audio/ogg';
+            else
+              contentType = 'audio/mpeg';
           } else {
             contentType = 'application/octet-stream';
           }
 
           if (bytes != null) {
-            url = await SupabaseService.uploadBytesNamed(bytes, fileName, supabaseBucket, onProgress: onProgress, contentType: contentType);
+            url = await SupabaseService.uploadBytesNamed(
+              bytes,
+              fileName,
+              supabaseBucket,
+              onProgress: onProgress,
+              contentType: contentType,
+            ).timeout(const Duration(seconds: 120));
           } else if (file != null) {
-            url = await SupabaseService.uploadFileNamed(file, fileName, supabaseBucket, onProgress: onProgress, contentType: contentType);
+            url = await SupabaseService.uploadFileNamed(
+              file,
+              fileName,
+              supabaseBucket,
+              onProgress: onProgress,
+              contentType: contentType,
+            ).timeout(const Duration(seconds: 120));
           } else {
             throw Exception('No file data to upload');
           }
@@ -501,22 +579,37 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         } else {
           throw Exception('Supabase not initialized');
         }
-        } catch (e) {
-          debugPrint('Supabase upload failed or unavailable: $e — falling back to Firebase Storage');
-          Reference ref = FirebaseStorage.instance.ref().child(folder).child(fileName);
-          final UploadTask task = bytes != null ? ref.putData(bytes) : ref.putFile(file!);
+      } catch (e) {
+        debugPrint(
+          'Supabase upload failed or unavailable: $e — falling back to Firebase Storage',
+        );
+        Reference ref = FirebaseStorage.instance
+            .ref()
+            .child(folder)
+            .child(fileName);
+        final UploadTask task = bytes != null
+            ? ref.putData(bytes)
+            : ref.putFile(file!);
         final sub = task.snapshotEvents.listen((snap) {
           if (!mounted) return;
           setState(() {
             _uploadSentBytes = snap.bytesTransferred;
-            _uploadTotalBytes = snap.totalBytes > 0 ? snap.totalBytes : _uploadTotalBytes;
+            _uploadTotalBytes = snap.totalBytes > 0
+                ? snap.totalBytes
+                : _uploadTotalBytes;
             if (_uploadTotalBytes != null && _uploadTotalBytes! > 0) {
-              final double rp = (_uploadSentBytes / _uploadTotalBytes!).clamp(0.0, 1.0);
-              _uploadVisualProgress = max(_uploadVisualProgress, rp.clamp(0.0, 0.97));
+              final double rp = (_uploadSentBytes / _uploadTotalBytes!).clamp(
+                0.0,
+                1.0,
+              );
+              _uploadVisualProgress = max(
+                _uploadVisualProgress,
+                rp.clamp(0.0, 0.97),
+              );
             }
           });
         });
-        await task;
+        await task.timeout(const Duration(seconds: 180));
         await sub.cancel();
         url = await ref.getDownloadURL();
       }
@@ -526,7 +619,8 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         'url': url,
         'text': text,
         if (sizeBytes != null) 'size': sizeBytes,
-        if ((originalName ?? localName)?.trim().isNotEmpty == true) 'fileName': (originalName ?? localName)!.trim(),
+        if ((originalName ?? localName)?.trim().isNotEmpty == true)
+          'fileName': (originalName ?? localName)!.trim(),
         if (extraData != null) ...extraData,
       });
       await _markUploadUiSuccess(
@@ -536,53 +630,56 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
             : const Duration(milliseconds: 900),
       );
       // play send sfx
-      try { await _playSfx('sounds/pop.mp3'); } catch (_) {}
+      try {
+        await _playSfx('sounds/pop.mp3');
+      } catch (_) {}
     } catch (e) {
       debugPrint("Erreur upload: $e");
       _stopUploadVisualProgressPulse();
     }
-      if (manageLoading && mounted) {
-        setState(() {
-          _isLoading = false;
-          _uploadVisualSuccess = false;
-          _uploadVisualProgress = 0.0;
-          _uploadLabel = null;
-          _uploadTotalBytes = null;
-          _uploadSentBytes = 0;
-          _uploadPreviewType = null;
-          _uploadPreviewPath = null;
-          _uploadPreviewBytes = null;
-        });
-        _stopUploadVisualProgressPulse();
-      }
-    }
-
-    Future<void> _markUploadUiSuccess({
-      int? fallbackTotal,
-      Duration hold = const Duration(milliseconds: 220),
-    }) async {
-      if (!mounted) return;
-      final int resolvedTotal = (_uploadTotalBytes != null && _uploadTotalBytes! > 0)
-          ? _uploadTotalBytes!
-          : ((fallbackTotal != null && fallbackTotal > 0) ? fallbackTotal : 100);
+    if (manageLoading && mounted) {
       setState(() {
-        _uploadTotalBytes = resolvedTotal;
-        _uploadSentBytes = resolvedTotal;
-        _uploadVisualProgress = 1.0;
-        _uploadLabel = 'Envoi réussi';
-        _uploadVisualSuccess = true;
+        _isLoading = false;
+        _uploadVisualSuccess = false;
+        _uploadVisualProgress = 0.0;
+        _uploadLabel = null;
+        _uploadTotalBytes = null;
+        _uploadSentBytes = 0;
+        _uploadPreviewType = null;
+        _uploadPreviewPath = null;
+        _uploadPreviewBytes = null;
       });
       _stopUploadVisualProgressPulse();
-      await Future.delayed(hold);
     }
+  }
 
-    Future<Uint8List> _readStreamToBytes(Stream<List<int>> stream) async {
-      final buffer = BytesBuilder(copy: false);
-      await for (final chunk in stream) {
-        buffer.add(chunk);
-      }
-      return buffer.toBytes();
+  Future<void> _markUploadUiSuccess({
+    int? fallbackTotal,
+    Duration hold = const Duration(milliseconds: 220),
+  }) async {
+    if (!mounted) return;
+    final int resolvedTotal =
+        (_uploadTotalBytes != null && _uploadTotalBytes! > 0)
+        ? _uploadTotalBytes!
+        : ((fallbackTotal != null && fallbackTotal > 0) ? fallbackTotal : 100);
+    setState(() {
+      _uploadTotalBytes = resolvedTotal;
+      _uploadSentBytes = resolvedTotal;
+      _uploadVisualProgress = 1.0;
+      _uploadLabel = 'Envoi réussi';
+      _uploadVisualSuccess = true;
+    });
+    _stopUploadVisualProgressPulse();
+    await Future.delayed(hold);
+  }
+
+  Future<Uint8List> _readStreamToBytes(Stream<List<int>> stream) async {
+    final buffer = BytesBuilder(copy: false);
+    await for (final chunk in stream) {
+      buffer.add(chunk);
     }
+    return buffer.toBytes();
+  }
 
   Future<void> _onMessageOpen(QueryDocumentSnapshot doc, Map m) async {
     try {
@@ -602,7 +699,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       // mark message read (avoid per-message decrement that can become inconsistent)
       try {
         final senderId = (m['senderId'] ?? '').toString();
-        if (senderId.isNotEmpty && senderId != currentUser!.uid && (m['isRead'] != true)) {
+        if (senderId.isNotEmpty &&
+            senderId != currentUser!.uid &&
+            (m['isRead'] != true)) {
           await _markMessagesAsDeliveredAndRead([doc]);
         }
       } catch (_) {}
@@ -613,17 +712,23 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
 
   Future<void> _onMenuSelected(String v) async {
     try {
-      final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+      final chatRef = FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId);
       final chatSnap = await chatRef.get();
       if (!chatSnap.exists) return;
       final data = chatSnap.data() ?? {};
       final isGroup = data['isGroup'] == true;
 
       if (isGroup) {
-        final groupName = (data['groupName'] ?? data['name'] ?? widget.chatName ?? 'Groupe').toString();
+        final groupName =
+            (data['groupName'] ?? data['name'] ?? widget.chatName ?? 'Groupe')
+                .toString();
         final groupPhoto = (data['groupPhoto'] ?? '').toString();
         final description = (data['description'] ?? '').toString();
-        final creatorId = (data['creatorId'] ?? data['createdBy'] ?? data['ownerId'] ?? '').toString();
+        final creatorId =
+            (data['creatorId'] ?? data['createdBy'] ?? data['ownerId'] ?? '')
+                .toString();
         final groupParticipants = (data['participants'] is List)
             ? (data['participants'] as List).map((e) => e.toString()).toList()
             : <String>[];
@@ -663,10 +768,22 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
             context: context,
             builder: (c) => AlertDialog(
               backgroundColor: _modalBg(c),
-              title: Text('Effacer le contenu ?', style: TextStyle(color: _modalText(c))),
+              title: Text(
+                'Effacer le contenu ?',
+                style: TextStyle(color: _modalText(c)),
+              ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: _modalSub(c)))),
-                TextButton(onPressed: () => Navigator.pop(c, true), child: Text('Effacer', style: TextStyle(color: _modalText(c)))),
+                TextButton(
+                  onPressed: () => Navigator.pop(c, false),
+                  child: Text('Annuler', style: TextStyle(color: _modalSub(c))),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(c, true),
+                  child: Text(
+                    'Effacer',
+                    style: TextStyle(color: _modalText(c)),
+                  ),
+                ),
               ],
             ),
           );
@@ -677,8 +794,13 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         }
       }
 
-      List participants = (data['participants'] is List) ? List.from(data['participants']) : [];
-      String otherId = participants.firstWhere((id) => id != FirebaseAuth.instance.currentUser?.uid, orElse: () => "");
+      List participants = (data['participants'] is List)
+          ? List.from(data['participants'])
+          : [];
+      String otherId = participants.firstWhere(
+        (id) => id != FirebaseAuth.instance.currentUser?.uid,
+        orElse: () => "",
+      );
       if (otherId == "") return;
 
       if (v == 'delete') {
@@ -706,17 +828,28 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       final ref = FirebaseFirestore.instance.collection('chats').doc(chatId);
       final snap = await ref.get();
       final data = snap.exists ? (snap.data() ?? {}) : {};
-      Map<String, dynamic> muted = (data['muted'] is Map) ? Map<String, dynamic>.from(data['muted']) : {};
+      Map<String, dynamic> muted = (data['muted'] is Map)
+          ? Map<String, dynamic>.from(data['muted'])
+          : {};
       final cur = muted[currentUser!.uid] == true;
       muted[currentUser!.uid] = !cur;
       await ref.set({'muted': muted}, SetOptions(merge: true));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(!cur ? 'Discussion mise en silencieux' : 'Mode silencieux desactive')),
+          SnackBar(
+            content: Text(
+              !cur
+                  ? 'Discussion mise en silencieux'
+                  : 'Mode silencieux desactive',
+            ),
+          ),
         );
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
     }
   }
 
@@ -726,17 +859,28 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       final ref = FirebaseFirestore.instance.collection('chats').doc(chatId);
       final snap = await ref.get();
       final data = snap.exists ? (snap.data() ?? {}) : {};
-      Map<String, dynamic> eph = (data['ephemeral'] is Map) ? Map<String, dynamic>.from(data['ephemeral']) : {};
+      Map<String, dynamic> eph = (data['ephemeral'] is Map)
+          ? Map<String, dynamic>.from(data['ephemeral'])
+          : {};
       final cur = eph[currentUser!.uid] == true;
       eph[currentUser!.uid] = !cur;
       await ref.set({'ephemeral': eph}, SetOptions(merge: true));
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(!cur ? 'Messages ephemeres actives' : 'Messages ephemeres desactives')),
+          SnackBar(
+            content: Text(
+              !cur
+                  ? 'Messages ephemeres actives'
+                  : 'Messages ephemeres desactives',
+            ),
+          ),
         );
       }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
     }
   }
 
@@ -754,7 +898,13 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
               child: Wrap(
                 children: [
                   ListTile(
-                    title: Text('Theme discussion', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold)),
+                    title: Text(
+                      'Theme discussion',
+                      style: TextStyle(
+                        color: _modalText(ctx),
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                   RadioListTile<String>(
                     value: 'system',
@@ -765,7 +915,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                         await prefs.setString('chat_theme', v);
                       }
                     },
-                    title: Text('Systeme', style: TextStyle(color: _modalText(ctx))),
+                    title: Text(
+                      'Systeme',
+                      style: TextStyle(color: _modalText(ctx)),
+                    ),
                   ),
                   RadioListTile<String>(
                     value: 'light',
@@ -776,7 +929,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                         await prefs.setString('chat_theme', v);
                       }
                     },
-                    title: Text('Clair', style: TextStyle(color: _modalText(ctx))),
+                    title: Text(
+                      'Clair',
+                      style: TextStyle(color: _modalText(ctx)),
+                    ),
                   ),
                   RadioListTile<String>(
                     value: 'dark',
@@ -787,7 +943,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                         await prefs.setString('chat_theme', v);
                       }
                     },
-                    title: Text('Sombre', style: TextStyle(color: _modalText(ctx))),
+                    title: Text(
+                      'Sombre',
+                      style: TextStyle(color: _modalText(ctx)),
+                    ),
                   ),
                 ],
               ),
@@ -813,10 +972,15 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
   Future<void> _onMessageLongPress(QueryDocumentSnapshot doc, Map m) async {
     bool isAdmin = false;
     try {
-      final chatSnap = await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).get();
+      final chatSnap = await FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId)
+          .get();
       if (chatSnap.exists) {
         final data = chatSnap.data() ?? {};
-        final admins = (data['admins'] as List?)?.map((e) => e.toString()).toList() ?? <String>[];
+        final admins =
+            (data['admins'] as List?)?.map((e) => e.toString()).toList() ??
+            <String>[];
         isAdmin = admins.contains(currentUser?.uid ?? '');
       }
     } catch (_) {}
@@ -827,36 +991,76 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       builder: (c) {
         final isMe = m['senderId'] == currentUser?.uid;
         return SafeArea(
-          child: Wrap(children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: ['👍', '❤️', '😂', '😮', '😢', '🙏'].map((e) {
-                  return GestureDetector(
-                    onTap: () async {
-                      Navigator.pop(c);
-                      await _toggleReaction(doc.reference, e);
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: _modalTileBg(c),
-                        borderRadius: BorderRadius.circular(16),
+          child: Wrap(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: ['👍', '❤️', '😂', '😮', '😢', '🙏'].map((e) {
+                    return GestureDetector(
+                      onTap: () async {
+                        Navigator.pop(c);
+                        await _toggleReaction(doc.reference, e);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: _modalTileBg(c),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(e, style: const TextStyle(fontSize: 20)),
                       ),
-                      child: Text(e, style: const TextStyle(fontSize: 20)),
-                    ),
-                  );
-                }).toList(),
+                    );
+                  }).toList(),
+                ),
               ),
-            ),
-            ListTile(leading: Icon(Icons.bookmark, color: _modalText(c)), title: Text('Enregistrer', style: TextStyle(color: _modalText(c))), onTap: () async { Navigator.pop(c); await _saveMessageForUser(m, chatId: widget.chatId); }),
-            ListTile(leading: Icon(Icons.check_box, color: _modalText(c)), title: Text('Sélectionner', style: TextStyle(color: _modalText(c))), onTap: () { Navigator.pop(c); setState(() { _selectionMode = true; _selectedMessageIds.add(doc.id); }); }),
-            if (isMe || isAdmin) ListTile(leading: Icon(Icons.delete, color: _modalText(c)), title: Text('Supprimer pour tout le monde', style: TextStyle(color: _modalText(c))), onTap: () async { Navigator.pop(c); await _deleteMessageForAll(doc.id); }),
-            ListTile(leading: Icon(Icons.close, color: _modalMuted(c)), title: Text('Annuler', style: TextStyle(color: _modalMuted(c))), onTap: () => Navigator.pop(c)),
-          ]),
+              ListTile(
+                leading: Icon(Icons.bookmark, color: _modalText(c)),
+                title: Text(
+                  'Enregistrer',
+                  style: TextStyle(color: _modalText(c)),
+                ),
+                onTap: () async {
+                  Navigator.pop(c);
+                  await _saveMessageForUser(m, chatId: widget.chatId);
+                },
+              ),
+              ListTile(
+                leading: Icon(Icons.check_box, color: _modalText(c)),
+                title: Text(
+                  'Sélectionner',
+                  style: TextStyle(color: _modalText(c)),
+                ),
+                onTap: () {
+                  Navigator.pop(c);
+                  setState(() {
+                    _selectionMode = true;
+                    _selectedMessageIds.add(doc.id);
+                  });
+                },
+              ),
+              if (isMe || isAdmin)
+                ListTile(
+                  leading: Icon(Icons.delete, color: _modalText(c)),
+                  title: Text(
+                    'Supprimer pour tout le monde',
+                    style: TextStyle(color: _modalText(c)),
+                  ),
+                  onTap: () async {
+                    Navigator.pop(c);
+                    await _deleteMessageForAll(doc.id);
+                  },
+                ),
+              ListTile(
+                leading: Icon(Icons.close, color: _modalMuted(c)),
+                title: Text('Annuler', style: TextStyle(color: _modalMuted(c))),
+                onTap: () => Navigator.pop(c),
+              ),
+            ],
+          ),
         );
-      }
+      },
     );
   }
 
@@ -887,7 +1091,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
 
   Future<void> _deleteMessageForAll(String messageId) async {
     try {
-      final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+      final chatRef = FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId);
       await chatRef.collection('messages').doc(messageId).delete();
 
       // Recompute lastMessage/lastMessageTime after deletion
@@ -911,9 +1117,15 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         });
       }
 
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Message supprimé')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Message supprimé')));
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
     }
   }
 
@@ -925,8 +1137,12 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         final snap = await tx.get(msgRef);
         if (!snap.exists) return;
         final data = snap.data() as Map<String, dynamic>? ?? {};
-        final raw = (data['reactions'] is Map) ? Map<String, dynamic>.from(data['reactions']) : <String, dynamic>{};
-        final List<dynamic> list = (raw[emoji] is List) ? List<dynamic>.from(raw[emoji]) : <dynamic>[];
+        final raw = (data['reactions'] is Map)
+            ? Map<String, dynamic>.from(data['reactions'])
+            : <String, dynamic>{};
+        final List<dynamic> list = (raw[emoji] is List)
+            ? List<dynamic>.from(raw[emoji])
+            : <dynamic>[];
         if (list.contains(uid)) {
           list.remove(uid);
         } else {
@@ -945,7 +1161,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
   }
 
   Widget _buildReactions(Map<String, dynamic> m, DocumentReference? msgRef) {
-    final raw = (m['reactions'] is Map) ? Map<String, dynamic>.from(m['reactions']) : <String, dynamic>{};
+    final raw = (m['reactions'] is Map)
+        ? Map<String, dynamic>.from(m['reactions'])
+        : <String, dynamic>{};
     final uid = currentUser?.uid ?? '';
     if (raw.isEmpty && msgRef == null) return const SizedBox.shrink();
     return Wrap(
@@ -954,7 +1172,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       children: [
         ...raw.entries.map((e) {
           final emoji = e.key;
-          final users = (e.value is List) ? List<dynamic>.from(e.value) : <dynamic>[];
+          final users = (e.value is List)
+              ? List<dynamic>.from(e.value)
+              : <dynamic>[];
           final count = users.length;
           final mine = uid.isNotEmpty && users.contains(uid);
           return GestureDetector(
@@ -966,7 +1186,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: mine ? tgAccent : Colors.white12),
               ),
-              child: Text('$emoji $count', style: const TextStyle(color: Colors.white, fontSize: 12)),
+              child: Text(
+                '$emoji $count',
+                style: const TextStyle(color: Colors.white, fontSize: 12),
+              ),
             ),
           );
         }),
@@ -1008,9 +1231,18 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
             children: [
               Row(
                 children: [
-                  Text('Réagir', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold)),
+                  Text(
+                    'Réagir',
+                    style: TextStyle(
+                      color: _modalText(ctx),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   const Spacer(),
-                  IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
+                  IconButton(
+                    icon: Icon(Icons.close, color: _modalSub(ctx)),
+                    onPressed: () => Navigator.pop(ctx),
+                  ),
                 ],
               ),
               Expanded(
@@ -1020,7 +1252,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                     await _toggleReaction(msgRef, emoji.emoji);
                   },
                   config: Config(
-                    emojiViewConfig: EmojiViewConfig(backgroundColor: _modalBg(ctx)),
+                    emojiViewConfig: EmojiViewConfig(
+                      backgroundColor: _modalBg(ctx),
+                    ),
                     categoryViewConfig: CategoryViewConfig(
                       backgroundColor: _modalBg(ctx),
                       indicatorColor: tgAccent,
@@ -1052,7 +1286,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
             return Container(
               decoration: BoxDecoration(
                 color: _modalBg(ctx),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(18),
+                ),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Column(
@@ -1060,9 +1296,19 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                 children: [
                   Row(
                     children: [
-                      Text('Réactions $emoji', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text(
+                        'Réactions $emoji',
+                        style: TextStyle(
+                          color: _modalText(ctx),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
                       const Spacer(),
-                      IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
+                      IconButton(
+                        icon: Icon(Icons.close, color: _modalSub(ctx)),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -1077,20 +1323,51 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                           builder: (ctx2, snap) {
                             String name = uid;
                             String photo = '';
-                            if (snap.hasData && snap.data != null && snap.data!.exists) {
+                            if (snap.hasData &&
+                                snap.data != null &&
+                                snap.data!.exists) {
                               final raw = snap.data!.data();
-                              final ud = raw is Map ? Map<String, dynamic>.from(raw as Map<String, dynamic>) : <String, dynamic>{};
+                              final ud = raw is Map
+                                  ? Map<String, dynamic>.from(
+                                      raw as Map<String, dynamic>,
+                                    )
+                                  : <String, dynamic>{};
                               name = UserUtils.formatName(ud);
-                              photo = (ud['photoUrl'] ?? ud['photo'] ?? ud['avatar'] ?? '') as String;
+                              photo =
+                                  (ud['photoUrl'] ??
+                                          ud['photo'] ??
+                                          ud['avatar'] ??
+                                          '')
+                                      as String;
                             }
                             return ListTile(
                               leading: CircleAvatar(
                                 backgroundColor: Colors.white10,
-                                backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null,
-                                child: photo.isEmpty ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: const TextStyle(color: Colors.white)) : null,
+                                backgroundImage: photo.isNotEmpty
+                                    ? CachedNetworkImageProvider(photo)
+                                          as ImageProvider
+                                    : null,
+                                child: photo.isEmpty
+                                    ? Text(
+                                        name.isNotEmpty
+                                            ? name[0].toUpperCase()
+                                            : '?',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                        ),
+                                      )
+                                    : null,
                               ),
-                              title: Text(name.isNotEmpty ? name : 'Utilisateur', style: const TextStyle(color: Colors.white)),
-                              subtitle: uid == currentUser?.uid ? const Text('Vous', style: TextStyle(color: Colors.white54)) : null,
+                              title: Text(
+                                name.isNotEmpty ? name : 'Utilisateur',
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                              subtitle: uid == currentUser?.uid
+                                  ? const Text(
+                                      'Vous',
+                                      style: TextStyle(color: Colors.white54),
+                                    )
+                                  : null,
                             );
                           },
                         );
@@ -1146,14 +1423,38 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     return '';
   }
 
-  Future<File?> _getCachedMediaFile(String url) async {
+  Future<bool> _isLocalMediaFileHealthy(File file, {int? expectedBytes}) async {
+    try {
+      if (!await file.exists()) return false;
+      final int length = await file.length();
+      if (length <= 0) return false;
+      if (expectedBytes != null && expectedBytes > 0) {
+        final int minExpected = max(256, (expectedBytes * 0.60).round());
+        if (length < minExpected) return false;
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<File?> _getCachedMediaFile(String url, {int? expectedBytes}) async {
     if (url.isEmpty) return null;
     final dir = await _mediaCacheDir();
     if (dir == null) return null;
     final ext = _mediaExtFromUrl(url);
     final name = 'v2_${_mediaCacheKey(url)}';
     final file = File('${dir.path}${Platform.pathSeparator}$name$ext');
-    if (file.existsSync()) return file;
+    if (file.existsSync()) {
+      final bool healthy = await _isLocalMediaFileHealthy(
+        file,
+        expectedBytes: expectedBytes,
+      );
+      if (healthy) return file;
+      try {
+        file.deleteSync();
+      } catch (_) {}
+    }
     return null;
   }
 
@@ -1167,9 +1468,53 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       final ext = _mediaExtFromUrl(url);
       final name = 'v2_${_mediaCacheKey(url)}';
       final file = File('${dir.path}${Platform.pathSeparator}$name$ext');
-      if (file.existsSync()) return file;
+      if (file.existsSync()) {
+        final bool healthy = await _isLocalMediaFileHealthy(
+          file,
+          expectedBytes: expectedBytes,
+        );
+        if (healthy) return file;
+        try {
+          file.deleteSync();
+        } catch (_) {}
+      }
 
-      return await _mediaTransfers.downloadToFile(url: url, dest: file, expectedBytes: expectedBytes);
+      Future<File?> attemptDownload() async {
+        final downloaded = await _mediaTransfers.downloadToFile(
+          url: url,
+          dest: file,
+          expectedBytes: expectedBytes,
+        );
+        if (downloaded == null) return null;
+        final bool healthy = await _isLocalMediaFileHealthy(
+          downloaded,
+          expectedBytes: expectedBytes,
+        );
+        if (healthy) return downloaded;
+        try {
+          downloaded.deleteSync();
+        } catch (_) {}
+        return null;
+      }
+
+      final firstTry = await attemptDownload();
+      if (firstTry != null) return firstTry;
+
+      // Réseau mobile instable: on relance automatiquement une fois.
+      await Future.delayed(const Duration(milliseconds: 420));
+      final secondTry = await attemptDownload();
+      if (secondTry != null) return secondTry;
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Échec du téléchargement. Vérifiez la connexion puis réessayez.',
+            ),
+          ),
+        );
+      }
+      return null;
     } catch (e) {
       debugPrint('download media err: $e');
     }
@@ -1186,7 +1531,11 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         final isWifi = conn == ConnectivityResult.wifi;
         if (!isWifi) {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Téléchargement autorisé uniquement en Wi‑Fi')));
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Téléchargement autorisé uniquement en Wi‑Fi'),
+              ),
+            );
           }
           return false;
         }
@@ -1198,12 +1547,30 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       context: context,
       builder: (c) => AlertDialog(
         backgroundColor: _modalBg(c),
-        title: Text('Télécharger ce média ?', style: TextStyle(color: _modalText(c))),
-        content: Text('Pour éviter de recharger ce média à chaque ouverture, veux-tu le sauvegarder sur ce téléphone ?', style: TextStyle(color: _modalSub(c))),
+        title: Text(
+          'Télécharger ce média ?',
+          style: TextStyle(color: _modalText(c)),
+        ),
+        content: Text(
+          'Pour éviter de recharger ce média à chaque ouverture, veux-tu le sauvegarder sur ce téléphone ?',
+          style: TextStyle(color: _modalSub(c)),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c, 'no'), child: Text('Non', style: TextStyle(color: _modalSub(c)))),
-          TextButton(onPressed: () => Navigator.pop(c, 'always'), child: Text('Oui, toujours', style: TextStyle(color: _modalText(c)))),
-          TextButton(onPressed: () => Navigator.pop(c, 'yes'), child: Text('Oui', style: TextStyle(color: _modalText(c)))),
+          TextButton(
+            onPressed: () => Navigator.pop(c, 'no'),
+            child: Text('Non', style: TextStyle(color: _modalSub(c))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, 'always'),
+            child: Text(
+              'Oui, toujours',
+              style: TextStyle(color: _modalText(c)),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, 'yes'),
+            child: Text('Oui', style: TextStyle(color: _modalText(c))),
+          ),
         ],
       ),
     );
@@ -1234,7 +1601,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     int total = 0;
     for (final e in dir.listSync(recursive: true)) {
       if (e is File) {
-        try { total += e.lengthSync(); } catch (_) {}
+        try {
+          total += e.lengthSync();
+        } catch (_) {}
       }
     }
     return total;
@@ -1245,7 +1614,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     if (dir == null || !dir.existsSync()) return;
     for (final e in dir.listSync(recursive: true)) {
       if (e is File) {
-        try { e.deleteSync(); } catch (_) {}
+        try {
+          e.deleteSync();
+        } catch (_) {}
       }
     }
   }
@@ -1262,7 +1633,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
             return Container(
               decoration: BoxDecoration(
                 color: _modalBg(ctx),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(18),
+                ),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Column(
@@ -1270,16 +1643,32 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                 children: [
                   Row(
                     children: [
-                      Text('Cache médias', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text(
+                        'Cache médias',
+                        style: TextStyle(
+                          color: _modalText(ctx),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
                       const Spacer(),
-                      IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
+                      IconButton(
+                        icon: Icon(Icons.close, color: _modalSub(ctx)),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
                   ListTile(
                     leading: Icon(Icons.storage, color: _modalSub(ctx)),
-                    title: Text('Taille du cache', style: TextStyle(color: _modalText(ctx))),
-                    trailing: Text(_fmtBytes(size), style: TextStyle(color: _modalSub(ctx))),
+                    title: Text(
+                      'Taille du cache',
+                      style: TextStyle(color: _modalText(ctx)),
+                    ),
+                    trailing: Text(
+                      _fmtBytes(size),
+                      style: TextStyle(color: _modalSub(ctx)),
+                    ),
                   ),
                   const SizedBox(height: 6),
                   Row(
@@ -1291,10 +1680,15 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                             size = await _mediaCacheSizeBytes();
                             setModal(() {});
                             if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Cache vidé')));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Cache vidé')),
+                              );
                             }
                           },
-                          child: Text('Vider le cache', style: TextStyle(color: _modalText(ctx))),
+                          child: Text(
+                            'Vider le cache',
+                            style: TextStyle(color: _modalText(ctx)),
+                          ),
                         ),
                       ),
                     ],
@@ -1311,13 +1705,23 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
   Future<void> _saveMessageForUser(Map msg, {String? chatId}) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    final Map<String, dynamic> data = msg is Map<String, dynamic> ? msg : Map<String, dynamic>.from(msg);
+    final Map<String, dynamic> data = msg is Map<String, dynamic>
+        ? msg
+        : Map<String, dynamic>.from(msg);
     final msgId = data['id'] ?? data['messageId'] ?? '';
     try {
       // avoid duplicates
-      final existing = await FirebaseFirestore.instance.collection('saved_messages').where('userId', isEqualTo: user.uid).where('messageId', isEqualTo: msgId).limit(1).get();
+      final existing = await FirebaseFirestore.instance
+          .collection('saved_messages')
+          .where('userId', isEqualTo: user.uid)
+          .where('messageId', isEqualTo: msgId)
+          .limit(1)
+          .get();
       if (existing.docs.isNotEmpty) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Déjà enregistré')));
+        if (mounted)
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Déjà enregistré')));
         return;
       }
       final doc = {
@@ -1332,10 +1736,16 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         'createdAt': FieldValue.serverTimestamp(),
       };
       await FirebaseFirestore.instance.collection('saved_messages').add(doc);
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Message enregistré')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Message enregistré')));
     } catch (e) {
       debugPrint('Save msg err: $e');
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
     }
   }
 
@@ -1353,10 +1763,19 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: _modalBg(ctx),
-        title: Text('Supprimer $cnt message(s) ?', style: TextStyle(color: _modalText(ctx))),
+        title: Text(
+          'Supprimer $cnt message(s) ?',
+          style: TextStyle(color: _modalText(ctx)),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('Annuler', style: TextStyle(color: _modalSub(ctx)))),
-          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Supprimer', style: TextStyle(color: Colors.red))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Annuler', style: TextStyle(color: _modalSub(ctx))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Supprimer', style: TextStyle(color: Colors.red)),
+          ),
         ],
       ),
     );
@@ -1368,18 +1787,27 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     final count = _selectedMessageIds.length;
     final batch = FirebaseFirestore.instance.batch();
     for (var id in _selectedMessageIds) {
-      final ref = FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').doc(id);
+      final ref = FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId)
+          .collection('messages')
+          .doc(id);
       batch.delete(ref);
     }
     try {
       await batch.commit();
       if (mounted) {
         _clearSelection();
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$count message(s) supprimé(s)')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$count message(s) supprimé(s)')),
+        );
       }
     } catch (e) {
       debugPrint('Delete selected error: $e');
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur lors de la suppression')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erreur lors de la suppression')),
+        );
     }
   }
 
@@ -1389,21 +1817,39 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       DocumentSnapshot? snap;
       for (var c in collections) {
         try {
-          final s = await FirebaseFirestore.instance.collection(c).doc(otherId).get();
-          if (s.exists) { snap = s; break; }
+          final s = await FirebaseFirestore.instance
+              .collection(c)
+              .doc(otherId)
+              .get();
+          if (s.exists) {
+            snap = s;
+            break;
+          }
         } catch (_) {}
       }
       if (snap == null) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profil introuvable')));
+        if (mounted)
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('Profil introuvable')));
         return;
       }
 
       final raw = snap.data();
-      final data = raw is Map ? Map<String, dynamic>.from((raw as Map<String, dynamic>?) ?? {}) : <String, dynamic>{};
+      final data = raw is Map
+          ? Map<String, dynamic>.from((raw as Map<String, dynamic>?) ?? {})
+          : <String, dynamic>{};
       final displayName = UserUtils.formatName(data);
-      final photo = (data['photoUrl'] ?? data['avatar'] ?? data['photo'] ?? '') as String;
-      final lastSeen = data['lastSeen'] is Timestamp ? (data['lastSeen'] as Timestamp).toDate() : (data['lastSeen'] is int ? DateTime.fromMillisecondsSinceEpoch(data['lastSeen']) : null);
-      final phone = (data['phone'] ?? data['telephone'] ?? data['phoneNumber'] ?? '') as String;
+      final photo =
+          (data['photoUrl'] ?? data['avatar'] ?? data['photo'] ?? '') as String;
+      final lastSeen = data['lastSeen'] is Timestamp
+          ? (data['lastSeen'] as Timestamp).toDate()
+          : (data['lastSeen'] is int
+                ? DateTime.fromMillisecondsSinceEpoch(data['lastSeen'])
+                : null);
+      final phone =
+          (data['phone'] ?? data['telephone'] ?? data['phoneNumber'] ?? '')
+              as String;
 
       showModalBottomSheet(
         context: context,
@@ -1418,109 +1864,268 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
               return Container(
                 decoration: BoxDecoration(
                   color: _modalBg(ctx),
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(18),
+                  ),
                 ),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                child: ListView(controller: controller, children: [
-                  Row(children: [
-                    Container(
-                      width: 72,
-                      height: 72,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: LinearGradient(colors: [tgAccent.withOpacity(0.2), tgAccent.withOpacity(0.06)]),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.45), blurRadius: 12, offset: const Offset(0, 6))],
-                      ),
-                      child: CircleAvatar(
-                        radius: 34,
-                        backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null,
-                        backgroundColor: Colors.transparent,
-                        child: photo.isEmpty ? Text(displayName.isNotEmpty ? displayName[0] : '?', style: TextStyle(color: _modalText(ctx), fontSize: 28, fontWeight: FontWeight.bold)) : null,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 14,
+                ),
+                child: ListView(
+                  controller: controller,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 72,
+                          height: 72,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(
+                              colors: [
+                                tgAccent.withOpacity(0.2),
+                                tgAccent.withOpacity(0.06),
+                              ],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.45),
+                                blurRadius: 12,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
+                          ),
+                          child: CircleAvatar(
+                            radius: 34,
+                            backgroundImage: photo.isNotEmpty
+                                ? CachedNetworkImageProvider(photo)
+                                      as ImageProvider
+                                : null,
+                            backgroundColor: Colors.transparent,
+                            child: photo.isEmpty
+                                ? Text(
+                                    displayName.isNotEmpty
+                                        ? displayName[0]
+                                        : '?',
+                                    style: TextStyle(
+                                      color: _modalText(ctx),
+                                      fontSize: 28,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  )
+                                : null,
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                displayName,
+                                style: TextStyle(
+                                  color: _modalText(ctx),
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                lastSeen != null
+                                    ? 'Dernière connexion • ${DateFormat.yMd().add_Hm().format(lastSeen)}'
+                                    : 'Dernière connexion • N/A',
+                                style: TextStyle(
+                                  color: _modalSub(ctx),
+                                  fontSize: 13,
+                                ),
+                              ),
+                              if (phone.isNotEmpty)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 6.0),
+                                  child: Text(
+                                    '📞 $phone',
+                                    style: TextStyle(
+                                      color: _modalSub(ctx),
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.close, color: _modalSub(ctx)),
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // action grid
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 12,
+                      children: [
+                        _actionTile(
+                          icon: Icons.message,
+                          label: 'Message',
+                          color: Colors.blueAccent,
+                          onTap: () async {
+                            Navigator.pop(ctx);
+                            try {
+                              final doc = await FirebaseFirestore.instance
+                                  .collection('chats')
+                                  .doc(widget.chatId)
+                                  .get();
+                              final isGroup =
+                                  doc.exists &&
+                                  ((doc.data())?['isGroup'] == true);
+                              if (mounted) {
+                                if (isGroup) {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => GroupChatDetailPage(
+                                        chatId: widget.chatId,
+                                        chatName: displayName,
+                                      ),
+                                    ),
+                                  );
+                                } else {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => ChatDetailPage(
+                                        chatId: widget.chatId,
+                                        chatName: displayName,
+                                      ),
+                                    ),
+                                  );
+                                }
+                              }
+                            } catch (e) {
+                              debugPrint('Error opening conversation: $e');
+                            }
+                          },
+                        ),
+                        _actionTile(
+                          icon: Icons.share,
+                          label: 'Partager',
+                          color: Colors.teal,
+                          onTap: () {
+                            Clipboard.setData(
+                              ClipboardData(
+                                text: 'Name: $displayName\nPhone: $phone',
+                              ),
+                            );
+                            Navigator.pop(ctx);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Contact copié')),
+                            );
+                          },
+                        ),
+                        _actionTile(
+                          icon: Icons.phone,
+                          label: 'Appeler',
+                          color: Colors.green,
+                          onTap: () async {
+                            Navigator.pop(ctx);
+                            // start audio call
+                            try {
+                              final callRef = await FirebaseFirestore.instance
+                                  .collection('calls')
+                                  .add({
+                                    'caller':
+                                        FirebaseAuth.instance.currentUser?.uid,
+                                    'callerName':
+                                        FirebaseAuth
+                                            .instance
+                                            .currentUser
+                                            ?.displayName ??
+                                        '',
+                                    'callee': otherId,
+                                    'status': 'ringing',
+                                    'type': 'audio',
+                                    'createdAt': FieldValue.serverTimestamp(),
+                                  });
+
+                              await _sendIncomingCallPush(
+                                calleeId: otherId,
+                                callId: callRef.id,
+                                isVideo: false,
+                              );
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => CallWebRTCPage(
+                                    callId: callRef.id,
+                                    otherId: otherId,
+                                    isCaller: true,
+                                    name: displayName,
+                                    avatarLetter: displayName.isNotEmpty
+                                        ? displayName[0].toUpperCase()
+                                        : '?',
+                                  ),
+                                ),
+                              );
+                            } catch (e) {
+                              debugPrint('Start call error: $e');
+                            }
+                          },
+                        ),
+                        _actionTile(
+                          icon: Icons.edit,
+                          label: 'Modifier',
+                          color: Colors.amber,
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _editContactLocal(otherId);
+                          },
+                        ),
+                        _actionTile(
+                          icon: Icons.block,
+                          label: 'Bloquer',
+                          color: Colors.redAccent,
+                          onTap: () async {
+                            Navigator.pop(ctx);
+                            await _confirmBlock(otherId);
+                          },
+                        ),
+                        _actionTile(
+                          icon: Icons.delete,
+                          label: 'Supprimer',
+                          color: Colors.red,
+                          onTap: () async {
+                            Navigator.pop(ctx);
+                            await _confirmDeleteContact(otherId);
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 14),
+                    Divider(color: _modalTileBg(ctx)),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Plus d’informations',
+                      style: TextStyle(
+                        color: _modalText(ctx),
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(displayName, style: TextStyle(color: _modalText(ctx), fontSize: 18, fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 6),
-                        Text(lastSeen != null ? 'Dernière connexion • ${DateFormat.yMd().add_Hm().format(lastSeen)}' : 'Dernière connexion • N/A', style: TextStyle(color: _modalSub(ctx), fontSize: 13)),
-                        if (phone.isNotEmpty) Padding(padding: const EdgeInsets.only(top:6.0), child: Text('📞 $phone', style: TextStyle(color: _modalSub(ctx), fontSize: 13))),
-                      ]),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Ce panneau permet de bloquer ou supprimer un contact. Les actions modifient uniquement vos données dans l’application.',
+                      style: TextStyle(color: _modalSub(ctx), fontSize: 13),
                     ),
-                    IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
-                  ]),
-                  const SizedBox(height: 16),
-
-                  // action grid
-                  Wrap(spacing: 10, runSpacing: 12, children: [
-                    _actionTile(icon: Icons.message, label: 'Message', color: Colors.blueAccent, onTap: () async {
-                      Navigator.pop(ctx);
-                      try {
-                        final doc = await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).get();
-                        final isGroup = doc.exists && ((doc.data())?['isGroup'] == true);
-                        if (mounted) {
-                          if (isGroup) {
-                            Navigator.push(context, MaterialPageRoute(builder: (_) => GroupChatDetailPage(chatId: widget.chatId, chatName: displayName)));
-                          } else {
-                            Navigator.push(context, MaterialPageRoute(builder: (_) => ChatDetailPage(chatId: widget.chatId, chatName: displayName)));
-                          }
-                        }
-                      } catch (e) {
-                        debugPrint('Error opening conversation: $e');
-                      }
-                    }),
-                    _actionTile(icon: Icons.share, label: 'Partager', color: Colors.teal, onTap: () { Clipboard.setData(ClipboardData(text: 'Name: $displayName\nPhone: $phone')); Navigator.pop(ctx); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact copié'))); }),
-                    _actionTile(icon: Icons.phone, label: 'Appeler', color: Colors.green, onTap: () async {
-                      Navigator.pop(ctx);
-                      // start audio call
-                      try {
-                        final callRef = await FirebaseFirestore.instance.collection('calls').add({
-                          'caller': FirebaseAuth.instance.currentUser?.uid,
-                          'callerName': FirebaseAuth.instance.currentUser?.displayName ?? '',
-                          'callee': otherId,
-                          'status': 'ringing',
-                          'type': 'audio',
-                          'createdAt': FieldValue.serverTimestamp(),
-                        });
-
-                        await _sendIncomingCallPush(
-                          calleeId: otherId,
-                          callId: callRef.id,
-                          isVideo: false,
-                        );
-                       Navigator.push(
-  context,
-  MaterialPageRoute(
-    builder: (_) => CallWebRTCPage(
-      callId: callRef.id,
-      otherId: otherId,
-      isCaller: true,
-      name: displayName,
-      avatarLetter: displayName.isNotEmpty ? displayName[0].toUpperCase() : '?',
-    ),
-  ),
-);
-
-                      } catch (e) { debugPrint('Start call error: $e'); }
-                    }),
-                    _actionTile(icon: Icons.edit, label: 'Modifier', color: Colors.amber, onTap: () { Navigator.pop(ctx); _editContactLocal(otherId); }),
-                    _actionTile(icon: Icons.block, label: 'Bloquer', color: Colors.redAccent, onTap: () async { Navigator.pop(ctx); await _confirmBlock(otherId); }),
-                    _actionTile(icon: Icons.delete, label: 'Supprimer', color: Colors.red, onTap: () async { Navigator.pop(ctx); await _confirmDeleteContact(otherId); }),
-                  ]),
-                  const SizedBox(height: 14),
-                  Divider(color: _modalTileBg(ctx)),
-                  const SizedBox(height: 8),
-                  Text('Plus d’informations', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  Text('Ce panneau permet de bloquer ou supprimer un contact. Les actions modifient uniquement vos données dans l’application.', style: TextStyle(color: _modalSub(ctx), fontSize: 13)),
-                  const SizedBox(height: 18),
-                ]),
+                    const SizedBox(height: 18),
+                  ],
+                ),
               );
             },
           );
         },
       );
-
     } catch (e) {
       debugPrint('Show contact info error: $e');
     }
@@ -1541,7 +2146,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
             return Container(
               decoration: BoxDecoration(
                 color: _modalBg(ctx),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(18),
+                ),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Column(
@@ -1549,9 +2156,19 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                 children: [
                   Row(
                     children: [
-                      Text('Participants', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text(
+                        'Participants',
+                        style: TextStyle(
+                          color: _modalText(ctx),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
                       const Spacer(),
-                      IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
+                      IconButton(
+                        icon: Icon(Icons.close, color: _modalSub(ctx)),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -1566,20 +2183,51 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                           builder: (ctx2, snap) {
                             String name = uid;
                             String photo = '';
-                            if (snap.hasData && snap.data != null && snap.data!.exists) {
+                            if (snap.hasData &&
+                                snap.data != null &&
+                                snap.data!.exists) {
                               final raw = snap.data!.data();
-                              final ud = raw is Map ? Map<String, dynamic>.from(raw as Map<String, dynamic>) : <String, dynamic>{};
+                              final ud = raw is Map
+                                  ? Map<String, dynamic>.from(
+                                      raw as Map<String, dynamic>,
+                                    )
+                                  : <String, dynamic>{};
                               name = UserUtils.formatName(ud);
-                              photo = (ud['photoUrl'] ?? ud['photo'] ?? ud['avatar'] ?? '') as String;
+                              photo =
+                                  (ud['photoUrl'] ??
+                                          ud['photo'] ??
+                                          ud['avatar'] ??
+                                          '')
+                                      as String;
                             }
                             return ListTile(
                               leading: CircleAvatar(
                                 backgroundColor: _modalTileBg(ctx),
-                                backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null,
-                                child: photo.isEmpty ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: TextStyle(color: _modalText(ctx))) : null,
+                                backgroundImage: photo.isNotEmpty
+                                    ? CachedNetworkImageProvider(photo)
+                                          as ImageProvider
+                                    : null,
+                                child: photo.isEmpty
+                                    ? Text(
+                                        name.isNotEmpty
+                                            ? name[0].toUpperCase()
+                                            : '?',
+                                        style: TextStyle(
+                                          color: _modalText(ctx),
+                                        ),
+                                      )
+                                    : null,
                               ),
-                              title: Text(name.isNotEmpty ? name : 'Utilisateur', style: TextStyle(color: _modalText(ctx))),
-                              subtitle: uid == currentUser?.uid ? Text('Vous', style: TextStyle(color: _modalMuted(ctx))) : null,
+                              title: Text(
+                                name.isNotEmpty ? name : 'Utilisateur',
+                                style: TextStyle(color: _modalText(ctx)),
+                              ),
+                              subtitle: uid == currentUser?.uid
+                                  ? Text(
+                                      'Vous',
+                                      style: TextStyle(color: _modalMuted(ctx)),
+                                    )
+                                  : null,
                             );
                           },
                         );
@@ -1616,7 +2264,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
             return Container(
               decoration: BoxDecoration(
                 color: _modalBg(ctx),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(18),
+                ),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: ListView(
@@ -1625,7 +2275,14 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                   Row(
                     children: [
                       const Spacer(),
-                      Container(width: 44, height: 5, decoration: BoxDecoration(color: _modalTileBg(ctx), borderRadius: BorderRadius.circular(6))),
+                      Container(
+                        width: 44,
+                        height: 5,
+                        decoration: BoxDecoration(
+                          color: _modalTileBg(ctx),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
                       const Spacer(),
                     ],
                   ),
@@ -1636,22 +2293,47 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                       GestureDetector(
                         onTap: () async {
                           try {
-                            final snap = await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).get();
+                            final snap = await FirebaseFirestore.instance
+                                .collection('chats')
+                                .doc(widget.chatId)
+                                .get();
                             if (!snap.exists) return;
                             final data = snap.data() ?? {};
-                            final admins = (data['admins'] as List?)?.map((e) => e.toString()).toList() ?? <String>[];
-                            final perms = (data['permissions'] is Map) ? Map<String, dynamic>.from(data['permissions']) : <String, dynamic>{};
-                            final canChange = (perms['canChangeInfo'] ?? 'admins').toString();
-                            if (canChange == 'admins' && !admins.contains(currentUser?.uid ?? '')) {
-                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Seuls les admins peuvent modifier la photo')));
+                            final admins =
+                                (data['admins'] as List?)
+                                    ?.map((e) => e.toString())
+                                    .toList() ??
+                                <String>[];
+                            final perms = (data['permissions'] is Map)
+                                ? Map<String, dynamic>.from(data['permissions'])
+                                : <String, dynamic>{};
+                            final canChange =
+                                (perms['canChangeInfo'] ?? 'admins').toString();
+                            if (canChange == 'admins' &&
+                                !admins.contains(currentUser?.uid ?? '')) {
+                              if (mounted)
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Seuls les admins peuvent modifier la photo',
+                                    ),
+                                  ),
+                                );
                               return;
                             }
                             final picker = ImagePicker();
-                            final img = await picker.pickImage(source: ImageSource.gallery, maxWidth: 1200, imageQuality: 85);
+                            final img = await picker.pickImage(
+                              source: ImageSource.gallery,
+                              maxWidth: 1200,
+                              imageQuality: 85,
+                            );
                             if (img == null) return;
                             final url = await _uploadGroupPhoto(img);
                             if (url != null && url.isNotEmpty) {
-                              await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).update({'groupPhoto': url});
+                              await FirebaseFirestore.instance
+                                  .collection('chats')
+                                  .doc(widget.chatId)
+                                  .update({'groupPhoto': url});
                             }
                           } catch (_) {}
                         },
@@ -1660,14 +2342,31 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                           height: 72,
                           decoration: BoxDecoration(
                             shape: BoxShape.circle,
-                            gradient: LinearGradient(colors: [Colors.white10, Colors.white12]),
-                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.45), blurRadius: 12, offset: const Offset(0, 6))],
+                            gradient: LinearGradient(
+                              colors: [Colors.white10, Colors.white12],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.45),
+                                blurRadius: 12,
+                                offset: const Offset(0, 6),
+                              ),
+                            ],
                           ),
                           child: CircleAvatar(
                             radius: 34,
                             backgroundColor: Colors.transparent,
-                            backgroundImage: groupPhotoUrl.isNotEmpty ? CachedNetworkImageProvider(groupPhotoUrl) as ImageProvider : null,
-                            child: groupPhotoUrl.isEmpty ? Icon(Icons.group, color: _modalSub(ctx), size: 34) : null,
+                            backgroundImage: groupPhotoUrl.isNotEmpty
+                                ? CachedNetworkImageProvider(groupPhotoUrl)
+                                      as ImageProvider
+                                : null,
+                            child: groupPhotoUrl.isEmpty
+                                ? Icon(
+                                    Icons.group,
+                                    color: _modalSub(ctx),
+                                    size: 34,
+                                  )
+                                : null,
                           ),
                         ),
                       ),
@@ -1676,30 +2375,65 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(groupName.isNotEmpty ? groupName : 'Groupe', style: TextStyle(color: _modalText(ctx), fontSize: 18, fontWeight: FontWeight.w800)),
+                            Text(
+                              groupName.isNotEmpty ? groupName : 'Groupe',
+                              style: TextStyle(
+                                color: _modalText(ctx),
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
                             const SizedBox(height: 6),
-                            Text('$total membres', style: TextStyle(color: _modalSub(ctx), fontSize: 13)),
+                            Text(
+                              '$total membres',
+                              style: TextStyle(
+                                color: _modalSub(ctx),
+                                fontSize: 13,
+                              ),
+                            ),
                             const SizedBox(height: 6),
                             if (description.isNotEmpty)
-                              Text(description, style: TextStyle(color: _modalSub(ctx), fontSize: 12)),
-                            if (description.isNotEmpty) const SizedBox(height: 6),
+                              Text(
+                                description,
+                                style: TextStyle(
+                                  color: _modalSub(ctx),
+                                  fontSize: 12,
+                                ),
+                              ),
+                            if (description.isNotEmpty)
+                              const SizedBox(height: 6),
                             if (creatorId.isNotEmpty)
                               FutureBuilder<DocumentSnapshot?>(
                                 future: _getUserDoc(creatorId),
                                 builder: (ctx2, snap) {
                                   String creatorName = creatorId;
-                                  if (snap.hasData && snap.data != null && snap.data!.exists) {
+                                  if (snap.hasData &&
+                                      snap.data != null &&
+                                      snap.data!.exists) {
                                     final raw = snap.data!.data();
-                                    final ud = raw is Map ? Map<String, dynamic>.from(raw as Map<String, dynamic>) : <String, dynamic>{};
+                                    final ud = raw is Map
+                                        ? Map<String, dynamic>.from(
+                                            raw as Map<String, dynamic>,
+                                          )
+                                        : <String, dynamic>{};
                                     creatorName = UserUtils.formatName(ud);
                                   }
-                                  return Text('Créé par $creatorName', style: TextStyle(color: _modalMuted(ctx), fontSize: 12));
+                                  return Text(
+                                    'Créé par $creatorName',
+                                    style: TextStyle(
+                                      color: _modalMuted(ctx),
+                                      fontSize: 12,
+                                    ),
+                                  );
                                 },
                               ),
                           ],
                         ),
                       ),
-                      IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
+                      IconButton(
+                        icon: Icon(Icons.close, color: _modalSub(ctx)),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 12),
@@ -1712,7 +2446,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                             _showAddMembersSheet(participantIds);
                           },
                           icon: Icon(Icons.person_add, color: _modalText(ctx)),
-                          label: Text('Ajouter', style: TextStyle(color: _modalText(ctx))),
+                          label: Text(
+                            'Ajouter',
+                            style: TextStyle(color: _modalText(ctx)),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 10),
@@ -1723,7 +2460,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                             _showGroupSearchSheet();
                           },
                           icon: Icon(Icons.search, color: _modalText(ctx)),
-                          label: Text('Rechercher', style: TextStyle(color: _modalText(ctx))),
+                          label: Text(
+                            'Rechercher',
+                            style: TextStyle(color: _modalText(ctx)),
+                          ),
                         ),
                       ),
                     ],
@@ -1731,11 +2471,20 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                   const SizedBox(height: 16),
                   Row(
                     children: [
-                      Text('Médias du groupe', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold)),
+                      Text(
+                        'Médias du groupe',
+                        style: TextStyle(
+                          color: _modalText(ctx),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                       const Spacer(),
                       TextButton(
                         onPressed: () => _showGroupMediaGridSheet(),
-                        child: Text('Voir tout', style: TextStyle(color: _modalText(ctx))),
+                        child: Text(
+                          'Voir tout',
+                          style: TextStyle(color: _modalText(ctx)),
+                        ),
                       ),
                     ],
                   ),
@@ -1752,15 +2501,23 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                           .limit(12)
                           .snapshots(),
                       builder: (context, mediaSnap) {
-                        if (!mediaSnap.hasData || mediaSnap.data!.docs.isEmpty) {
-                          return Center(child: Text('Aucun média', style: TextStyle(color: _modalMuted(ctx))));
+                        if (!mediaSnap.hasData ||
+                            mediaSnap.data!.docs.isEmpty) {
+                          return Center(
+                            child: Text(
+                              'Aucun média',
+                              style: TextStyle(color: _modalMuted(ctx)),
+                            ),
+                          );
                         }
                         return ListView.separated(
                           scrollDirection: Axis.horizontal,
                           itemCount: mediaSnap.data!.docs.length,
                           separatorBuilder: (_, __) => const SizedBox(width: 8),
                           itemBuilder: (c, i) {
-                            final m = mediaSnap.data!.docs[i].data() as Map<String, dynamic>;
+                            final m =
+                                mediaSnap.data!.docs[i].data()
+                                    as Map<String, dynamic>;
                             final url = (m['url'] ?? '') as String? ?? '';
                             final type = (m['type'] ?? 'image').toString();
                             final msgId = mediaSnap.data!.docs[i].id;
@@ -1768,20 +2525,35 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                             return Container(
                               width: 92,
                               height: 92,
-                              decoration: BoxDecoration(color: _modalTileBg(ctx), borderRadius: BorderRadius.circular(10)),
+                              decoration: BoxDecoration(
+                                color: _modalTileBg(ctx),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
                               child: url.isNotEmpty
                                   ? GestureDetector(
-                                      onTap: () => _openMediaViewer(url, type, messageId: msgId, senderId: senderId),
+                                      onTap: () => _openMediaViewer(
+                                        url,
+                                        type,
+                                        messageId: msgId,
+                                        senderId: senderId,
+                                      ),
                                       child: ClipRRect(
                                         borderRadius: BorderRadius.circular(10),
                                         child: Stack(
                                           fit: StackFit.expand,
                                           children: [
-                                            CachedNetworkImage(imageUrl: url, fit: BoxFit.cover),
+                                            CachedNetworkImage(
+                                              imageUrl: url,
+                                              fit: BoxFit.cover,
+                                            ),
                                             if (type == 'video')
                                               Container(
                                                 color: Colors.black26,
-                                                child: Icon(Icons.play_circle_filled, color: _modalSub(ctx), size: 32),
+                                                child: Icon(
+                                                  Icons.play_circle_filled,
+                                                  color: _modalSub(ctx),
+                                                  size: 32,
+                                                ),
                                               ),
                                           ],
                                         ),
@@ -1795,14 +2567,34 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                     ),
                   ),
                   const SizedBox(height: 16),
-                  Text('Membres', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold)),
+                  Text(
+                    'Membres',
+                    style: TextStyle(
+                      color: _modalText(ctx),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   const SizedBox(height: 8),
                   StreamBuilder<DocumentSnapshot>(
-                    stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).snapshots(),
+                    stream: FirebaseFirestore.instance
+                        .collection('chats')
+                        .doc(widget.chatId)
+                        .snapshots(),
                     builder: (ctx3, chatSnap) {
-                      final data = chatSnap.hasData && chatSnap.data!.exists ? (chatSnap.data!.data() as Map<String, dynamic>?) ?? {} : <String, dynamic>{};
-                      final admins = (data['admins'] as List?)?.map((e) => e.toString()).toList() ?? <String>[];
-                      final participants = (data['participants'] as List?)?.map((e) => e.toString()).toList() ?? participantIds;
+                      final data = chatSnap.hasData && chatSnap.data!.exists
+                          ? (chatSnap.data!.data() as Map<String, dynamic>?) ??
+                                {}
+                          : <String, dynamic>{};
+                      final admins =
+                          (data['admins'] as List?)
+                              ?.map((e) => e.toString())
+                              .toList() ??
+                          <String>[];
+                      final participants =
+                          (data['participants'] as List?)
+                              ?.map((e) => e.toString())
+                              .toList() ??
+                          participantIds;
                       final isAdmin = admins.contains(currentUser?.uid ?? '');
                       return Column(
                         children: participants.map((uid) {
@@ -1811,26 +2603,71 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                             builder: (ctx2, snap) {
                               String name = uid;
                               String photo = '';
-                              if (snap.hasData && snap.data != null && snap.data!.exists) {
+                              if (snap.hasData &&
+                                  snap.data != null &&
+                                  snap.data!.exists) {
                                 final raw = snap.data!.data();
-                                final ud = raw is Map ? Map<String, dynamic>.from(raw as Map<String, dynamic>) : <String, dynamic>{};
+                                final ud = raw is Map
+                                    ? Map<String, dynamic>.from(
+                                        raw as Map<String, dynamic>,
+                                      )
+                                    : <String, dynamic>{};
                                 name = UserUtils.formatName(ud);
-                                photo = (ud['photoUrl'] ?? ud['photo'] ?? ud['avatar'] ?? '') as String;
+                                photo =
+                                    (ud['photoUrl'] ??
+                                            ud['photo'] ??
+                                            ud['avatar'] ??
+                                            '')
+                                        as String;
                               }
                               final bool isMemberAdmin = admins.contains(uid);
                               return ListTile(
                                 contentPadding: EdgeInsets.zero,
                                 leading: CircleAvatar(
                                   backgroundColor: _modalTileBg(ctx),
-                                  backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null,
-                                  child: photo.isEmpty ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: TextStyle(color: _modalText(ctx))) : null,
+                                  backgroundImage: photo.isNotEmpty
+                                      ? CachedNetworkImageProvider(photo)
+                                            as ImageProvider
+                                      : null,
+                                  child: photo.isEmpty
+                                      ? Text(
+                                          name.isNotEmpty
+                                              ? name[0].toUpperCase()
+                                              : '?',
+                                          style: TextStyle(
+                                            color: _modalText(ctx),
+                                          ),
+                                        )
+                                      : null,
                                 ),
-                                title: Text(name.isNotEmpty ? name : 'Utilisateur', style: TextStyle(color: _modalText(ctx))),
+                                title: Text(
+                                  name.isNotEmpty ? name : 'Utilisateur',
+                                  style: TextStyle(color: _modalText(ctx)),
+                                ),
                                 subtitle: Row(
                                   children: [
-                                    if (uid == currentUser?.uid) Text('Vous', style: TextStyle(color: _modalMuted(ctx))),
-                                    if (uid == currentUser?.uid && isMemberAdmin) Text(' • ', style: TextStyle(color: _modalTileBg(ctx))),
-                                    if (isMemberAdmin) Text('Admin', style: TextStyle(color: _modalMuted(ctx))),
+                                    if (uid == currentUser?.uid)
+                                      Text(
+                                        'Vous',
+                                        style: TextStyle(
+                                          color: _modalMuted(ctx),
+                                        ),
+                                      ),
+                                    if (uid == currentUser?.uid &&
+                                        isMemberAdmin)
+                                      Text(
+                                        ' • ',
+                                        style: TextStyle(
+                                          color: _modalTileBg(ctx),
+                                        ),
+                                      ),
+                                    if (isMemberAdmin)
+                                      Text(
+                                        'Admin',
+                                        style: TextStyle(
+                                          color: _modalMuted(ctx),
+                                        ),
+                                      ),
                                   ],
                                 ),
                                 trailing: isAdmin && uid != currentUser?.uid
@@ -1845,9 +2682,20 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                                           }
                                         },
                                         itemBuilder: (_) => [
-                                          if (!isMemberAdmin) const PopupMenuItem(value: 'promote', child: Text('Promouvoir admin')),
-                                          if (isMemberAdmin) const PopupMenuItem(value: 'demote', child: Text('Retirer admin')),
-                                          const PopupMenuItem(value: 'remove', child: Text('Retirer du groupe')),
+                                          if (!isMemberAdmin)
+                                            const PopupMenuItem(
+                                              value: 'promote',
+                                              child: Text('Promouvoir admin'),
+                                            ),
+                                          if (isMemberAdmin)
+                                            const PopupMenuItem(
+                                              value: 'demote',
+                                              child: Text('Retirer admin'),
+                                            ),
+                                          const PopupMenuItem(
+                                            value: 'remove',
+                                            child: Text('Retirer du groupe'),
+                                          ),
                                         ],
                                       )
                                     : null,
@@ -1862,18 +2710,39 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                   const SizedBox(height: 8),
                   Divider(color: _modalTileBg(ctx)),
                   ListTile(
-                    leading: const Icon(Icons.exit_to_app, color: Colors.orangeAccent),
-                    title: const Text('Quitter le groupe', style: TextStyle(color: Colors.orangeAccent)),
+                    leading: const Icon(
+                      Icons.exit_to_app,
+                      color: Colors.orangeAccent,
+                    ),
+                    title: const Text(
+                      'Quitter le groupe',
+                      style: TextStyle(color: Colors.orangeAccent),
+                    ),
                     onTap: () async {
                       Navigator.pop(ctx);
                       final ok = await showDialog<bool>(
                         context: context,
                         builder: (c) => AlertDialog(
                           backgroundColor: _modalBg(c),
-                          title: Text('Quitter le groupe ?', style: TextStyle(color: _modalText(c))),
+                          title: Text(
+                            'Quitter le groupe ?',
+                            style: TextStyle(color: _modalText(c)),
+                          ),
                           actions: [
-                            TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: _modalSub(c)))),
-                            TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Quitter', style: TextStyle(color: Colors.orangeAccent))),
+                            TextButton(
+                              onPressed: () => Navigator.pop(c, false),
+                              child: Text(
+                                'Annuler',
+                                style: TextStyle(color: _modalSub(c)),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.pop(c, true),
+                              child: const Text(
+                                'Quitter',
+                                style: TextStyle(color: Colors.orangeAccent),
+                              ),
+                            ),
                           ],
                         ),
                       );
@@ -1884,22 +2753,46 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                   ),
                   ListTile(
                     leading: Icon(Icons.settings, color: _modalSub(ctx)),
-                    title: Text('Paramètres du groupe', style: TextStyle(color: _modalText(ctx))),
+                    title: Text(
+                      'Paramètres du groupe',
+                      style: TextStyle(color: _modalText(ctx)),
+                    ),
                     onTap: () {
                       Navigator.pop(ctx);
                       () async {
                         try {
-                          final snap = await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).get();
+                          final snap = await FirebaseFirestore.instance
+                              .collection('chats')
+                              .doc(widget.chatId)
+                              .get();
                           if (!snap.exists) return;
                           final data = snap.data() ?? {};
-                          final admins = (data['admins'] as List?)?.map((e) => e.toString()).toList() ?? <String>[];
-                          final perms = (data['permissions'] is Map) ? Map<String, dynamic>.from(data['permissions']) : <String, dynamic>{};
-                          final canChange = (perms['canChangeInfo'] ?? 'admins').toString();
-                          if (canChange == 'admins' && !admins.contains(currentUser?.uid ?? '')) {
-                            if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Seuls les admins peuvent modifier les infos')));
+                          final admins =
+                              (data['admins'] as List?)
+                                  ?.map((e) => e.toString())
+                                  .toList() ??
+                              <String>[];
+                          final perms = (data['permissions'] is Map)
+                              ? Map<String, dynamic>.from(data['permissions'])
+                              : <String, dynamic>{};
+                          final canChange = (perms['canChangeInfo'] ?? 'admins')
+                              .toString();
+                          if (canChange == 'admins' &&
+                              !admins.contains(currentUser?.uid ?? '')) {
+                            if (mounted)
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Seuls les admins peuvent modifier les infos',
+                                  ),
+                                ),
+                              );
                             return;
                           }
-                          await _showGroupSettingsSheet(currentName: groupName, currentDescription: description);
+                          await _showGroupSettingsSheet(
+                            currentName: groupName,
+                            currentDescription: description,
+                          );
                         } catch (e) {
                           debugPrint('settings permission err: $e');
                         }
@@ -1908,17 +2801,35 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                   ),
                   ListTile(
                     leading: const Icon(Icons.delete, color: Colors.redAccent),
-                    title: const Text('Supprimer le groupe', style: TextStyle(color: Colors.redAccent)),
+                    title: const Text(
+                      'Supprimer le groupe',
+                      style: TextStyle(color: Colors.redAccent),
+                    ),
                     onTap: () async {
                       Navigator.pop(ctx);
                       final ok = await showDialog<bool>(
                         context: context,
                         builder: (c) => AlertDialog(
                           backgroundColor: _modalBg(c),
-                          title: Text('Supprimer le groupe ?', style: TextStyle(color: _modalText(c))),
+                          title: Text(
+                            'Supprimer le groupe ?',
+                            style: TextStyle(color: _modalText(c)),
+                          ),
                           actions: [
-                            TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: _modalSub(c)))),
-                            TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Supprimer', style: TextStyle(color: Colors.redAccent))),
+                            TextButton(
+                              onPressed: () => Navigator.pop(c, false),
+                              child: Text(
+                                'Annuler',
+                                style: TextStyle(color: _modalSub(c)),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.pop(c, true),
+                              child: const Text(
+                                'Supprimer',
+                                style: TextStyle(color: Colors.redAccent),
+                              ),
+                            ),
                           ],
                         ),
                       );
@@ -1928,18 +2839,39 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                     },
                   ),
                   ListTile(
-                    leading: Icon(Icons.cleaning_services, color: _modalSub(ctx)),
-                    title: Text('Effacer la discussion', style: TextStyle(color: _modalText(ctx))),
+                    leading: Icon(
+                      Icons.cleaning_services,
+                      color: _modalSub(ctx),
+                    ),
+                    title: Text(
+                      'Effacer la discussion',
+                      style: TextStyle(color: _modalText(ctx)),
+                    ),
                     onTap: () async {
                       Navigator.pop(ctx);
                       final ok = await showDialog<bool>(
                         context: context,
                         builder: (c) => AlertDialog(
                           backgroundColor: _modalBg(c),
-                          title: Text('Effacer la discussion ?', style: TextStyle(color: _modalText(c))),
+                          title: Text(
+                            'Effacer la discussion ?',
+                            style: TextStyle(color: _modalText(c)),
+                          ),
                           actions: [
-                            TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: _modalSub(c)))),
-                            TextButton(onPressed: () => Navigator.pop(c, true), child: Text('Effacer', style: TextStyle(color: _modalText(c)))),
+                            TextButton(
+                              onPressed: () => Navigator.pop(c, false),
+                              child: Text(
+                                'Annuler',
+                                style: TextStyle(color: _modalSub(c)),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.pop(c, true),
+                              child: Text(
+                                'Effacer',
+                                style: TextStyle(color: _modalText(c)),
+                              ),
+                            ),
                           ],
                         ),
                       );
@@ -1965,7 +2897,11 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     Future<Map<String, dynamic>?> byEmail() async {
       for (final col in cols) {
         try {
-          final res = await FirebaseFirestore.instance.collection(col).where('email', isEqualTo: q).limit(1).get();
+          final res = await FirebaseFirestore.instance
+              .collection(col)
+              .where('email', isEqualTo: q)
+              .limit(1)
+              .get();
           if (res.docs.isNotEmpty) {
             final d = res.docs.first;
             final data = d.data();
@@ -1973,7 +2909,8 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
               'uid': d.id,
               'name': UserUtils.formatName(data),
               'email': data['email'] ?? '',
-              'photo': data['photoUrl'] ?? data['photo'] ?? data['avatar'] ?? '',
+              'photo':
+                  data['photoUrl'] ?? data['photo'] ?? data['avatar'] ?? '',
             };
           }
         } catch (_) {}
@@ -1984,14 +2921,18 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     Future<Map<String, dynamic>?> byUid() async {
       for (final col in cols) {
         try {
-          final snap = await FirebaseFirestore.instance.collection(col).doc(q).get();
+          final snap = await FirebaseFirestore.instance
+              .collection(col)
+              .doc(q)
+              .get();
           if (snap.exists) {
             final data = snap.data() ?? {};
             return {
               'uid': snap.id,
               'name': UserUtils.formatName(data),
               'email': data['email'] ?? '',
-              'photo': data['photoUrl'] ?? data['photo'] ?? data['avatar'] ?? '',
+              'photo':
+                  data['photoUrl'] ?? data['photo'] ?? data['avatar'] ?? '',
             };
           }
         } catch (_) {}
@@ -2010,7 +2951,11 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     if (user == null) return [];
     final List<Map<String, dynamic>> out = [];
     try {
-      final q = await FirebaseFirestore.instance.collection('contacts').where('owner', isEqualTo: user.uid).limit(300).get();
+      final q = await FirebaseFirestore.instance
+          .collection('contacts')
+          .where('owner', isEqualTo: user.uid)
+          .limit(300)
+          .get();
       for (final d in q.docs) {
         final data = d.data();
         final email = (data['email'] ?? '').toString();
@@ -2055,7 +3000,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       builder: (ctx) {
         return StatefulBuilder(
           builder: (mCtx, setModal) {
-            final allUsers = <Map<String, dynamic>>[...manualUsers, ...contacts];
+            final allUsers = <Map<String, dynamic>>[
+              ...manualUsers,
+              ...contacts,
+            ];
             final q = searchCtrl.text.trim().toLowerCase();
             final visible = q.isEmpty
                 ? allUsers
@@ -2073,16 +3021,31 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                 return Container(
                   decoration: BoxDecoration(
                     color: _modalBg(ctx),
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(18),
+                    ),
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
                   child: Column(
                     children: [
                       Row(
                         children: [
-                          Text('Ajouter des membres', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold, fontSize: 16)),
+                          Text(
+                            'Ajouter des membres',
+                            style: TextStyle(
+                              color: _modalText(ctx),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
                           const Spacer(),
-                          IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
+                          IconButton(
+                            icon: Icon(Icons.close, color: _modalSub(ctx)),
+                            onPressed: () => Navigator.pop(ctx),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 8),
@@ -2095,7 +3058,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                           hintStyle: TextStyle(color: _modalMuted(ctx)),
                           filled: true,
                           fillColor: _modalTileBg(ctx),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
                         ),
                         onChanged: (_) => setModal(() {}),
                       ),
@@ -2111,7 +3077,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                                 hintStyle: TextStyle(color: _modalMuted(ctx)),
                                 filled: true,
                                 fillColor: _modalTileBg(ctx),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
                               ),
                             ),
                           ),
@@ -2120,21 +3089,42 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                             width: 44,
                             height: 44,
                             child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(backgroundColor: _modalTileBg(ctx), padding: EdgeInsets.zero),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: _modalTileBg(ctx),
+                                padding: EdgeInsets.zero,
+                              ),
                               onPressed: () async {
                                 final query = addCtrl.text.trim();
                                 if (query.isEmpty) return;
-                                final user = await _lookupUserByEmailOrUid(query);
+                                final user = await _lookupUserByEmailOrUid(
+                                  query,
+                                );
                                 if (user == null) {
-                                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Aucun utilisateur trouvé')));
+                                  if (mounted)
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Aucun utilisateur trouvé',
+                                        ),
+                                      ),
+                                    );
                                   return;
                                 }
                                 final uid = user['uid'] as String;
                                 if (existingIds.contains(uid)) {
-                                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Utilisateur déjà membre')));
+                                  if (mounted)
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Utilisateur déjà membre',
+                                        ),
+                                      ),
+                                    );
                                   return;
                                 }
-                                final exists = manualUsers.any((u) => u['uid'] == uid) || contacts.any((u) => u['uid'] == uid);
+                                final exists =
+                                    manualUsers.any((u) => u['uid'] == uid) ||
+                                    contacts.any((u) => u['uid'] == uid);
                                 if (!exists) {
                                   setModal(() {
                                     manualUsers.insert(0, user);
@@ -2151,7 +3141,12 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                       const SizedBox(height: 12),
                       Expanded(
                         child: visible.isEmpty
-                            ? Center(child: Text('Aucun contact', style: TextStyle(color: _modalMuted(ctx))))
+                            ? Center(
+                                child: Text(
+                                  'Aucun contact',
+                                  style: TextStyle(color: _modalMuted(ctx)),
+                                ),
+                              )
                             : ListView.builder(
                                 controller: controller,
                                 itemCount: visible.length,
@@ -2161,39 +3156,70 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                                   final name = (u['name'] ?? '').toString();
                                   final email = (u['email'] ?? '').toString();
                                   final photo = (u['photo'] ?? '').toString();
-                                  final isMember = uid.isNotEmpty && existingIds.contains(uid);
-                                  final selected = uid.isNotEmpty && selectedUids.contains(uid);
+                                  final isMember =
+                                      uid.isNotEmpty &&
+                                      existingIds.contains(uid);
+                                  final selected =
+                                      uid.isNotEmpty &&
+                                      selectedUids.contains(uid);
                                   return ListTile(
                                     leading: CircleAvatar(
                                       backgroundColor: _modalTileBg(ctx),
-                                      backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null,
-                                      child: photo.isEmpty ? Text(name.isNotEmpty ? name[0].toUpperCase() : '?', style: TextStyle(color: _modalText(ctx))) : null,
+                                      backgroundImage: photo.isNotEmpty
+                                          ? CachedNetworkImageProvider(photo)
+                                                as ImageProvider
+                                          : null,
+                                      child: photo.isEmpty
+                                          ? Text(
+                                              name.isNotEmpty
+                                                  ? name[0].toUpperCase()
+                                                  : '?',
+                                              style: TextStyle(
+                                                color: _modalText(ctx),
+                                              ),
+                                            )
+                                          : null,
                                     ),
-                                    title: Text(name.isNotEmpty ? name : email, style: TextStyle(color: _modalText(ctx))),
-                                    subtitle: email.isNotEmpty ? Text(email, style: TextStyle(color: _modalSub(ctx))) : null,
+                                    title: Text(
+                                      name.isNotEmpty ? name : email,
+                                      style: TextStyle(color: _modalText(ctx)),
+                                    ),
+                                    subtitle: email.isNotEmpty
+                                        ? Text(
+                                            email,
+                                            style: TextStyle(
+                                              color: _modalSub(ctx),
+                                            ),
+                                          )
+                                        : null,
                                     trailing: isMember
-                                        ? Text('Membre', style: TextStyle(color: _modalMuted(ctx)))
+                                        ? Text(
+                                            'Membre',
+                                            style: TextStyle(
+                                              color: _modalMuted(ctx),
+                                            ),
+                                          )
                                         : Checkbox(
                                             value: selected,
                                             onChanged: uid.isEmpty
                                                 ? null
                                                 : (v) => setModal(() {
-                                                      if (v == true) {
-                                                        selectedUids.add(uid);
-                                                      } else {
-                                                        selectedUids.remove(uid);
-                                                      }
-                                                    }),
+                                                    if (v == true) {
+                                                      selectedUids.add(uid);
+                                                    } else {
+                                                      selectedUids.remove(uid);
+                                                    }
+                                                  }),
                                           ),
                                     onTap: uid.isEmpty || isMember
                                         ? null
                                         : () => setModal(() {
-                                              if (selected) {
-                                                selectedUids.remove(uid);
-                                              } else {
-                                                selectedUids.add(uid);
-                                              }
-                                            }),
+                                            if (selected) {
+                                              selectedUids.remove(uid);
+                                            } else {
+                                              selectedUids.add(uid);
+                                            }
+                                          }),
                                   );
                                 },
                               ),
@@ -2204,7 +3230,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                           Expanded(
                             child: OutlinedButton(
                               onPressed: () => Navigator.pop(ctx),
-                              child: Text('Annuler', style: TextStyle(color: _modalSub(ctx))),
+                              child: Text(
+                                'Annuler',
+                                style: TextStyle(color: _modalSub(ctx)),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -2212,22 +3241,52 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                             onPressed: () async {
                               if (selectedUids.isEmpty) return;
                               try {
-                                final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+                                final chatRef = FirebaseFirestore.instance
+                                    .collection('chats')
+                                    .doc(widget.chatId);
                                 final chatSnap = await chatRef.get();
                                 if (!chatSnap.exists) return;
                                 final data = chatSnap.data() ?? {};
-                                final perms = (data['permissions'] is Map) ? Map<String, dynamic>.from(data['permissions']) : <String, dynamic>{};
-                                final canAdd = (perms['canAddMembers'] ?? 'all').toString();
-                                final admins = (data['admins'] as List?)?.map((e) => e.toString()).toList() ?? [];
-                                if (canAdd == 'admins' && !admins.contains(current.uid)) {
-                                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Seuls les admins peuvent ajouter des membres')));
+                                final perms = (data['permissions'] is Map)
+                                    ? Map<String, dynamic>.from(
+                                        data['permissions'],
+                                      )
+                                    : <String, dynamic>{};
+                                final canAdd = (perms['canAddMembers'] ?? 'all')
+                                    .toString();
+                                final admins =
+                                    (data['admins'] as List?)
+                                        ?.map((e) => e.toString())
+                                        .toList() ??
+                                    [];
+                                if (canAdd == 'admins' &&
+                                    !admins.contains(current.uid)) {
+                                  if (mounted)
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Seuls les admins peuvent ajouter des membres',
+                                        ),
+                                      ),
+                                    );
                                   return;
                                 }
 
-                                final existing = (data['participants'] as List?)?.map((e) => e.toString()).toSet() ?? <String>{};
-                                final toAdd = selectedUids.where((u) => !existing.contains(u)).toList();
+                                final existing =
+                                    (data['participants'] as List?)
+                                        ?.map((e) => e.toString())
+                                        .toSet() ??
+                                    <String>{};
+                                final toAdd = selectedUids
+                                    .where((u) => !existing.contains(u))
+                                    .toList();
                                 if (toAdd.isEmpty) {
-                                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Aucun nouveau membre')));
+                                  if (mounted)
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Aucun nouveau membre'),
+                                      ),
+                                    );
                                   return;
                                 }
 
@@ -2245,8 +3304,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                                   await chatRef.update(updates);
                                 }
 
-                                final creatorName = current.displayName ?? 'Un utilisateur';
-                                final text = '$creatorName a ajouté ${toAdd.length} membre(s)';
+                                final creatorName =
+                                    current.displayName ?? 'Un utilisateur';
+                                final text =
+                                    '$creatorName a ajouté ${toAdd.length} membre(s)';
                                 await chatRef.collection('messages').add({
                                   'type': 'system',
                                   'text': text,
@@ -2259,20 +3320,32 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                                 final allParticipants = {...existing, ...toAdd};
                                 final metaUpdates = <String, dynamic>{
                                   'lastMessage': text,
-                                  'lastMessageTime': FieldValue.serverTimestamp(),
+                                  'lastMessageTime':
+                                      FieldValue.serverTimestamp(),
                                 };
                                 for (var p in allParticipants) {
-                                  if (p != current.uid) metaUpdates['unreadCounts.$p'] = FieldValue.increment(1);
+                                  if (p != current.uid)
+                                    metaUpdates['unreadCounts.$p'] =
+                                        FieldValue.increment(1);
                                 }
                                 await chatRef.update(metaUpdates);
 
                                 if (mounted) {
                                   Navigator.pop(ctx);
-                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Membres ajoutés')));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Membres ajoutés'),
+                                    ),
+                                  );
                                 }
                               } catch (e) {
                                 debugPrint('add members err: $e');
-                                if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur lors de l’ajout')));
+                                if (mounted)
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Erreur lors de l’ajout'),
+                                    ),
+                                  );
                               }
                             },
                             child: const Text('Ajouter'),
@@ -2331,16 +3404,31 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                 return Container(
                   decoration: BoxDecoration(
                     color: _modalBg(ctx),
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                    borderRadius: const BorderRadius.vertical(
+                      top: Radius.circular(18),
+                    ),
                   ),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 14,
+                  ),
                   child: Column(
                     children: [
                       Row(
                         children: [
-                          Text('Rechercher', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold, fontSize: 16)),
+                          Text(
+                            'Rechercher',
+                            style: TextStyle(
+                              color: _modalText(ctx),
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
                           const Spacer(),
-                          IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
+                          IconButton(
+                            icon: Icon(Icons.close, color: _modalSub(ctx)),
+                            onPressed: () => Navigator.pop(ctx),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 8),
@@ -2353,29 +3441,58 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                           hintStyle: TextStyle(color: _modalMuted(ctx)),
                           filled: true,
                           fillColor: _modalTileBg(ctx),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
                         ),
                         onChanged: (_) => setModal(() {}),
                       ),
                       const SizedBox(height: 10),
                       Expanded(
                         child: filtered.isEmpty
-                            ? Center(child: Text('Aucun résultat', style: TextStyle(color: _modalMuted(ctx))))
+                            ? Center(
+                                child: Text(
+                                  'Aucun résultat',
+                                  style: TextStyle(color: _modalMuted(ctx)),
+                                ),
+                              )
                             : ListView.builder(
                                 controller: controller,
                                 itemCount: filtered.length,
                                 itemBuilder: (c, i) {
-                                  final m = filtered[i].data() as Map<String, dynamic>;
+                                  final m =
+                                      filtered[i].data()
+                                          as Map<String, dynamic>;
                                   final text = (m['text'] ?? '').toString();
-                                  final sender = (m['senderName'] ?? '') as String? ?? '';
-                                  final ts = m['timestamp'] is Timestamp ? (m['timestamp'] as Timestamp).toDate() : null;
-                                  final time = ts != null ? DateFormat('dd/MM HH:mm').format(ts) : '';
+                                  final sender =
+                                      (m['senderName'] ?? '') as String? ?? '';
+                                  final ts = m['timestamp'] is Timestamp
+                                      ? (m['timestamp'] as Timestamp).toDate()
+                                      : null;
+                                  final time = ts != null
+                                      ? DateFormat('dd/MM HH:mm').format(ts)
+                                      : '';
                                   return ListTile(
-                                    title: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: _modalText(ctx))),
-                                    subtitle: Text([sender, time].where((e) => e.isNotEmpty).join(' • '), style: TextStyle(color: _modalMuted(ctx))),
+                                    title: Text(
+                                      text,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(color: _modalText(ctx)),
+                                    ),
+                                    subtitle: Text(
+                                      [
+                                        sender,
+                                        time,
+                                      ].where((e) => e.isNotEmpty).join(' • '),
+                                      style: TextStyle(color: _modalMuted(ctx)),
+                                    ),
                                     onTap: () {
                                       Navigator.pop(ctx);
-                                      setState(() => _pendingJumpMessageId = filtered[i].id);
+                                      setState(
+                                        () => _pendingJumpMessageId =
+                                            filtered[i].id,
+                                      );
                                     },
                                   );
                                 },
@@ -2406,16 +3523,28 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
             return Container(
               decoration: BoxDecoration(
                 color: _modalBg(ctx),
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(18),
+                ),
               ),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Column(
                 children: [
                   Row(
                     children: [
-                      Text('Médias du groupe', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold, fontSize: 16)),
+                      Text(
+                        'Médias du groupe',
+                        style: TextStyle(
+                          color: _modalText(ctx),
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
                       const Spacer(),
-                      IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => Navigator.pop(ctx)),
+                      IconButton(
+                        icon: Icon(Icons.close, color: _modalSub(ctx)),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -2430,34 +3559,54 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                           .snapshots(),
                       builder: (context, snap) {
                         if (!snap.hasData || snap.data!.docs.isEmpty) {
-                          return Center(child: Text('Aucun média', style: TextStyle(color: _modalMuted(ctx))));
+                          return Center(
+                            child: Text(
+                              'Aucun média',
+                              style: TextStyle(color: _modalMuted(ctx)),
+                            ),
+                          );
                         }
                         return GridView.builder(
                           controller: controller,
-                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
-                            crossAxisSpacing: 6,
-                            mainAxisSpacing: 6,
-                          ),
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 3,
+                                crossAxisSpacing: 6,
+                                mainAxisSpacing: 6,
+                              ),
                           itemCount: snap.data!.docs.length,
                           itemBuilder: (c, i) {
-                            final m = snap.data!.docs[i].data() as Map<String, dynamic>;
+                            final m =
+                                snap.data!.docs[i].data()
+                                    as Map<String, dynamic>;
                             final url = (m['url'] ?? '').toString();
                             final type = (m['type'] ?? 'image').toString();
                             final msgId = snap.data!.docs[i].id;
                             final senderId = (m['senderId'] ?? '').toString();
                             return GestureDetector(
-                              onTap: () => _openMediaViewer(url, type, messageId: msgId, senderId: senderId),
+                              onTap: () => _openMediaViewer(
+                                url,
+                                type,
+                                messageId: msgId,
+                                senderId: senderId,
+                              ),
                               child: ClipRRect(
                                 borderRadius: BorderRadius.circular(10),
                                 child: Stack(
                                   fit: StackFit.expand,
                                   children: [
-                                    CachedNetworkImage(imageUrl: url, fit: BoxFit.cover),
+                                    CachedNetworkImage(
+                                      imageUrl: url,
+                                      fit: BoxFit.cover,
+                                    ),
                                     if (type == 'video')
                                       Container(
                                         color: Colors.black26,
-                                        child: Icon(Icons.play_circle_filled, color: _modalSub(ctx), size: 32),
+                                        child: Icon(
+                                          Icons.play_circle_filled,
+                                          color: _modalSub(ctx),
+                                          size: 32,
+                                        ),
                                       ),
                                   ],
                                 ),
@@ -2477,11 +3626,17 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     );
   }
 
-  Future<void> _openMediaViewer(String url, String type, {String? messageId, String? senderId, int? sizeBytes}) async {
+  Future<void> _openMediaViewer(
+    String url,
+    String type, {
+    String? messageId,
+    String? senderId,
+    int? sizeBytes,
+  }) async {
     if (url.isEmpty) return;
     File? local;
     if (!kIsWeb) {
-      local = await _getCachedMediaFile(url);
+      local = await _getCachedMediaFile(url, expectedBytes: sizeBytes);
       if (local == null) {
         final ok = await _askDownloadMedia();
         if (ok) {
@@ -2506,13 +3661,20 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
 
   Future<void> _setAdmin(String uid, bool makeAdmin) async {
     try {
-      final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+      final chatRef = FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId);
       await chatRef.update({
-        'admins': makeAdmin ? FieldValue.arrayUnion([uid]) : FieldValue.arrayRemove([uid]),
+        'admins': makeAdmin
+            ? FieldValue.arrayUnion([uid])
+            : FieldValue.arrayRemove([uid]),
       });
     } catch (e) {
       debugPrint('set admin err: $e');
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur admin')));
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Erreur admin')));
     }
   }
 
@@ -2521,7 +3683,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       final snap = await _getUserDoc(uid);
       if (snap != null && snap.exists) {
         final raw = snap.data();
-        final ud = raw is Map ? Map<String, dynamic>.from(raw as Map<String, dynamic>) : <String, dynamic>{};
+        final ud = raw is Map
+            ? Map<String, dynamic>.from(raw as Map<String, dynamic>)
+            : <String, dynamic>{};
         final name = UserUtils.formatName(ud);
         if (name.isNotEmpty) return name;
       }
@@ -2531,13 +3695,19 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
 
   Future<void> _removeGroupMember(String uid, {bool isSelf = false}) async {
     try {
-      final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+      final chatRef = FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId);
       final chatSnap = await chatRef.get();
       if (!chatSnap.exists) return;
       final data = chatSnap.data() ?? {};
-      final participants = (data['participants'] as List?)?.map((e) => e.toString()).toList() ?? <String>[];
+      final participants =
+          (data['participants'] as List?)?.map((e) => e.toString()).toList() ??
+          <String>[];
       if (!participants.contains(uid)) return;
-      final admins = (data['admins'] as List?)?.map((e) => e.toString()).toList() ?? <String>[];
+      final admins =
+          (data['admins'] as List?)?.map((e) => e.toString()).toList() ??
+          <String>[];
       final remaining = participants.where((p) => p != uid).toList();
 
       if (remaining.isEmpty) {
@@ -2558,7 +3728,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       await chatRef.update(updates);
 
       final name = await _resolveUserName(uid);
-      final text = isSelf ? '$name a quitté le groupe' : '$name a été retiré du groupe';
+      final text = isSelf
+          ? '$name a quitté le groupe'
+          : '$name a été retiré du groupe';
       await chatRef.collection('messages').add({
         'type': 'system',
         'text': text,
@@ -2573,7 +3745,8 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
         'lastMessageTime': FieldValue.serverTimestamp(),
       };
       for (var p in remaining) {
-        if (p != currentUser?.uid) metaUpdates['unreadCounts.$p'] = FieldValue.increment(1);
+        if (p != currentUser?.uid)
+          metaUpdates['unreadCounts.$p'] = FieldValue.increment(1);
       }
       await chatRef.update(metaUpdates);
 
@@ -2582,7 +3755,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
       }
     } catch (e) {
       debugPrint('remove member err: $e');
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur suppression membre')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erreur suppression membre')),
+        );
     }
   }
 
@@ -2602,7 +3778,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     String canChangeInfo = 'admins';
     bool sendDisabled = false;
     try {
-      final snap = await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).get();
+      final snap = await FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId)
+          .get();
       if (snap.exists) {
         final data = snap.data() ?? {};
         groupPhoto = (data['groupPhoto'] ?? '').toString();
@@ -2646,7 +3825,9 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
             }
             final ImageProvider? avatar = newPhoto != null
                 ? FileImage(File(newPhoto!.path))
-                : (groupPhoto.isNotEmpty ? CachedNetworkImageProvider(groupPhoto) as ImageProvider : null);
+                : (groupPhoto.isNotEmpty
+                      ? CachedNetworkImageProvider(groupPhoto) as ImageProvider
+                      : null);
             return Stack(
               children: [
                 Positioned.fill(
@@ -2661,245 +3842,428 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
                 Align(
                   alignment: Alignment.bottomCenter,
                   child: Padding(
-                    padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+                    padding: EdgeInsets.only(
+                      bottom: MediaQuery.of(ctx).viewInsets.bottom,
+                    ),
                     child: AnimatedOpacity(
                       duration: const Duration(milliseconds: 180),
                       opacity: (opening && !closing) ? 1.0 : 0.0,
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 180),
-                        transform: Matrix4.translationValues(0, (opening && !closing) ? 0 : 24, 0),
+                        transform: Matrix4.translationValues(
+                          0,
+                          (opening && !closing) ? 0 : 24,
+                          0,
+                        ),
                         decoration: BoxDecoration(
                           color: _modalBg(ctx),
-                          borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 24, offset: const Offset(0, -6))],
+                          borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(18),
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.4),
+                              blurRadius: 24,
+                              offset: const Offset(0, -6),
+                            ),
+                          ],
                         ),
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 14,
+                        ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: LinearGradient(colors: [tgAccent.withOpacity(0.7), tgAccent.withOpacity(0.2)]),
-                          ),
-                          child: const Icon(Icons.settings, color: Colors.white, size: 18),
-                        ),
-                        const SizedBox(width: 10),
-                        Text('Paramètres du groupe', style: TextStyle(color: _modalText(ctx), fontWeight: FontWeight.bold, fontSize: 16)),
-                        const Spacer(),
-                        IconButton(icon: Icon(Icons.close, color: _modalSub(ctx)), onPressed: () => closeSheet(ctx, setModal)),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        GestureDetector(
-                          onTap: () async {
-                            final picker = ImagePicker();
-                            final img = await picker.pickImage(source: ImageSource.gallery, maxWidth: 1200, imageQuality: 85);
-                            if (img != null) {
-                              setModal(() => newPhoto = img);
-                            }
-                          },
-                          child: CircleAvatar(
-                            radius: 34,
-                            backgroundColor: _modalTileBg(ctx),
-                            backgroundImage: avatar,
-                            child: (newPhoto == null && groupPhoto.isEmpty) ? Icon(Icons.camera_alt, color: _modalSub(ctx)) : null,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                            controller: nameCtrl,
-                            style: TextStyle(color: _modalText(ctx)),
-                            decoration: InputDecoration(
-                              hintText: 'Nom du groupe',
-                              hintStyle: TextStyle(color: _modalMuted(ctx)),
-                              filled: true,
-                              fillColor: _modalTileBg(ctx),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: descCtrl,
-                      style: TextStyle(color: _modalText(ctx)),
-                      maxLines: 2,
-                      decoration: InputDecoration(
-                        hintText: 'Description',
-                        hintStyle: TextStyle(color: _modalMuted(ctx)),
-                        filled: true,
-                        fillColor: _modalTileBg(ctx),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: _modalTileBg(ctx),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: _modalTileBg(ctx)),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.block, color: Colors.orangeAccent),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text('Désactiver l’envoi des messages', style: TextStyle(color: _modalText(ctx))),
-                          ),
-                          Switch(
-                            value: sendDisabled,
-                            onChanged: (v) => setModal(() => sendDisabled = v),
-                            activeThumbColor: Colors.orangeAccent,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text('Permissions', style: TextStyle(color: _modalSub(ctx), fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Ajouter membres', style: TextStyle(color: _modalMuted(ctx), fontSize: 12)),
-                              DropdownButton<String>(
-                                value: canAddMembers,
-                                isExpanded: true,
-                                items: const [
-                                  DropdownMenuItem(value: 'admins', child: Text('Admins seulement')),
-                                  DropdownMenuItem(value: 'all', child: Text('Tous les membres')),
-                                ],
-                                onChanged: (v) => setModal(() => canAddMembers = v ?? 'all'),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Changer infos', style: TextStyle(color: _modalMuted(ctx), fontSize: 12)),
-                              DropdownButton<String>(
-                                value: canChangeInfo,
-                                isExpanded: true,
-                                items: const [
-                                  DropdownMenuItem(value: 'admins', child: Text('Admins seulement')),
-                                  DropdownMenuItem(value: 'all', child: Text('Tous les membres')),
-                                ],
-                                onChanged: (v) => setModal(() => canChangeInfo = v ?? 'admins'),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => closeSheet(ctx, setModal),
-                            child: Text('Annuler', style: TextStyle(color: _modalSub(ctx))),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        ElevatedButton(
-                          onPressed: () async {
-                            try {
-                              final updates = <String, dynamic>{
-                                'groupName': nameCtrl.text.trim(),
-                                'description': descCtrl.text.trim(),
-                                'permissions': {'canAddMembers': canAddMembers, 'canChangeInfo': canChangeInfo, 'sendDisabled': sendDisabled},
-                              };
-                              if (newPhoto != null) {
-                                final url = await _uploadGroupPhoto(newPhoto!);
-                                if (url != null && url.isNotEmpty) updates['groupPhoto'] = url;
-                              }
-                              await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).update(updates);
-                              if (mounted) {
-                                closeSheet(ctx, setModal);
-                                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Paramètres mis à jour')));
-                              }
-                            } catch (e) {
-                              debugPrint('group settings err: $e');
-                              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur de mise à jour')));
-                            }
-                          },
-                          child: const Text('Enregistrer'),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Divider(color: _modalTileBg(ctx)),
-                    const SizedBox(height: 6),
-                    ListTile(
-                      leading: Icon(Icons.cloud_download, color: _modalSub(ctx)),
-                      title: Text('Téléchargement médias', style: TextStyle(color: _modalText(ctx))),
-                      subtitle: Text('Gérer le cache et le Wi‑Fi', style: TextStyle(color: _modalMuted(ctx), fontSize: 12)),
-                      onTap: () async {
-                        final prefs = await SharedPreferences.getInstance();
-                        bool wifiOnlyLocal = prefs.getBool('media_download_wifi_only') ?? false;
-                        showModalBottomSheet(
-                          context: context,
-                          backgroundColor: Colors.transparent,
-                          builder: (c) {
-                            return StatefulBuilder(
-                              builder: (cc, setPref) {
-                                return Container(
+                            Row(
+                              children: [
+                                Container(
+                                  width: 32,
+                                  height: 32,
                                   decoration: BoxDecoration(
-                                    color: _modalBg(c),
-                                    borderRadius: const BorderRadius.vertical(top: Radius.circular(18)),
+                                    shape: BoxShape.circle,
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        tgAccent.withOpacity(0.7),
+                                        tgAccent.withOpacity(0.2),
+                                      ],
+                                    ),
                                   ),
-                                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                  child: const Icon(
+                                    Icons.settings,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'Paramètres du groupe',
+                                  style: TextStyle(
+                                    color: _modalText(ctx),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                                const Spacer(),
+                                IconButton(
+                                  icon: Icon(
+                                    Icons.close,
+                                    color: _modalSub(ctx),
+                                  ),
+                                  onPressed: () => closeSheet(ctx, setModal),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              children: [
+                                GestureDetector(
+                                  onTap: () async {
+                                    final picker = ImagePicker();
+                                    final img = await picker.pickImage(
+                                      source: ImageSource.gallery,
+                                      maxWidth: 1200,
+                                      imageQuality: 85,
+                                    );
+                                    if (img != null) {
+                                      setModal(() => newPhoto = img);
+                                    }
+                                  },
+                                  child: CircleAvatar(
+                                    radius: 34,
+                                    backgroundColor: _modalTileBg(ctx),
+                                    backgroundImage: avatar,
+                                    child:
+                                        (newPhoto == null && groupPhoto.isEmpty)
+                                        ? Icon(
+                                            Icons.camera_alt,
+                                            color: _modalSub(ctx),
+                                          )
+                                        : null,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: TextField(
+                                    controller: nameCtrl,
+                                    style: TextStyle(color: _modalText(ctx)),
+                                    decoration: InputDecoration(
+                                      hintText: 'Nom du groupe',
+                                      hintStyle: TextStyle(
+                                        color: _modalMuted(ctx),
+                                      ),
+                                      filled: true,
+                                      fillColor: _modalTileBg(ctx),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(12),
+                                        borderSide: BorderSide.none,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            TextField(
+                              controller: descCtrl,
+                              style: TextStyle(color: _modalText(ctx)),
+                              maxLines: 2,
+                              decoration: InputDecoration(
+                                hintText: 'Description',
+                                hintStyle: TextStyle(color: _modalMuted(ctx)),
+                                filled: true,
+                                fillColor: _modalTileBg(ctx),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide.none,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: _modalTileBg(ctx),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: _modalTileBg(ctx)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(
+                                    Icons.block,
+                                    color: Colors.orangeAccent,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      'Désactiver l’envoi des messages',
+                                      style: TextStyle(color: _modalText(ctx)),
+                                    ),
+                                  ),
+                                  Switch(
+                                    value: sendDisabled,
+                                    onChanged: (v) =>
+                                        setModal(() => sendDisabled = v),
+                                    activeThumbColor: Colors.orangeAccent,
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              'Permissions',
+                              style: TextStyle(
+                                color: _modalSub(ctx),
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Row(
+                              children: [
+                                Expanded(
                                   child: Column(
-                                    mainAxisSize: MainAxisSize.min,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Row(
-                                        children: [
-                                          Text('Téléchargements', style: TextStyle(color: _modalText(c), fontWeight: FontWeight.bold)),
-                                          const Spacer(),
-                                          IconButton(icon: Icon(Icons.close, color: _modalSub(c)), onPressed: () => Navigator.pop(c)),
+                                      Text(
+                                        'Ajouter membres',
+                                        style: TextStyle(
+                                          color: _modalMuted(ctx),
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                      DropdownButton<String>(
+                                        value: canAddMembers,
+                                        isExpanded: true,
+                                        items: const [
+                                          DropdownMenuItem(
+                                            value: 'admins',
+                                            child: Text('Admins seulement'),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: 'all',
+                                            child: Text('Tous les membres'),
+                                          ),
                                         ],
-                                      ),
-                                      SwitchListTile(
-                                        value: wifiOnlyLocal,
-                                        onChanged: (v) async {
-                                          await prefs.setBool('media_download_wifi_only', v);
-                                          setPref(() => wifiOnlyLocal = v);
-                                        },
-                                        title: Text('Télécharger uniquement en Wi‑Fi', style: TextStyle(color: _modalText(c))),
-                                      ),
-                                      ListTile(
-                                        leading: Icon(Icons.storage, color: _modalSub(c)),
-                                        title: Text('Gérer le cache', style: TextStyle(color: _modalText(c))),
-                                        onTap: () {
-                                          Navigator.pop(c);
-                                          _showCacheManagerSheet();
-                                        },
+                                        onChanged: (v) => setModal(
+                                          () => canAddMembers = v ?? 'all',
+                                        ),
                                       ),
                                     ],
                                   ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Changer infos',
+                                        style: TextStyle(
+                                          color: _modalMuted(ctx),
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                      DropdownButton<String>(
+                                        value: canChangeInfo,
+                                        isExpanded: true,
+                                        items: const [
+                                          DropdownMenuItem(
+                                            value: 'admins',
+                                            child: Text('Admins seulement'),
+                                          ),
+                                          DropdownMenuItem(
+                                            value: 'all',
+                                            child: Text('Tous les membres'),
+                                          ),
+                                        ],
+                                        onChanged: (v) => setModal(
+                                          () => canChangeInfo = v ?? 'admins',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: OutlinedButton(
+                                    onPressed: () => closeSheet(ctx, setModal),
+                                    child: Text(
+                                      'Annuler',
+                                      style: TextStyle(color: _modalSub(ctx)),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                ElevatedButton(
+                                  onPressed: () async {
+                                    try {
+                                      final updates = <String, dynamic>{
+                                        'groupName': nameCtrl.text.trim(),
+                                        'description': descCtrl.text.trim(),
+                                        'permissions': {
+                                          'canAddMembers': canAddMembers,
+                                          'canChangeInfo': canChangeInfo,
+                                          'sendDisabled': sendDisabled,
+                                        },
+                                      };
+                                      if (newPhoto != null) {
+                                        final url = await _uploadGroupPhoto(
+                                          newPhoto!,
+                                        );
+                                        if (url != null && url.isNotEmpty)
+                                          updates['groupPhoto'] = url;
+                                      }
+                                      await FirebaseFirestore.instance
+                                          .collection('chats')
+                                          .doc(widget.chatId)
+                                          .update(updates);
+                                      if (mounted) {
+                                        closeSheet(ctx, setModal);
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Paramètres mis à jour',
+                                            ),
+                                          ),
+                                        );
+                                      }
+                                    } catch (e) {
+                                      debugPrint('group settings err: $e');
+                                      if (mounted)
+                                        ScaffoldMessenger.of(
+                                          context,
+                                        ).showSnackBar(
+                                          const SnackBar(
+                                            content: Text(
+                                              'Erreur de mise à jour',
+                                            ),
+                                          ),
+                                        );
+                                    }
+                                  },
+                                  child: const Text('Enregistrer'),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Divider(color: _modalTileBg(ctx)),
+                            const SizedBox(height: 6),
+                            ListTile(
+                              leading: Icon(
+                                Icons.cloud_download,
+                                color: _modalSub(ctx),
+                              ),
+                              title: Text(
+                                'Téléchargement médias',
+                                style: TextStyle(color: _modalText(ctx)),
+                              ),
+                              subtitle: Text(
+                                'Gérer le cache et le Wi‑Fi',
+                                style: TextStyle(
+                                  color: _modalMuted(ctx),
+                                  fontSize: 12,
+                                ),
+                              ),
+                              onTap: () async {
+                                final prefs =
+                                    await SharedPreferences.getInstance();
+                                bool wifiOnlyLocal =
+                                    prefs.getBool('media_download_wifi_only') ??
+                                    false;
+                                showModalBottomSheet(
+                                  context: context,
+                                  backgroundColor: Colors.transparent,
+                                  builder: (c) {
+                                    return StatefulBuilder(
+                                      builder: (cc, setPref) {
+                                        return Container(
+                                          decoration: BoxDecoration(
+                                            color: _modalBg(c),
+                                            borderRadius:
+                                                const BorderRadius.vertical(
+                                                  top: Radius.circular(18),
+                                                ),
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 14,
+                                          ),
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Row(
+                                                children: [
+                                                  Text(
+                                                    'Téléchargements',
+                                                    style: TextStyle(
+                                                      color: _modalText(c),
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                    ),
+                                                  ),
+                                                  const Spacer(),
+                                                  IconButton(
+                                                    icon: Icon(
+                                                      Icons.close,
+                                                      color: _modalSub(c),
+                                                    ),
+                                                    onPressed: () =>
+                                                        Navigator.pop(c),
+                                                  ),
+                                                ],
+                                              ),
+                                              SwitchListTile(
+                                                value: wifiOnlyLocal,
+                                                onChanged: (v) async {
+                                                  await prefs.setBool(
+                                                    'media_download_wifi_only',
+                                                    v,
+                                                  );
+                                                  setPref(
+                                                    () => wifiOnlyLocal = v,
+                                                  );
+                                                },
+                                                title: Text(
+                                                  'Télécharger uniquement en Wi‑Fi',
+                                                  style: TextStyle(
+                                                    color: _modalText(c),
+                                                  ),
+                                                ),
+                                              ),
+                                              ListTile(
+                                                leading: Icon(
+                                                  Icons.storage,
+                                                  color: _modalSub(c),
+                                                ),
+                                                title: Text(
+                                                  'Gérer le cache',
+                                                  style: TextStyle(
+                                                    color: _modalText(c),
+                                                  ),
+                                                ),
+                                                onTap: () {
+                                                  Navigator.pop(c);
+                                                  _showCacheManagerSheet();
+                                                },
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      },
+                                    );
+                                  },
                                 );
                               },
-                            );
-                          },
-                        );
-                      },
-                    ),
+                            ),
                           ],
                         ),
                       ),
@@ -2915,7 +4279,10 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
   }
 
   Future<void> _deleteAllMessages() async {
-    final messagesRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages');
+    final messagesRef = FirebaseFirestore.instance
+        .collection('chats')
+        .doc(widget.chatId)
+        .collection('messages');
     while (true) {
       final snap = await messagesRef.limit(300).get();
       if (snap.docs.isEmpty) break;
@@ -2930,29 +4297,46 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
   Future<void> _clearChatMessages() async {
     try {
       await _deleteAllMessages();
-      await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).update({
-        'lastMessage': '',
-        'lastMessageTime': FieldValue.serverTimestamp(),
-        if (currentUser != null) 'unreadCounts.${currentUser!.uid}': 0,
-      });
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Discussion effacée')));
+      await FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId)
+          .update({
+            'lastMessage': '',
+            'lastMessageTime': FieldValue.serverTimestamp(),
+            if (currentUser != null) 'unreadCounts.${currentUser!.uid}': 0,
+          });
+      if (mounted)
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Discussion effacée')));
     } catch (e) {
       debugPrint('clear chat err: $e');
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur lors de l’effacement')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erreur lors de l’effacement')),
+        );
     }
   }
 
   Future<void> _deleteGroupAndMessages() async {
     try {
       await _deleteAllMessages();
-      await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).delete();
+      await FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId)
+          .delete();
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Groupe supprimé')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Groupe supprimé')));
       }
     } catch (e) {
       debugPrint('delete group err: $e');
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur lors de la suppression')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erreur lors de la suppression')),
+        );
     }
   }
 
@@ -2977,110 +4361,178 @@ class _ChatState extends State<ChatDetailPage> with SingleTickerProviderStateMix
     }
   }
 
-  Widget _actionTile({required IconData icon, required String label, required Color color, required VoidCallback onTap}) {
+  Widget _actionTile({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
     return SizedBox(
       width: 100,
       child: ElevatedButton(
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.white10,
           padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
         ),
         onPressed: onTap,
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          CircleAvatar(radius: 18, backgroundColor: color.withOpacity(0.18), child: Icon(icon, color: color, size: 18)),
-          const SizedBox(height: 8),
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-        ]),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircleAvatar(
+              radius: 18,
+              backgroundColor: color.withOpacity(0.18),
+              child: Icon(icon, color: color, size: 18),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              label,
+              style: const TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Future<void> _confirmBlock(String otherId) async {
     if (currentUser == null) return;
-    final ok = await showDialog<bool>(context: context, builder: (c) {
-      return AlertDialog(
-        backgroundColor: _modalBg(c),
-        title: Text('Bloquer ce contact?', style: TextStyle(color: _modalText(c))),
-        content: Text('Vous ne recevrez plus de messages de ce contact. Vous pouvez débloquer plus tard depuis vos paramètres.', style: TextStyle(color: _modalSub(c))),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: _modalSub(c)))),
-          TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Bloquer', style: TextStyle(color: Colors.red))),
-        ],
-      );
-    });
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) {
+        return AlertDialog(
+          backgroundColor: _modalBg(c),
+          title: Text(
+            'Bloquer ce contact?',
+            style: TextStyle(color: _modalText(c)),
+          ),
+          content: Text(
+            'Vous ne recevrez plus de messages de ce contact. Vous pouvez débloquer plus tard depuis vos paramètres.',
+            style: TextStyle(color: _modalSub(c)),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: Text('Annuler', style: TextStyle(color: _modalSub(c))),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text('Bloquer', style: TextStyle(color: Colors.red)),
+            ),
+          ],
+        );
+      },
+    );
     if (ok == true) await _blockContact(otherId);
   }
 
-Future<void> _blockContact(String otherId) async {
-  if (currentUser == null) return;
+  Future<void> _blockContact(String otherId) async {
+    if (currentUser == null) return;
 
-  final collections = ['classic_users', 'enterprise_users', 'pro_users'];
+    final collections = ['classic_users', 'enterprise_users', 'pro_users'];
 
-  try {
-    // Mettre à jour le doc de l'utilisateur courant (me) dans la collection appropriée
-    for (final col in collections) {
-      final meRef = FirebaseFirestore.instance.collection(col).doc(currentUser!.uid);
-      try {
-        await meRef.update({'blocked': FieldValue.arrayUnion([otherId])});
-        break; // stop dès qu'on a trouvé la collection
-      } catch (_) {}
+    try {
+      // Mettre à jour le doc de l'utilisateur courant (me) dans la collection appropriée
+      for (final col in collections) {
+        final meRef = FirebaseFirestore.instance
+            .collection(col)
+            .doc(currentUser!.uid);
+        try {
+          await meRef.update({
+            'blocked': FieldValue.arrayUnion([otherId]),
+          });
+          break; // stop dès qu'on a trouvé la collection
+        } catch (_) {}
+      }
+
+      // Mettre à jour le doc de l'autre utilisateur
+      for (final col in collections) {
+        final otherRef = FirebaseFirestore.instance
+            .collection(col)
+            .doc(otherId);
+        try {
+          await otherRef.update({
+            'blockedBy': FieldValue.arrayUnion([currentUser!.uid]),
+          });
+          break;
+        } catch (_) {}
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Utilisateur bloqué')));
+    } catch (e) {
+      debugPrint('Block contact error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Impossible de bloquer ce contact')),
+      );
     }
-
-    // Mettre à jour le doc de l'autre utilisateur
-    for (final col in collections) {
-      final otherRef = FirebaseFirestore.instance.collection(col).doc(otherId);
-      try {
-        await otherRef.update({'blockedBy': FieldValue.arrayUnion([currentUser!.uid])});
-        break;
-      } catch (_) {}
-    }
-
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Utilisateur bloqué')));
-  } catch (e) {
-    debugPrint('Block contact error: $e');
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Impossible de bloquer ce contact')));
   }
-}
-
 
   Future<void> _confirmDeleteContact(String otherId) async {
     if (currentUser == null) return;
-    final ok = await showDialog<bool>(context: context, builder: (c) {
-      return AlertDialog(
-        backgroundColor: _modalBg(c),
-        title: Text('Supprimer le contact?', style: TextStyle(color: _modalText(c))),
-        content: Text('Cette action supprimera le contact de votre liste. Les messages historiques restent inchangés.', style: TextStyle(color: _modalSub(c))),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: _modalSub(c)))),
-          TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Supprimer', style: TextStyle(color: Colors.red))),
-        ],
-      );
-    });
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) {
+        return AlertDialog(
+          backgroundColor: _modalBg(c),
+          title: Text(
+            'Supprimer le contact?',
+            style: TextStyle(color: _modalText(c)),
+          ),
+          content: Text(
+            'Cette action supprimera le contact de votre liste. Les messages historiques restent inchangés.',
+            style: TextStyle(color: _modalSub(c)),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: Text('Annuler', style: TextStyle(color: _modalSub(c))),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: const Text(
+                'Supprimer',
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
+          ],
+        );
+      },
+    );
     if (ok == true) await _deleteContact(otherId);
   }
 
   Future<void> _deleteContact(String otherId) async {
-  if (currentUser == null) return;
+    if (currentUser == null) return;
 
-  final collections = ['classic_users', 'enterprise_users', 'pro_users'];
+    final collections = ['classic_users', 'enterprise_users', 'pro_users'];
 
-  try {
-    for (final col in collections) {
-      final meRef = FirebaseFirestore.instance.collection(col).doc(currentUser!.uid);
-      try {
-        await meRef.update({'contacts': FieldValue.arrayRemove([otherId])});
-        break; // stop dès qu'on trouve la bonne collection
-      } catch (_) {}
+    try {
+      for (final col in collections) {
+        final meRef = FirebaseFirestore.instance
+            .collection(col)
+            .doc(currentUser!.uid);
+        try {
+          await meRef.update({
+            'contacts': FieldValue.arrayRemove([otherId]),
+          });
+          break; // stop dès qu'on trouve la bonne collection
+        } catch (_) {}
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Contact supprimé')));
+    } catch (e) {
+      debugPrint('Delete contact error: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Impossible de supprimer ce contact')),
+      );
     }
-
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact supprimé')));
-  } catch (e) {
-    debugPrint('Delete contact error: $e');
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Impossible de supprimer ce contact')));
   }
-}
-
 
   String _replyPreviewText(Map<String, dynamic> m) {
     final type = (m['type'] ?? 'text').toString();
@@ -3108,13 +4560,20 @@ Future<void> _blockContact(String otherId) async {
     if (_selectionMode) return;
     final senderId = (m['senderId'] ?? '').toString();
     final isMe = senderId == (currentUser?.uid ?? '');
-    final senderNameRaw = (m['senderName'] ?? m['senderDisplayName'] ?? '').toString().trim();
-    final senderLabel = isMe ? 'Vous' : (senderNameRaw.isNotEmpty ? senderNameRaw : 'Utilisateur');
+    final senderNameRaw = (m['senderName'] ?? m['senderDisplayName'] ?? '')
+        .toString()
+        .trim();
+    final senderLabel = isMe
+        ? 'Vous'
+        : (senderNameRaw.isNotEmpty ? senderNameRaw : 'Utilisateur');
     final type = (m['type'] ?? 'text').toString();
-    final mediaUrl = (m['url'] ?? m['imageUrl'] ?? m['fileUrl'] ?? '').toString();
+    final mediaUrl = (m['url'] ?? m['imageUrl'] ?? m['fileUrl'] ?? '')
+        .toString();
 
     final preview = _replyPreviewText(m);
-    final clipped = preview.length > 120 ? '${preview.substring(0, 117)}...' : preview;
+    final clipped = preview.length > 120
+        ? '${preview.substring(0, 117)}...'
+        : preview;
 
     setState(() {
       _replyTo = {
@@ -3186,7 +4645,11 @@ Future<void> _blockContact(String otherId) async {
           ),
           IconButton(
             splashRadius: 18,
-            icon: Icon(Icons.close, size: 18, color: isDark ? Colors.white54 : Colors.black54),
+            icon: Icon(
+              Icons.close,
+              size: 18,
+              color: isDark ? Colors.white54 : Colors.black54,
+            ),
             onPressed: () => setState(() => _replyTo = null),
           ),
         ],
@@ -3194,7 +4657,11 @@ Future<void> _blockContact(String otherId) async {
     );
   }
 
-  Widget _buildReplyInBubble(BuildContext context, Map<String, dynamic> m, {required bool isMe}) {
+  Widget _buildReplyInBubble(
+    BuildContext context,
+    Map<String, dynamic> m, {
+    required bool isMe,
+  }) {
     final raw = m['replyTo'];
     if (raw is! Map) return const SizedBox.shrink();
     final r = Map<String, dynamic>.from(raw);
@@ -3216,7 +4683,9 @@ Future<void> _blockContact(String otherId) async {
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: isDark ? Colors.black.withOpacity(0.15) : Colors.white.withOpacity(0.6),
+          color: isDark
+              ? Colors.black.withOpacity(0.15)
+              : Colors.white.withOpacity(0.6),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
         ),
@@ -3225,7 +4694,10 @@ Future<void> _blockContact(String otherId) async {
             Container(
               width: 3,
               height: 36,
-              decoration: BoxDecoration(color: barColor, borderRadius: BorderRadius.circular(6)),
+              decoration: BoxDecoration(
+                color: barColor,
+                borderRadius: BorderRadius.circular(6),
+              ),
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -3235,7 +4707,11 @@ Future<void> _blockContact(String otherId) async {
                 children: [
                   Text(
                     senderName,
-                    style: TextStyle(color: titleColor, fontWeight: FontWeight.w700, fontSize: 11),
+                    style: TextStyle(
+                      color: titleColor,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 11,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -3250,7 +4726,11 @@ Future<void> _blockContact(String otherId) async {
               ),
             ),
             if (replyId.isNotEmpty)
-              Icon(Icons.chevron_right, size: 16, color: isDark ? Colors.white38 : Colors.black38),
+              Icon(
+                Icons.chevron_right,
+                size: 16,
+                color: isDark ? Colors.white38 : Colors.black38,
+              ),
           ],
         ),
       ),
@@ -3263,129 +4743,166 @@ Future<void> _blockContact(String otherId) async {
       payload['replyTo'] = _replyTo;
     }
 
-    await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').add({
-      'senderId': currentUser?.uid,
-      'timestamp': FieldValue.serverTimestamp(),
-      'isRead': false,
-      'delivered': false,
-      'deliveredAt': null,
-      ...payload,
-    });
+    await FirebaseFirestore.instance
+        .collection('chats')
+        .doc(widget.chatId)
+        .collection('messages')
+        .add({
+          'senderId': currentUser?.uid,
+          'timestamp': FieldValue.serverTimestamp(),
+          'isRead': false,
+          'delivered': false,
+          'deliveredAt': null,
+          ...payload,
+        });
 
     if (_replyTo != null && mounted) {
       setState(() => _replyTo = null);
     }
 
-    // Update chat doc: lastMessage, lastMessageTime and increment unreadCounts for other participants
-    final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+    // Keep UI responsive: run chat metadata + push notification in background.
+    unawaited(_updateChatMetaAndNotify(payload));
+
+    // play local send sfx (best-effort, non blocking)
     try {
-      final chatSnap = await chatRef.get();
-      Map<String, dynamic> updateData = {
-        'lastMessage': data['text'] ?? "",
+      if (currentUser != null) {
+        unawaited(_playSfx('sounds/pop.mp3'));
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _updateChatMetaAndNotify(Map<String, dynamic> payload) async {
+    final chatRef = FirebaseFirestore.instance
+        .collection('chats')
+        .doc(widget.chatId);
+    List<dynamic> participants = const [];
+    try {
+      final chatSnap = await chatRef.get().timeout(const Duration(seconds: 10));
+      final chatData = chatSnap.data() ?? const <String, dynamic>{};
+      participants = (chatData['participants'] is List)
+          ? List.from(chatData['participants'])
+          : const [];
+
+      final updateData = <String, dynamic>{
+        'lastMessage': payload['text'] ?? "",
         'lastMessageTime': FieldValue.serverTimestamp(),
       };
-      if (chatSnap.exists) {
-        final chatData = chatSnap.data() ?? {};
-        final parts = (chatData['participants'] is List) ? List.from(chatData['participants']) : [];
-        if (currentUser != null && parts.isNotEmpty) {
-          for (var p in parts) {
-            updateData['hiddenFor.$p'] = FieldValue.delete();
-            if (p != currentUser!.uid) {
-              updateData['unreadCounts.$p'] = FieldValue.increment(1);
-            }
+
+      if (currentUser != null && participants.isNotEmpty) {
+        for (final p in participants) {
+          updateData['hiddenFor.$p'] = FieldValue.delete();
+          if (p != currentUser!.uid) {
+            updateData['unreadCounts.$p'] = FieldValue.increment(1);
           }
         }
       }
-      await chatRef.update(updateData);
-      // --- Envoi d'une demande de notification au service notifier (client-to-server)
-// --- Envoi d'une demande de notification au service notifier (client-to-server)
-      try {
-        final user = FirebaseAuth.instance.currentUser;
-        if (user != null) {
-          final idToken = await user.getIdToken();
-          final chatSnap = await chatRef.get();
-          final chatData = chatSnap.data() ?? {};
-          final parts = (chatData['participants'] is List) ? List.from(chatData['participants']) : [];
-          final recipients = parts.where((p) => p != user.uid).toList();
 
-          if (recipients.isNotEmpty) {
-            final url = Uri.parse(kNotifierUrl);
-            
-            final meta = await _resolveSenderMeta(user);
-            final String senderName = meta['name'] ?? 'Un utilisateur';
-            final String senderPhoto = meta['photo'] ?? 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
-
-            // Message preview per type (avoid sending raw URLs / empty strings)
-            final String msgType = (payload['type'] ?? 'text').toString();
-            final String rawText = (payload['text'] ?? '').toString().trim();
-            String preview;
-            switch (msgType) {
-              case 'text':
-                preview = rawText.isNotEmpty ? rawText : 'Nouveau message';
-                break;
-              case 'image':
-                preview = rawText.isNotEmpty ? rawText : 'Photo';
-                break;
-              case 'video':
-                preview = rawText.isNotEmpty ? rawText : 'Video';
-                break;
-              case 'voice':
-              case 'audio':
-                preview = rawText.isNotEmpty ? rawText : 'Message vocal';
-                break;
-              case 'file':
-                preview = rawText.isNotEmpty ? rawText : 'Fichier';
-                break;
-              default:
-                preview = rawText.isNotEmpty ? rawText : 'Nouveau message';
-                break;
-            }
-            if (preview.length > 120) preview = '${preview.substring(0, 117)}...';
-
-            // Only send imageUrl when message is an image/video and a URL exists
-            final String mediaUrl = (payload['url'] ?? payload['imageUrl'] ?? payload['fileUrl'] ?? '').toString();
-            final String imageUrl = (msgType == 'image' || msgType == 'video') ? mediaUrl : '';
-
-            final resp = await http.post(
-              url,
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer $idToken',
-              },
-              body: jsonEncode({
-                'recipients': recipients,
-                'title': senderName,         // IRA DANS HEADINGS (NOM EN GRAS)
-                'body': preview,             // IRA DANS CONTENTS (APERÇU)
-                'senderAvatarUrl': senderPhoto, // IRA DANS LARGE_ICON (L'AVATAR)
-                'imageUrl': imageUrl,        // large image for media notifications when supported
-                // Tell OneSignal to use our pre-created Android channel (custom sound, etc.).
-                // If the backend is a proxy, it can forward this to OneSignal as `existing_android_channel_id`.
-                'existing_android_channel_id': 'lualaba_channel_v2',
-                'android_sound': 'lualaba_pop',
-                'data': { 
-                  'chatId': widget.chatId,
-                  'chatName': widget.chatName,
-                  'senderId': user.uid,
-                  'type': 'chat_message'
-                }
-              }),
-            );
-            // Useful when debugging "no push received" issues.
-            debugPrint('[Notifier][chat_message] status=${resp.statusCode} body=${resp.body}');
-          }
-        }
-      }  catch (e) {
-        debugPrint('Notifier call error: $e');
-      }
+      await chatRef
+          .set(updateData, SetOptions(merge: true))
+          .timeout(const Duration(seconds: 10));
     } catch (e) {
       debugPrint('Erreur update chat meta: $e');
     }
-    // play local send sfx
-    try { if (currentUser != null) await _playSfx('sounds/pop.mp3'); } catch (_) {}
+
+    unawaited(_sendChatMessageNotifier(payload, participants: participants));
   }
 
+  Future<void> _sendChatMessageNotifier(
+    Map<String, dynamic> payload, {
+    required List<dynamic> participants,
+  }) async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
 
-  Future<void> _markMessagesAsDeliveredAndRead(List<QueryDocumentSnapshot> docs) async {
+      final recipients = participants
+          .map((p) => p.toString())
+          .where((p) => p.isNotEmpty && p != user.uid)
+          .toList();
+      if (recipients.isEmpty) return;
+
+      final idToken = await user.getIdToken().timeout(
+        const Duration(seconds: 8),
+      );
+      final url = Uri.parse(kNotifierUrl);
+
+      final meta = await _resolveSenderMeta(
+        user,
+      ).timeout(const Duration(seconds: 8));
+      final String senderName = meta['name'] ?? 'Un utilisateur';
+      final String senderPhoto =
+          meta['photo'] ??
+          'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+
+      final String msgType = (payload['type'] ?? 'text').toString();
+      final String rawText = (payload['text'] ?? '').toString().trim();
+      String preview;
+      switch (msgType) {
+        case 'text':
+          preview = rawText.isNotEmpty ? rawText : 'Nouveau message';
+          break;
+        case 'image':
+          preview = rawText.isNotEmpty ? rawText : 'Photo';
+          break;
+        case 'video':
+          preview = rawText.isNotEmpty ? rawText : 'Video';
+          break;
+        case 'voice':
+        case 'audio':
+          preview = rawText.isNotEmpty ? rawText : 'Message vocal';
+          break;
+        case 'file':
+          preview = rawText.isNotEmpty ? rawText : 'Fichier';
+          break;
+        default:
+          preview = rawText.isNotEmpty ? rawText : 'Nouveau message';
+          break;
+      }
+      if (preview.length > 120) preview = '${preview.substring(0, 117)}...';
+
+      final String mediaUrl =
+          (payload['url'] ?? payload['imageUrl'] ?? payload['fileUrl'] ?? '')
+              .toString();
+      final String imageUrl = (msgType == 'image' || msgType == 'video')
+          ? mediaUrl
+          : '';
+
+      final resp = await http
+          .post(
+            url,
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer $idToken',
+            },
+            body: jsonEncode({
+              'recipients': recipients,
+              'title': senderName,
+              'body': preview,
+              'senderAvatarUrl': senderPhoto,
+              'imageUrl': imageUrl,
+              'existing_android_channel_id': 'lualaba_channel_v2',
+              'android_sound': 'lualaba_pop',
+              'data': {
+                'chatId': widget.chatId,
+                'chatName': widget.chatName,
+                'senderId': user.uid,
+                'type': 'chat_message',
+              },
+            }),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      debugPrint(
+        '[Notifier][chat_message] status=${resp.statusCode} body=${resp.body}',
+      );
+    } catch (e) {
+      debugPrint('Notifier call error: $e');
+    }
+  }
+
+  Future<void> _markMessagesAsDeliveredAndRead(
+    List<QueryDocumentSnapshot> docs,
+  ) async {
     if (currentUser == null) return;
     if (_markingReceipts) return;
     _markingReceipts = true;
@@ -3438,7 +4955,9 @@ Future<void> _blockContact(String otherId) async {
       await commitBatch();
 
       if (shouldClearUnread) {
-        final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+        final chatRef = FirebaseFirestore.instance
+            .collection('chats')
+            .doc(widget.chatId);
         try {
           await chatRef.update({
             'unreadCounts.$uid': 0,
@@ -3456,7 +4975,10 @@ Future<void> _blockContact(String otherId) async {
 
         // Best effort: clear notifications so "push" doesn't stay visible after opening/reading.
         try {
-          await NotificationService.clearNotificationsForChat(widget.chatId, clearPush: true);
+          await NotificationService.clearNotificationsForChat(
+            widget.chatId,
+            clearPush: true,
+          );
         } catch (_) {}
       }
     } catch (e) {
@@ -3469,28 +4991,37 @@ Future<void> _blockContact(String otherId) async {
   Future<void> _setTyping(bool value) async {
     if (currentUser == null) return;
     try {
-      await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).update({
-        'typing.${currentUser!.uid}': value,
-      });
-    } catch (e) { debugPrint('Set typing error: $e'); }
+      await FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId)
+          .update({'typing.${currentUser!.uid}': value});
+    } catch (e) {
+      debugPrint('Set typing error: $e');
+    }
   }
 
   Future<void> _setUserAction(String action) async {
     if (currentUser == null) return;
     try {
-      await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).update({
-        'userActions.${currentUser!.uid}': action,
-      });
-    } catch (e) { debugPrint('Set userAction error: $e'); }
+      await FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId)
+          .update({'userActions.${currentUser!.uid}': action});
+    } catch (e) {
+      debugPrint('Set userAction error: $e');
+    }
   }
 
   Future<void> _setPresence(bool present) async {
     if (currentUser == null) return;
     try {
-      await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).update({
-        'present.${currentUser!.uid}': present,
-      });
-    } catch (e) { debugPrint('Set presence error: $e'); }
+      await FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId)
+          .update({'present.${currentUser!.uid}': present});
+    } catch (e) {
+      debugPrint('Set presence error: $e');
+    }
   }
 
   // --- DIALOGUE DE SONDAGE RAPIDE ---
@@ -3500,7 +5031,10 @@ Future<void> _blockContact(String otherId) async {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: _modalBg(context),
-        title: Text("Nouveau sondage", style: TextStyle(color: _modalText(context))),
+        title: Text(
+          "Nouveau sondage",
+          style: TextStyle(color: _modalText(context)),
+        ),
         content: TextField(
           autofocus: true,
           style: TextStyle(color: _modalText(context)),
@@ -3511,11 +5045,18 @@ Future<void> _blockContact(String otherId) async {
           onChanged: (v) => question = v,
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: Text("Annuler", style: TextStyle(color: _modalSub(context)))),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text("Annuler", style: TextStyle(color: _modalSub(context))),
+          ),
           TextButton(
             onPressed: () {
               if (question.trim().isNotEmpty) {
-                _saveToFirestore({'type': 'poll', 'question': question, 'text': '📊 Sondage: $question'});
+                _saveToFirestore({
+                  'type': 'poll',
+                  'question': question,
+                  'text': '📊 Sondage: $question',
+                });
                 Navigator.pop(context);
               }
             },
@@ -3538,17 +5079,32 @@ Future<void> _blockContact(String otherId) async {
         onImageSelected: (asset) async {
           Navigator.pop(parentContext);
           File? f = await asset.file;
-          if (f != null) _uploadAndSend(XFile(f.path), 'image', 'chat_media', '📸 Photo');
+          if (f != null)
+            _uploadAndSend(XFile(f.path), 'image', 'chat_media', '📸 Photo');
         },
         onCameraTap: () async {
           Navigator.pop(parentContext);
-          final XFile? media = await Navigator.push(parentContext, MaterialPageRoute(builder: (c) => const CameraScreen()));
+          final XFile? media = await Navigator.push(
+            parentContext,
+            MaterialPageRoute(builder: (c) => const CameraScreen()),
+          );
           if (media != null) {
-            final result = await Navigator.push(parentContext, MaterialPageRoute(
-              builder: (c) => MediaPreviewScreen(mediaFile: media, type: media.path.endsWith('.mp4') ? 'video' : 'image')
-            ));
+            final result = await Navigator.push(
+              parentContext,
+              MaterialPageRoute(
+                builder: (c) => MediaPreviewScreen(
+                  mediaFile: media,
+                  type: media.path.endsWith('.mp4') ? 'video' : 'image',
+                ),
+              ),
+            );
             if (result != null) {
-              _uploadAndSend(result['file'], media.path.endsWith('.mp4') ? 'video' : 'image', 'chat_media', result['caption']);
+              _uploadAndSend(
+                result['file'],
+                media.path.endsWith('.mp4') ? 'video' : 'image',
+                'chat_media',
+                result['caption'],
+              );
             }
           }
         },
@@ -3558,7 +5114,9 @@ Future<void> _blockContact(String otherId) async {
         },
         onFileTap: () async {
           Navigator.pop(parentContext);
-          FilePickerResult? res = await FilePicker.platform.pickFiles(withData: true);
+          FilePickerResult? res = await FilePicker.platform.pickFiles(
+            withData: true,
+          );
           if (res != null) {
             _uploadAndSend(
               res.files.single,
@@ -3575,12 +5133,20 @@ Future<void> _blockContact(String otherId) async {
           LocationPermission p = await Geolocator.requestPermission();
           if (p != LocationPermission.denied) {
             Position pos = await Geolocator.getCurrentPosition();
-            _saveToFirestore({'type': 'location', 'lat': pos.latitude, 'lng': pos.longitude, 'text': '📍 Position'});
+            _saveToFirestore({
+              'type': 'location',
+              'lat': pos.latitude,
+              'lng': pos.longitude,
+              'text': '📍 Position',
+            });
           }
         },
         onMusicTap: () async {
           Navigator.pop(context);
-          FilePickerResult? res = await FilePicker.platform.pickFiles(type: FileType.audio, withData: true);
+          FilePickerResult? res = await FilePicker.platform.pickFiles(
+            type: FileType.audio,
+            withData: true,
+          );
           if (res != null) {
             _uploadAndSend(
               res.files.single,
@@ -3600,7 +5166,9 @@ Future<void> _blockContact(String otherId) async {
               _saveToFirestore({
                 'type': 'contact',
                 'contactName': contact.displayName,
-                'phone': contact.phones.isNotEmpty ? contact.phones.first.number : "Pas de numéro",
+                'phone': contact.phones.isNotEmpty
+                    ? contact.phones.first.number
+                    : "Pas de numéro",
                 'text': '👤 Contact: ${contact.displayName}',
               });
             }
@@ -3614,161 +5182,258 @@ Future<void> _blockContact(String otherId) async {
     );
   }
 
-Future<void> _editContactLocal(String otherId) async {
-  if (currentUser == null) return;
+  Future<void> _editContactLocal(String otherId) async {
+    if (currentUser == null) return;
 
-  String name = '';
-  String phone = '';
+    String name = '';
+    String phone = '';
 
-  // Fonction interne pour chercher le contact dans une collection spécifique
-  Future<Map<String, dynamic>?> getContactFromCollection(String collection) async {
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection(collection)
-          .doc(currentUser!.uid)
-          .collection('contacts')
-          .doc(otherId)
-          .get();
-      if (doc.exists) return Map<String, dynamic>.from(doc.data() ?? {});
-    } catch (_) {}
-    return null;
-  }
+    // Fonction interne pour chercher le contact dans une collection spécifique
+    Future<Map<String, dynamic>?> getContactFromCollection(
+      String collection,
+    ) async {
+      try {
+        final doc = await FirebaseFirestore.instance
+            .collection(collection)
+            .doc(currentUser!.uid)
+            .collection('contacts')
+            .doc(otherId)
+            .get();
+        if (doc.exists) return Map<String, dynamic>.from(doc.data() ?? {});
+      } catch (_) {}
+      return null;
+    }
 
-  // Chercher dans toutes les collections jusqu'à trouver
-  final collections = ['classic_users', 'enterprise_users', 'pro_users'];
-  Map<String, dynamic>? contact;
-  for (final col in collections) {
-    contact = await getContactFromCollection(col);
-    if (contact != null) break;
-  }
+    // Chercher dans toutes les collections jusqu'à trouver
+    final collections = ['classic_users', 'enterprise_users', 'pro_users'];
+    Map<String, dynamic>? contact;
+    for (final col in collections) {
+      contact = await getContactFromCollection(col);
+      if (contact != null) break;
+    }
 
-  if (contact != null) {
-    name = contact['displayName'] ?? '';
-    phone = contact['phone'] ?? '';
-  }
+    if (contact != null) {
+      name = contact['displayName'] ?? '';
+      phone = contact['phone'] ?? '';
+    }
 
-  final nCtrl = TextEditingController(text: name);
-  final pCtrl = TextEditingController(text: phone);
+    final nCtrl = TextEditingController(text: name);
+    final pCtrl = TextEditingController(text: phone);
 
-  final ok = await showDialog<bool>(
-    context: context,
-    builder: (c) {
-      return AlertDialog(
-        backgroundColor: _modalBg(c),
-        title: Text('Modifier contact', style: TextStyle(color: _modalText(c))),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nCtrl,
-              style: TextStyle(color: _modalText(c)),
-              decoration: InputDecoration(
-                hintText: 'Nom',
-                hintStyle: TextStyle(color: _modalMuted(c)),
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (c) {
+        return AlertDialog(
+          backgroundColor: _modalBg(c),
+          title: Text(
+            'Modifier contact',
+            style: TextStyle(color: _modalText(c)),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: nCtrl,
+                style: TextStyle(color: _modalText(c)),
+                decoration: InputDecoration(
+                  hintText: 'Nom',
+                  hintStyle: TextStyle(color: _modalMuted(c)),
+                ),
               ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: pCtrl,
+                style: TextStyle(color: _modalText(c)),
+                decoration: InputDecoration(
+                  hintText: 'Téléphone',
+                  hintStyle: TextStyle(color: _modalMuted(c)),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(c, false),
+              child: Text('Annuler', style: TextStyle(color: _modalSub(c))),
             ),
-            const SizedBox(height: 8),
-            TextField(
-              controller: pCtrl,
-              style: TextStyle(color: _modalText(c)),
-              decoration: InputDecoration(
-                hintText: 'Téléphone',
-                hintStyle: TextStyle(color: _modalMuted(c)),
+            TextButton(
+              onPressed: () => Navigator.pop(c, true),
+              child: Text(
+                'Enregistrer',
+                style: TextStyle(color: _modalText(c)),
               ),
             ),
           ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: _modalSub(c)))),
-          TextButton(onPressed: () => Navigator.pop(c, true), child: Text('Enregistrer', style: TextStyle(color: _modalText(c)))),
-        ],
-      );
-    },
-  );
+        );
+      },
+    );
 
-  if (ok == true) {
-    try {
-      // Mettre à jour dans la collection où le contact a été trouvé
-      final ref = FirebaseFirestore.instance
-          .collection(contact != null && collections.contains('classic_users') ? 'classic_users' : 
-                      contact != null && collections.contains('enterprise_users') ? 'enterprise_users' : 'pro_users')
-          .doc(currentUser!.uid)
-          .collection('contacts')
-          .doc(otherId);
-
-      await ref.set({
-        'displayName': nCtrl.text.trim(),
-        'phone': pCtrl.text.trim(),
-        'updatedAt': FieldValue.serverTimestamp()
-      });
-
-      // Mettre à jour les localNames dans le chat pour affichage instantané
+    if (ok == true) {
       try {
-        final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
-        await chatRef.set({
-          'localNames': {currentUser!.uid: nCtrl.text.trim()}
-        }, SetOptions(merge: true));
-      } catch (_) {}
+        // Mettre à jour dans la collection où le contact a été trouvé
+        final ref = FirebaseFirestore.instance
+            .collection(
+              contact != null && collections.contains('classic_users')
+                  ? 'classic_users'
+                  : contact != null && collections.contains('enterprise_users')
+                  ? 'enterprise_users'
+                  : 'pro_users',
+            )
+            .doc(currentUser!.uid)
+            .collection('contacts')
+            .doc(otherId);
 
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Contact mis à jour')));
-    } catch (e) {
-      debugPrint('Edit contact error: $e');
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur lors de la mise à jour')));
+        await ref.set({
+          'displayName': nCtrl.text.trim(),
+          'phone': pCtrl.text.trim(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+
+        // Mettre à jour les localNames dans le chat pour affichage instantané
+        try {
+          final chatRef = FirebaseFirestore.instance
+              .collection('chats')
+              .doc(widget.chatId);
+          await chatRef.set({
+            'localNames': {currentUser!.uid: nCtrl.text.trim()},
+          }, SetOptions(merge: true));
+        } catch (_) {}
+
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Contact mis à jour')));
+      } catch (e) {
+        debugPrint('Edit contact error: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erreur lors de la mise à jour')),
+        );
+      }
     }
   }
-}
-
 
   void _showCallOptions() async {
     // resolve other participant id from chat doc
     try {
-      final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+      final chatRef = FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId);
       final chatSnap = await chatRef.get();
       if (!chatSnap.exists) return;
       final data = chatSnap.data() ?? {};
-      List participants = (data['participants'] is List) ? List.from(data['participants']) : [];
+      List participants = (data['participants'] is List)
+          ? List.from(data['participants'])
+          : [];
       final uid = FirebaseAuth.instance.currentUser?.uid;
       final bool isGroup = data['isGroup'] == true || participants.length > 2;
 
       // Group call: invite everyone in the group except me.
       if (isGroup) {
-        final ids = participants.map((e) => e.toString()).where((e) => e.trim().isNotEmpty).toSet().toList();
+        final ids = participants
+            .map((e) => e.toString())
+            .where((e) => e.trim().isNotEmpty)
+            .toSet()
+            .toList();
         final others = ids.where((e) => e != uid).toList();
         if (others.isEmpty) return;
-        final groupName = (data['groupName'] ?? data['name'] ?? widget.chatName).toString();
+        final groupName = (data['groupName'] ?? data['name'] ?? widget.chatName)
+            .toString();
         showModalBottomSheet(
           context: context,
           backgroundColor: Colors.transparent,
           builder: (ctx) {
             final isDark = _isDark(ctx);
             return Container(
-              decoration: BoxDecoration(color: _modalBg(ctx), borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
+              decoration: BoxDecoration(
+                color: _modalBg(ctx),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(16),
+                ),
+              ),
               padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Container(width: 48, height: 6, decoration: BoxDecoration(color: isDark ? Colors.white12 : Colors.black12, borderRadius: BorderRadius.circular(6))),
-                ]),
-                const SizedBox(height: 12),
-                Text('Appel de groupe', style: TextStyle(color: _modalText(ctx), fontSize: 16, fontWeight: FontWeight.w700)),
-                if (groupName.trim().isNotEmpty) ...[
-                  const SizedBox(height: 6),
-                  Text(groupName, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: _modalSub(ctx), fontSize: 13)),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.white12 : Colors.black12,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Appel de groupe',
+                    style: TextStyle(
+                      color: _modalText(ctx),
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  if (groupName.trim().isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      groupName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: _modalSub(ctx), fontSize: 13),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _actionTile(
+                        icon: Icons.call,
+                        label: 'Audio',
+                        color: Colors.green,
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _startGroupCall(others, false, title: groupName);
+                        },
+                      ),
+                      _actionTile(
+                        icon: Icons.videocam,
+                        label: 'Vidéo',
+                        color: Colors.purple,
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _startGroupCall(others, true, title: groupName);
+                        },
+                      ),
+                      _actionTile(
+                        icon: Icons.schedule,
+                        label: 'Planifier',
+                        color: Colors.orange,
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Planifier un appel — bientôt'),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
                 ],
-                const SizedBox(height: 12),
-                Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-                  _actionTile(icon: Icons.call, label: 'Audio', color: Colors.green, onTap: () { Navigator.pop(ctx); _startGroupCall(others, false, title: groupName); }),
-                  _actionTile(icon: Icons.videocam, label: 'Vidéo', color: Colors.purple, onTap: () { Navigator.pop(ctx); _startGroupCall(others, true, title: groupName); }),
-                  _actionTile(icon: Icons.schedule, label: 'Planifier', color: Colors.orange, onTap: () { Navigator.pop(ctx); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Planifier un appel — bientôt'))); }),
-                ]),
-                const SizedBox(height: 16),
-              ]),
+              ),
             );
           },
         );
         return;
       }
 
-      String otherId = participants.firstWhere((id) => id != uid, orElse: () => "");
+      String otherId = participants.firstWhere(
+        (id) => id != uid,
+        orElse: () => "",
+      );
       if (otherId == "") return;
 
       showModalBottomSheet(
@@ -3777,35 +5442,98 @@ Future<void> _editContactLocal(String otherId) async {
         builder: (ctx) {
           final isDark = _isDark(ctx);
           return Container(
-            decoration: BoxDecoration(color: _modalBg(ctx), borderRadius: const BorderRadius.vertical(top: Radius.circular(16))),
+            decoration: BoxDecoration(
+              color: _modalBg(ctx),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(16),
+              ),
+            ),
             padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                Container(width: 48, height: 6, decoration: BoxDecoration(color: isDark ? Colors.white12 : Colors.black12, borderRadius: BorderRadius.circular(6))),
-              ]),
-              const SizedBox(height: 12),
-              Text('Options d\'appel', style: TextStyle(color: _modalText(ctx), fontSize: 16, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 12),
-              Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-                _actionTile(icon: Icons.call, label: 'Audio', color: Colors.green, onTap: () { Navigator.pop(ctx); _startCall(otherId, false); }),
-                _actionTile(icon: Icons.videocam, label: 'Vidéo', color: Colors.purple, onTap: () { Navigator.pop(ctx); _startCall(otherId, true); }),
-                _actionTile(icon: Icons.schedule, label: 'Planifier', color: Colors.orange, onTap: () { Navigator.pop(ctx); ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Planifier un appel — bientôt'))); }),
-              ]),
-              const SizedBox(height: 16),
-            ]),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.white12 : Colors.black12,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Options d\'appel',
+                  style: TextStyle(
+                    color: _modalText(ctx),
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _actionTile(
+                      icon: Icons.call,
+                      label: 'Audio',
+                      color: Colors.green,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _startCall(otherId, false);
+                      },
+                    ),
+                    _actionTile(
+                      icon: Icons.videocam,
+                      label: 'Vidéo',
+                      color: Colors.purple,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        _startCall(otherId, true);
+                      },
+                    ),
+                    _actionTile(
+                      icon: Icons.schedule,
+                      label: 'Planifier',
+                      color: Colors.orange,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Planifier un appel — bientôt'),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
           );
-        }
+        },
       );
     } catch (e) {
       debugPrint('Show call options error: $e');
     }
   }
 
-  Future<void> _startGroupCall(List<String> otherIds, bool video, {String? title}) async {
+  Future<void> _startGroupCall(
+    List<String> otherIds,
+    bool video, {
+    String? title,
+  }) async {
     try {
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final ids = otherIds.where((e) => e.trim().isNotEmpty && e != user.uid).toSet().toList();
+      final ids = otherIds
+          .where((e) => e.trim().isNotEmpty && e != user.uid)
+          .toSet()
+          .toList();
       if (ids.isEmpty) return;
 
       final participants = <String>[user.uid, ...ids];
@@ -3864,21 +5592,24 @@ Future<void> _editContactLocal(String otherId) async {
         callId: callRef.id,
         isVideo: video,
       );
-     Navigator.push(
-  context,
-  MaterialPageRoute(
-    builder: (_) => CallWebRTCPage(
-      callId: callRef.id,
-      otherId: otherId,
-      isCaller: true,
-      name: widget.chatName,
-      avatarLetter: widget.chatName.isNotEmpty ? widget.chatName[0].toUpperCase() : '?',
-      isVideo: video,
-    ),
-  ),
-);
-
-    } catch (e) { debugPrint('Start call error: $e'); }
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => CallWebRTCPage(
+            callId: callRef.id,
+            otherId: otherId,
+            isCaller: true,
+            name: widget.chatName,
+            avatarLetter: widget.chatName.isNotEmpty
+                ? widget.chatName[0].toUpperCase()
+                : '?',
+            isVideo: video,
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Start call error: $e');
+    }
   }
 
   Future<void> _sendIncomingGroupCallPush({
@@ -3897,9 +5628,11 @@ Future<void> _editContactLocal(String otherId) async {
       final url = Uri.parse(kNotifierUrl);
 
       final meta = await _resolveSenderMeta(user);
-      final String senderPhoto = (user.photoURL != null && user.photoURL!.trim().isNotEmpty)
+      final String senderPhoto =
+          (user.photoURL != null && user.photoURL!.trim().isNotEmpty)
           ? user.photoURL!.trim()
-          : (meta['photo'] ?? 'https://cdn-icons-png.flaticon.com/512/149/149071.png');
+          : (meta['photo'] ??
+                'https://cdn-icons-png.flaticon.com/512/149/149071.png');
 
       final resp = await http.post(
         url,
@@ -3924,7 +5657,9 @@ Future<void> _editContactLocal(String otherId) async {
           },
         }),
       );
-      debugPrint('[Notifier][incoming_group_call] status=${resp.statusCode} body=${resp.body}');
+      debugPrint(
+        '[Notifier][incoming_group_call] status=${resp.statusCode} body=${resp.body}',
+      );
     } catch (e) {
       debugPrint('Send incoming group call push error: $e');
     }
@@ -3943,19 +5678,24 @@ Future<void> _editContactLocal(String otherId) async {
       final idToken = await user.getIdToken();
       final url = Uri.parse(kNotifierUrl);
 
-      final String callerName = (user.displayName != null && user.displayName!.trim().isNotEmpty)
+      final String callerName =
+          (user.displayName != null && user.displayName!.trim().isNotEmpty)
           ? user.displayName!.trim()
           : '';
 
-      final String callerPhoto = (user.photoURL != null && user.photoURL!.trim().isNotEmpty)
+      final String callerPhoto =
+          (user.photoURL != null && user.photoURL!.trim().isNotEmpty)
           ? user.photoURL!.trim()
           : '';
 
       final meta = await _resolveSenderMeta(user);
-      final String resolvedCallerName =
-          callerName.isNotEmpty ? callerName : (meta['name'] ?? 'Appel entrant');
-      final String resolvedCallerPhoto =
-          callerPhoto.isNotEmpty ? callerPhoto : (meta['photo'] ?? 'https://cdn-icons-png.flaticon.com/512/149/149071.png');
+      final String resolvedCallerName = callerName.isNotEmpty
+          ? callerName
+          : (meta['name'] ?? 'Appel entrant');
+      final String resolvedCallerPhoto = callerPhoto.isNotEmpty
+          ? callerPhoto
+          : (meta['photo'] ??
+                'https://cdn-icons-png.flaticon.com/512/149/149071.png');
 
       final resp = await http.post(
         url,
@@ -3980,7 +5720,9 @@ Future<void> _editContactLocal(String otherId) async {
           },
         }),
       );
-      debugPrint('[Notifier][incoming_call] status=${resp.statusCode} body=${resp.body}');
+      debugPrint(
+        '[Notifier][incoming_call] status=${resp.statusCode} body=${resp.body}',
+      );
     } catch (e) {
       debugPrint('Send incoming call push error: $e');
     }
@@ -3997,10 +5739,7 @@ Future<void> _editContactLocal(String otherId) async {
         ? const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              Color(0xFF241006),
-              Color(0xFF6E2A0C),
-            ],
+            colors: [Color(0xFF241006), Color(0xFF6E2A0C)],
           )
         : null;
     final Color text = isDark ? Colors.white : Colors.black87;
@@ -4012,324 +5751,582 @@ Future<void> _editContactLocal(String otherId) async {
       backgroundColor: bg,
       appBar: AppBar(
         backgroundColor: bar,
-        flexibleSpace: barGradient == null ? null : Container(decoration: BoxDecoration(gradient: barGradient)),
+        flexibleSpace: barGradient == null
+            ? null
+            : Container(decoration: BoxDecoration(gradient: barGradient)),
         elevation: 1,
         iconTheme: IconThemeData(color: warmBar ? appBarFg : icon),
-        leading: _selectionMode ? IconButton(icon: Icon(Icons.close, color: warmBar ? appBarFg : icon), onPressed: () => _clearSelection()) : null,
+        leading: _selectionMode
+            ? IconButton(
+                icon: Icon(Icons.close, color: warmBar ? appBarFg : icon),
+                onPressed: () => _clearSelection(),
+              )
+            : null,
         title: _selectionMode
-            ? Text('${_selectedMessageIds.length} sélectionné(s)', style: TextStyle(color: warmBar ? appBarFg : text))
+            ? Text(
+                '${_selectedMessageIds.length} sélectionné(s)',
+                style: TextStyle(color: warmBar ? appBarFg : text),
+              )
             : StreamBuilder<DocumentSnapshot>(
-          stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).snapshots(),
-          builder: (context, snap) {
-            String status = "";
-            bool isGroup = false;
-            String groupPhoto = "";
-            List<String> groupParticipants = const [];
-            String groupCreatorId = "";
-            String groupDescription = "";
-            // Determine a resilient display name: prefer chat doc 'name', then widget.chatName,
-            // then current user's displayName, finally fallback to 'Utilisateur'.
-            String displayName = widget.chatName.trim();
-            if (displayName.isEmpty) displayName = currentUser?.displayName ?? "";
-            if (snap.hasData && snap.data!.exists) {
-              final rawChat = snap.data!.data();
-              var data = rawChat is Map ? Map<String, dynamic>.from((rawChat as Map<String, dynamic>?) ?? {}) : <String, dynamic>{};
-              isGroup = data['isGroup'] == true;
-              if (_isGroupChat != isGroup) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (mounted) setState(() => _isGroupChat = isGroup);
-                });
-              }
-              if (isGroup) {
-                groupPhoto = (data['groupPhoto'] as String?) ?? '';
-                if (data['groupName'] is String && (data['groupName'] as String).trim().isNotEmpty) {
-                  displayName = (data['groupName'] as String).trim();
-                }
-                if (data['description'] is String && (data['description'] as String).trim().isNotEmpty) {
-                  groupDescription = (data['description'] as String).trim();
-                }
-                groupCreatorId = (data['creatorId'] ?? data['createdBy'] ?? data['ownerId'] ?? '') as String? ?? '';
-              }
-              // prefer explicit chat name from document
-              // support local per-user override: data['localNames'] is a map of uid->name
-              if (data['localNames'] is Map && currentUser != null) {
-                try {
-                  final ln = Map<String, dynamic>.from((data['localNames'] as Map<String, dynamic>?) ?? {});
-                  if (ln.containsKey(currentUser!.uid) && (ln[currentUser!.uid] as String).trim().isNotEmpty) {
-                    displayName = (ln[currentUser!.uid] as String).trim();
-                  }
-                } catch (_) {}
-              }
-              if (displayName.isEmpty && data['name'] is String && (data['name'] as String).trim().isNotEmpty) {
-                displayName = (data['name'] as String).trim();
-              }
-              Map typing = (data['typing'] is Map) ? data['typing'] : {};
-              Map actions = (data['userActions'] is Map) ? data['userActions'] : {};
-              Map present = (data['present'] is Map) ? data['present'] : {};
-              List others = (data['participants'] is List) ? List.from(data['participants']) : [];
-              if (isGroup) {
-                groupParticipants = others.map((e) => e.toString()).toList();
-              }
-              others.removeWhere((id) => id == currentUser?.uid);
-              // priority: actions (recording) > typing > present
-              List<String> recording = [];
-              List<String> typingUsers = [];
-              int presentCount = 0;
-              for (var o in others) {
-                if (actions[o] == 'recording') {
-                  recording.add(o as String);
-                } else if (typing[o] == true) typingUsers.add(o as String);
-                if (present[o] == true) presentCount++;
-              }
-              if (!isGroup) {
-                if (recording.isNotEmpty) {
-                  status = recording.length == 1 ? "enregistrement audio..." : "plusieurs enregistrement(s)...";
-                } else if (typingUsers.isNotEmpty) status = typingUsers.length == 1 ? "en train d'écrire..." : "plusieurs en train d'écrire...";
-                else if (presentCount > 0) status = presentCount == 1 ? "1 personne présente" : "$presentCount personnes présentes";
-              }
-            }
-            // sanitize accidental greeting strings like "bonjour utilisateur"
-            final lower = displayName.toLowerCase();
-            if (lower.contains('bonjour') || lower.contains('utilisateur')) {
-              displayName = '';
-            }
-
-            // try to detect other participant uid from chat doc so we can lookup their user profile
-            String otherId = "";
-            if (snap.hasData && snap.data!.exists) {
-              final rawChat2 = snap.data!.data();
-              var data = rawChat2 is Map ? Map<String, dynamic>.from((rawChat2 as Map<String, dynamic>?) ?? {}) : <String, dynamic>{};
-              List parts = (data['participants'] is List) ? List.from(data['participants']) : [];
-              parts.removeWhere((id) => id == currentUser?.uid);
-              if (parts.isNotEmpty) otherId = parts.first as String;
-            }
-
-            Widget buildRow(String name, {String? otherId}) {
-              String displayNameLocal = name;
-              final avatarLetter = displayNameLocal.isNotEmpty ? displayNameLocal[0].toUpperCase() : '?';
-
-              Widget nameAndBadge(bool isCert, String? accountType) {
-                return Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        children: [
-                          Flexible(
-                            child: Text(
-                              name.isNotEmpty ? name : 'Utilisateur',
-                              style: TextStyle(color: warmBar ? appBarFg : text, fontSize: 16, fontWeight: FontWeight.w700),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (isCert || (accountType != null && accountType.isNotEmpty)) ...[
-                            const SizedBox(width: 6),
-                            AccountBadges(isCertified: isCert, accountType: accountType, fontSize: 10),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      if (status.isNotEmpty) Text(status, style: TextStyle(color: warmBar ? Colors.white70 : sub, fontSize: 12, height: 1.1)),
-                    ],
-                  ),
-                );
-              }
-
-              if (otherId != null && otherId.isNotEmpty) {
-                return FutureBuilder<Map<String, dynamic>?>(
-                  future: _getUserProfile(otherId),
-                  builder: (ctx, userSnap) {
-                    String photo = '';
-                    bool isCert = false;
-                    String? accountType;
-                    if (userSnap.hasData && userSnap.data != null) {
-                      final ud = userSnap.data!['data'] as Map<String, dynamic>? ?? <String, dynamic>{};
-                      accountType = userSnap.data!['collection'] as String?;
-                      photo = (ud['photoUrl'] ?? ud['photo'] ?? ud['avatar'] ?? '') as String;
-                      if (ud['displayName'] is String && (ud['displayName'] as String).trim().isNotEmpty) {
-                        displayNameLocal = (ud['displayName'] as String).trim();
-                      } else if (ud['name'] is String && (ud['name'] as String).trim().isNotEmpty) {
-                        displayNameLocal = (ud['name'] as String).trim();
+                stream: FirebaseFirestore.instance
+                    .collection('chats')
+                    .doc(widget.chatId)
+                    .snapshots(),
+                builder: (context, snap) {
+                  String status = "";
+                  bool isGroup = false;
+                  String groupPhoto = "";
+                  List<String> groupParticipants = const [];
+                  String groupCreatorId = "";
+                  String groupDescription = "";
+                  // Determine a resilient display name: prefer chat doc 'name', then widget.chatName,
+                  // then current user's displayName, finally fallback to 'Utilisateur'.
+                  String displayName = widget.chatName.trim();
+                  if (displayName.isEmpty)
+                    displayName = currentUser?.displayName ?? "";
+                  if (snap.hasData && snap.data!.exists) {
+                    final rawChat = snap.data!.data();
+                    var data = rawChat is Map
+                        ? Map<String, dynamic>.from(
+                            (rawChat as Map<String, dynamic>?) ?? {},
+                          )
+                        : <String, dynamic>{};
+                    isGroup = data['isGroup'] == true;
+                    if (_isGroupChat != isGroup) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) setState(() => _isGroupChat = isGroup);
+                      });
+                    }
+                    if (isGroup) {
+                      groupPhoto = (data['groupPhoto'] as String?) ?? '';
+                      if (data['groupName'] is String &&
+                          (data['groupName'] as String).trim().isNotEmpty) {
+                        displayName = (data['groupName'] as String).trim();
                       }
-                      isCert = ud['isCertified'] == true;
+                      if (data['description'] is String &&
+                          (data['description'] as String).trim().isNotEmpty) {
+                        groupDescription = (data['description'] as String)
+                            .trim();
+                      }
+                      groupCreatorId =
+                          (data['creatorId'] ??
+                                  data['createdBy'] ??
+                                  data['ownerId'] ??
+                                  '')
+                              as String? ??
+                          '';
+                    }
+                    // prefer explicit chat name from document
+                    // support local per-user override: data['localNames'] is a map of uid->name
+                    if (data['localNames'] is Map && currentUser != null) {
+                      try {
+                        final ln = Map<String, dynamic>.from(
+                          (data['localNames'] as Map<String, dynamic>?) ?? {},
+                        );
+                        if (ln.containsKey(currentUser!.uid) &&
+                            (ln[currentUser!.uid] as String)
+                                .trim()
+                                .isNotEmpty) {
+                          displayName = (ln[currentUser!.uid] as String).trim();
+                        }
+                      } catch (_) {}
+                    }
+                    if (displayName.isEmpty &&
+                        data['name'] is String &&
+                        (data['name'] as String).trim().isNotEmpty) {
+                      displayName = (data['name'] as String).trim();
+                    }
+                    Map typing = (data['typing'] is Map) ? data['typing'] : {};
+                    Map actions = (data['userActions'] is Map)
+                        ? data['userActions']
+                        : {};
+                    Map present = (data['present'] is Map)
+                        ? data['present']
+                        : {};
+                    List others = (data['participants'] is List)
+                        ? List.from(data['participants'])
+                        : [];
+                    if (isGroup) {
+                      groupParticipants = others
+                          .map((e) => e.toString())
+                          .toList();
+                    }
+                    others.removeWhere((id) => id == currentUser?.uid);
+                    // priority: actions (recording) > typing > present
+                    List<String> recording = [];
+                    List<String> typingUsers = [];
+                    int presentCount = 0;
+                    for (var o in others) {
+                      if (actions[o] == 'recording') {
+                        recording.add(o as String);
+                      } else if (typing[o] == true)
+                        typingUsers.add(o as String);
+                      if (present[o] == true) presentCount++;
+                    }
+                    if (!isGroup) {
+                      if (recording.isNotEmpty) {
+                        status = recording.length == 1
+                            ? "enregistrement audio..."
+                            : "plusieurs enregistrement(s)...";
+                      } else if (typingUsers.isNotEmpty)
+                        status = typingUsers.length == 1
+                            ? "en train d'écrire..."
+                            : "plusieurs en train d'écrire...";
+                      else if (presentCount > 0)
+                        status = presentCount == 1
+                            ? "1 personne présente"
+                            : "$presentCount personnes présentes";
+                    }
+                  }
+                  // sanitize accidental greeting strings like "bonjour utilisateur"
+                  final lower = displayName.toLowerCase();
+                  if (lower.contains('bonjour') ||
+                      lower.contains('utilisateur')) {
+                    displayName = '';
+                  }
+
+                  // try to detect other participant uid from chat doc so we can lookup their user profile
+                  String otherId = "";
+                  if (snap.hasData && snap.data!.exists) {
+                    final rawChat2 = snap.data!.data();
+                    var data = rawChat2 is Map
+                        ? Map<String, dynamic>.from(
+                            (rawChat2 as Map<String, dynamic>?) ?? {},
+                          )
+                        : <String, dynamic>{};
+                    List parts = (data['participants'] is List)
+                        ? List.from(data['participants'])
+                        : [];
+                    parts.removeWhere((id) => id == currentUser?.uid);
+                    if (parts.isNotEmpty) otherId = parts.first as String;
+                  }
+
+                  Widget buildRow(String name, {String? otherId}) {
+                    String displayNameLocal = name;
+                    final avatarLetter = displayNameLocal.isNotEmpty
+                        ? displayNameLocal[0].toUpperCase()
+                        : '?';
+
+                    Widget nameAndBadge(bool isCert, String? accountType) {
+                      return Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    name.isNotEmpty ? name : 'Utilisateur',
+                                    style: TextStyle(
+                                      color: warmBar ? appBarFg : text,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                if (isCert ||
+                                    (accountType != null &&
+                                        accountType.isNotEmpty)) ...[
+                                  const SizedBox(width: 6),
+                                  AccountBadges(
+                                    isCertified: isCert,
+                                    accountType: accountType,
+                                    fontSize: 10,
+                                  ),
+                                ],
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            if (status.isNotEmpty)
+                              Text(
+                                status,
+                                style: TextStyle(
+                                  color: warmBar ? Colors.white70 : sub,
+                                  fontSize: 12,
+                                  height: 1.1,
+                                ),
+                              ),
+                          ],
+                        ),
+                      );
                     }
 
-                    final avatar = GestureDetector(
-                      onTap: () => _showAvatarActions(otherId, canEdit: otherId == currentUser?.uid, photoUrl: photo),
-                      child: Container(
-                        width: 42,
-                        height: 42,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: LinearGradient(colors: [Colors.white10, Colors.white12]),
-                          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 6, offset: const Offset(0, 2))],
-                        ),
-                        child: CircleAvatar(
-                          radius: 18,
-                          backgroundColor: Colors.transparent,
-                          backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null,
-                          child: photo.isEmpty ? Text(avatarLetter, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)) : null,
-                        ),
-                      ),
-                    );
+                    if (otherId != null && otherId.isNotEmpty) {
+                      return FutureBuilder<Map<String, dynamic>?>(
+                        future: _getUserProfile(otherId),
+                        builder: (ctx, userSnap) {
+                          String photo = '';
+                          bool isCert = false;
+                          String? accountType;
+                          if (userSnap.hasData && userSnap.data != null) {
+                            final ud =
+                                userSnap.data!['data']
+                                    as Map<String, dynamic>? ??
+                                <String, dynamic>{};
+                            accountType =
+                                userSnap.data!['collection'] as String?;
+                            photo =
+                                (ud['photoUrl'] ??
+                                        ud['photo'] ??
+                                        ud['avatar'] ??
+                                        '')
+                                    as String;
+                            if (ud['displayName'] is String &&
+                                (ud['displayName'] as String)
+                                    .trim()
+                                    .isNotEmpty) {
+                              displayNameLocal = (ud['displayName'] as String)
+                                  .trim();
+                            } else if (ud['name'] is String &&
+                                (ud['name'] as String).trim().isNotEmpty) {
+                              displayNameLocal = (ud['name'] as String).trim();
+                            }
+                            isCert = ud['isCertified'] == true;
+                          }
+
+                          final avatar = GestureDetector(
+                            onTap: () => _showAvatarActions(
+                              otherId,
+                              canEdit: otherId == currentUser?.uid,
+                              photoUrl: photo,
+                            ),
+                            child: Container(
+                              width: 42,
+                              height: 42,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: LinearGradient(
+                                  colors: [Colors.white10, Colors.white12],
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.4),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: CircleAvatar(
+                                radius: 18,
+                                backgroundColor: Colors.transparent,
+                                backgroundImage: photo.isNotEmpty
+                                    ? CachedNetworkImageProvider(photo)
+                                          as ImageProvider
+                                    : null,
+                                child: photo.isEmpty
+                                    ? Text(
+                                        avatarLetter,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      )
+                                    : null,
+                              ),
+                            ),
+                          );
+
+                          return Row(
+                            children: [
+                              avatar,
+                              const SizedBox(width: 12),
+                              // use resolvedNameTemp for display if available
+                              Builder(
+                                builder: (_) {
+                                  return nameAndBadge(isCert, accountType);
+                                },
+                              ),
+                            ],
+                          );
+                        },
+                      );
+                    }
 
                     return Row(
                       children: [
-                        avatar,
+                        Container(
+                          width: 42,
+                          height: 42,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: LinearGradient(
+                              colors: [Colors.white10, Colors.white12],
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.4),
+                                blurRadius: 6,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
+                          ),
+                          child: CircleAvatar(
+                            radius: 18,
+                            backgroundColor: Colors.transparent,
+                            child: Text(
+                              avatarLetter,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
                         const SizedBox(width: 12),
-                        // use resolvedNameTemp for display if available
-                        Builder(builder: (_) {
-                          return nameAndBadge(isCert, accountType);
-                        }),
+                        nameAndBadge(false, null),
                       ],
                     );
-                  },
-                );
-              }
+                  }
 
-              return Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(colors: [Colors.white10, Colors.white12]),
-                      boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 6, offset: const Offset(0, 2))],
-                    ),
-                    child: CircleAvatar(radius: 18, backgroundColor: Colors.transparent, child: Text(avatarLetter, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
-                  ),
-                  const SizedBox(width: 12),
-                  nameAndBadge(false, null),
-                ],
-              );
-            }
-
-            Widget buildGroupRow(String name, String photoUrl, List<String> participants, String creatorId, String description) {
-              final ids = participants.where((p) => p != currentUser?.uid).toList();
-              final lastTwo = ids.length <= 2 ? ids : ids.sublist(ids.length - 2);
-              return GestureDetector(
-                onTap: () {
-                  _showGroupInfoSheet(
-                    groupName: name,
-                    groupPhotoUrl: photoUrl,
-                    participantIds: participants,
-                    creatorId: creatorId,
-                    description: description,
-                  );
-                },
-                child: Row(
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: LinearGradient(colors: [Colors.white10, Colors.white12]),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 6, offset: const Offset(0, 2))],
-                      ),
-                      child: CircleAvatar(
-                        radius: 18,
-                        backgroundColor: Colors.transparent,
-                        backgroundImage: photoUrl.isNotEmpty ? CachedNetworkImageProvider(photoUrl) as ImageProvider : null,
-                        child: photoUrl.isEmpty ? const Icon(Icons.group, color: Colors.white70) : null,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
+                  Widget buildGroupRow(
+                    String name,
+                    String photoUrl,
+                    List<String> participants,
+                    String creatorId,
+                    String description,
+                  ) {
+                    final ids = participants
+                        .where((p) => p != currentUser?.uid)
+                        .toList();
+                    final lastTwo = ids.length <= 2
+                        ? ids
+                        : ids.sublist(ids.length - 2);
+                    return GestureDetector(
+                      onTap: () {
+                        _showGroupInfoSheet(
+                          groupName: name,
+                          groupPhotoUrl: photoUrl,
+                          participantIds: participants,
+                          creatorId: creatorId,
+                          description: description,
+                        );
+                      },
+                      child: Row(
                         children: [
-                          Text(name.isNotEmpty ? name : 'Groupe', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis),
-                          const SizedBox(height: 2),
-                          if (lastTwo.isEmpty)
-                            const Text('Aucun membre récent', style: TextStyle(color: Colors.white70, fontSize: 12, height: 1.1))
-                          else
-                            FutureBuilder<List<String>>(
-                              future: _resolveNames(lastTwo),
-                              builder: (ctx, snap) {
-                                final names = snap.data ?? lastTwo;
-                                final label = names.join(', ');
-                                return Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12, height: 1.1), maxLines: 1, overflow: TextOverflow.ellipsis);
-                              },
+                          Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              gradient: LinearGradient(
+                                colors: [Colors.white10, Colors.white12],
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.4),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
                             ),
+                            child: CircleAvatar(
+                              radius: 18,
+                              backgroundColor: Colors.transparent,
+                              backgroundImage: photoUrl.isNotEmpty
+                                  ? CachedNetworkImageProvider(photoUrl)
+                                        as ImageProvider
+                                  : null,
+                              child: photoUrl.isEmpty
+                                  ? const Icon(
+                                      Icons.group,
+                                      color: Colors.white70,
+                                    )
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  name.isNotEmpty ? name : 'Groupe',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                const SizedBox(height: 2),
+                                if (lastTwo.isEmpty)
+                                  const Text(
+                                    'Aucun membre récent',
+                                    style: TextStyle(
+                                      color: Colors.white70,
+                                      fontSize: 12,
+                                      height: 1.1,
+                                    ),
+                                  )
+                                else
+                                  FutureBuilder<List<String>>(
+                                    future: _resolveNames(lastTwo),
+                                    builder: (ctx, snap) {
+                                      final names = snap.data ?? lastTwo;
+                                      final label = names.join(', ');
+                                      return Text(
+                                        label,
+                                        style: const TextStyle(
+                                          color: Colors.white70,
+                                          fontSize: 12,
+                                          height: 1.1,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      );
+                                    },
+                                  ),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
-                    ),
-                  ],
-                ),
-              );
-            }
-
-            if (isGroup) {
-              final groupName = displayName.isNotEmpty ? displayName : (widget.chatName.isNotEmpty ? widget.chatName : 'Groupe');
-              return buildGroupRow(groupName, groupPhoto, groupParticipants, groupCreatorId, groupDescription);
-            }
-
-            // If we have an other participant id, try to resolve displayName from users collection
-            final needsLookup = otherId.isNotEmpty && (displayName.isEmpty || displayName.contains('@') || displayName.toLowerCase().contains('utilisateur'));
-            if (needsLookup) {
-              return FutureBuilder<DocumentSnapshot?>(
-                future: _getUserDoc(otherId),
-                builder: (ctx, userSnap) {
-                  String resolved = displayName;
-                  if (userSnap.hasData && userSnap.data != null && userSnap.data!.exists) {
-                    final rawUd = userSnap.data!.data();
-                    final ud = rawUd is Map ? Map<String, dynamic>.from(rawUd as Map<String, dynamic>) : <String, dynamic>{};
-                    if (ud['displayName'] is String && (ud['displayName'] as String).trim().isNotEmpty) {
-                      resolved = (ud['displayName'] as String).trim();
-                    } else if (ud['name'] is String && (ud['name'] as String).trim().isNotEmpty) {
-                      resolved = (ud['name'] as String).trim();
-                    }
+                    );
                   }
-                  if (resolved.isEmpty) resolved = currentUser?.displayName ?? 'Utilisateur';
-                  return buildRow(resolved, otherId: otherId);
-                },
-              );
-            }
 
-            // default
-            if (displayName.isEmpty) displayName = currentUser?.displayName ?? 'Utilisateur';
-            return buildRow(displayName, otherId: otherId);
-          },
-        ),
+                  if (isGroup) {
+                    final groupName = displayName.isNotEmpty
+                        ? displayName
+                        : (widget.chatName.isNotEmpty
+                              ? widget.chatName
+                              : 'Groupe');
+                    return buildGroupRow(
+                      groupName,
+                      groupPhoto,
+                      groupParticipants,
+                      groupCreatorId,
+                      groupDescription,
+                    );
+                  }
+
+                  // If we have an other participant id, try to resolve displayName from users collection
+                  final needsLookup =
+                      otherId.isNotEmpty &&
+                      (displayName.isEmpty ||
+                          displayName.contains('@') ||
+                          displayName.toLowerCase().contains('utilisateur'));
+                  if (needsLookup) {
+                    return FutureBuilder<DocumentSnapshot?>(
+                      future: _getUserDoc(otherId),
+                      builder: (ctx, userSnap) {
+                        String resolved = displayName;
+                        if (userSnap.hasData &&
+                            userSnap.data != null &&
+                            userSnap.data!.exists) {
+                          final rawUd = userSnap.data!.data();
+                          final ud = rawUd is Map
+                              ? Map<String, dynamic>.from(
+                                  rawUd as Map<String, dynamic>,
+                                )
+                              : <String, dynamic>{};
+                          if (ud['displayName'] is String &&
+                              (ud['displayName'] as String).trim().isNotEmpty) {
+                            resolved = (ud['displayName'] as String).trim();
+                          } else if (ud['name'] is String &&
+                              (ud['name'] as String).trim().isNotEmpty) {
+                            resolved = (ud['name'] as String).trim();
+                          }
+                        }
+                        if (resolved.isEmpty)
+                          resolved = currentUser?.displayName ?? 'Utilisateur';
+                        return buildRow(resolved, otherId: otherId);
+                      },
+                    );
+                  }
+
+                  // default
+                  if (displayName.isEmpty)
+                    displayName = currentUser?.displayName ?? 'Utilisateur';
+                  return buildRow(displayName, otherId: otherId);
+                },
+              ),
         actions: [
-          _selectionMode ? IconButton(icon: const Icon(Icons.delete, color: Colors.redAccent), onPressed: () => _confirmDeleteSelected()) : const SizedBox.shrink(),
+          _selectionMode
+              ? IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.redAccent),
+                  onPressed: () => _confirmDeleteSelected(),
+                )
+              : const SizedBox.shrink(),
           StreamBuilder<DocumentSnapshot>(
-            stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).snapshots(),
+            stream: FirebaseFirestore.instance
+                .collection('chats')
+                .doc(widget.chatId)
+                .snapshots(),
             builder: (context, snap) {
               bool isGroup = false;
               if (snap.hasData && snap.data!.exists) {
                 final rawChat = snap.data!.data();
-                final data = rawChat is Map ? Map<String, dynamic>.from((rawChat as Map<String, dynamic>?) ?? {}) : <String, dynamic>{};
+                final data = rawChat is Map
+                    ? Map<String, dynamic>.from(
+                        (rawChat as Map<String, dynamic>?) ?? {},
+                      )
+                    : <String, dynamic>{};
                 isGroup = data['isGroup'] == true;
               }
               return Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   if (!_selectionMode && !isGroup)
-                    IconButton(icon: Icon(Icons.call, color: warmBar ? appBarFg : icon), onPressed: () => _showCallOptions()),
+                    IconButton(
+                      icon: Icon(Icons.call, color: warmBar ? appBarFg : icon),
+                      onPressed: () => _showCallOptions(),
+                    ),
                   if (!_selectionMode)
                     PopupMenuButton<String>(
                       onSelected: (v) => _onMenuSelected(v),
                       itemBuilder: (ctx) => isGroup
                           ? [
-                              const PopupMenuItem(value: 'group_info', child: Text('Info du groupe')),
-                              const PopupMenuItem(value: 'group_media', child: Text('Media du groupe')),
-                              const PopupMenuItem(value: 'search', child: Text('Rechercher')),
-                              const PopupMenuItem(value: 'mute', child: Text('Mode silencieux')),
-                              const PopupMenuItem(value: 'ephemeral', child: Text('Message ephemere')),
-                              const PopupMenuItem(value: 'theme', child: Text('Theme de la discussion')),
-                              const PopupMenuItem(value: 'clear', child: Text('Effacer le contenu')),
+                              const PopupMenuItem(
+                                value: 'group_info',
+                                child: Text('Info du groupe'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'group_media',
+                                child: Text('Media du groupe'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'search',
+                                child: Text('Rechercher'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'mute',
+                                child: Text('Mode silencieux'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'ephemeral',
+                                child: Text('Message ephemere'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'theme',
+                                child: Text('Theme de la discussion'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'clear',
+                                child: Text('Effacer le contenu'),
+                              ),
                             ]
                           : [
-                              const PopupMenuItem(value: 'audio', child: Text('Appel audio')),
-                              const PopupMenuItem(value: 'video', child: Text('Appel vidéo')),
-                              const PopupMenuItem(value: 'info', child: Text('Info contact')),
-                              const PopupMenuItem(value: 'delete', child: Text('Supprimer la conversation')),
+                              const PopupMenuItem(
+                                value: 'audio',
+                                child: Text('Appel audio'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'video',
+                                child: Text('Appel vidéo'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'info',
+                                child: Text('Info contact'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'delete',
+                                child: Text('Supprimer la conversation'),
+                              ),
                             ],
                     )
                   else
@@ -4352,7 +6349,9 @@ Future<void> _editContactLocal(String otherId) async {
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: _bgGradients[_bgIndex].map((c) => c.withOpacity(0.18)).toList(),
+                  colors: _bgGradients[_bgIndex]
+                      .map((c) => c.withOpacity(0.18))
+                      .toList(),
                 ),
               ),
             ),
@@ -4372,19 +6371,24 @@ Future<void> _editContactLocal(String otherId) async {
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
                   colors: [
-                    isDark ? tgBg.withOpacity(0.25) : Colors.white.withOpacity(0.9),
-                    isDark ? const Color(0xFF071011).withOpacity(0.35) : const Color(0xFFE8ECF1).withOpacity(0.9),
+                    isDark
+                        ? tgBg.withOpacity(0.25)
+                        : Colors.white.withOpacity(0.9),
+                    isDark
+                        ? const Color(0xFF071011).withOpacity(0.35)
+                        : const Color(0xFFE8ECF1).withOpacity(0.9),
                   ],
                 ),
               ),
               child: Stack(
                 children: [
                   Column(
-                children: [
-                  Expanded(child: _buildMessageList()),
-                  if (_isLoading) _buildUploadingMediaBubble(isDark: isDark),
-                  _buildInputArea(),
-                ],
+                    children: [
+                      Expanded(child: _buildMessageList()),
+                      if (_isLoading)
+                        _buildUploadingMediaBubble(isDark: isDark),
+                      _buildInputArea(),
+                    ],
                   ),
                   // motifs overlay removed per request
                 ],
@@ -4402,7 +6406,9 @@ Future<void> _editContactLocal(String otherId) async {
         ? _uploadTotalBytes!
         : (done ? 100 : 0);
     final int sent = done ? total : _uploadSentBytes;
-    final double progressValue = done ? 1.0 : _uploadVisualProgress.clamp(0.0, 0.98);
+    final double progressValue = done
+        ? 1.0
+        : _uploadVisualProgress.clamp(0.0, 0.98);
     final int displayedSent = total > 0
         ? max(sent, (total * progressValue).round().clamp(0, total))
         : sent;
@@ -4413,8 +6419,11 @@ Future<void> _editContactLocal(String otherId) async {
     final bool isImage = mediaType == 'image';
     final bool isVideo = mediaType == 'video';
     final double mediaWidth = MediaQuery.of(context).size.width * 0.56;
-    final double mediaHeight = isVideo ? (mediaWidth * 0.62) : (mediaWidth * 0.92);
-    final bool hasPreviewBytes = _uploadPreviewBytes != null && _uploadPreviewBytes!.isNotEmpty;
+    final double mediaHeight = isVideo
+        ? (mediaWidth * 0.62)
+        : (mediaWidth * 0.92);
+    final bool hasPreviewBytes =
+        _uploadPreviewBytes != null && _uploadPreviewBytes!.isNotEmpty;
     bool hasPreviewPath = false;
     if (!kIsWeb && (_uploadPreviewPath?.isNotEmpty == true)) {
       try {
@@ -4436,7 +6445,11 @@ Future<void> _editContactLocal(String otherId) async {
           height: mediaHeight,
           color: Colors.black26,
           alignment: Alignment.center,
-          child: const Icon(Icons.image_not_supported_rounded, color: Colors.white54, size: 34),
+          child: const Icon(
+            Icons.image_not_supported_rounded,
+            color: Colors.white54,
+            size: 34,
+          ),
         ),
       );
     } else if (isImage && hasPreviewBytes) {
@@ -4473,7 +6486,9 @@ Future<void> _editContactLocal(String otherId) async {
       child: Align(
         alignment: Alignment.centerRight,
         child: Container(
-          constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.72),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.72,
+          ),
           decoration: BoxDecoration(
             gradient: const LinearGradient(
               begin: Alignment.topLeft,
@@ -4482,10 +6497,16 @@ Future<void> _editContactLocal(String otherId) async {
             ),
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color: done ? const Color(0xFF2ECC71).withOpacity(0.85) : Colors.white.withOpacity(0.18),
+              color: done
+                  ? const Color(0xFF2ECC71).withOpacity(0.85)
+                  : Colors.white.withOpacity(0.18),
             ),
             boxShadow: [
-              BoxShadow(color: Colors.black.withOpacity(isDark ? 0.34 : 0.12), blurRadius: 12, offset: const Offset(0, 6)),
+              BoxShadow(
+                color: Colors.black.withOpacity(isDark ? 0.34 : 0.12),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
             ],
           ),
           child: Padding(
@@ -4497,7 +6518,9 @@ Future<void> _editContactLocal(String otherId) async {
                 Row(
                   children: [
                     Icon(
-                      done ? Icons.check_circle_rounded : Icons.file_upload_rounded,
+                      done
+                          ? Icons.check_circle_rounded
+                          : Icons.file_upload_rounded,
                       color: done ? const Color(0xFF2ECC71) : Colors.white70,
                       size: 16,
                     ),
@@ -4506,17 +6529,28 @@ Future<void> _editContactLocal(String otherId) async {
                       child: Text(
                         done
                             ? 'Envoi terminé'
-                            : (_uploadLabel ?? (isVideo ? 'Envoi vidéo' : (isImage ? 'Envoi photo' : 'Envoi média'))),
+                            : (_uploadLabel ??
+                                  (isVideo
+                                      ? 'Envoi vidéo'
+                                      : (isImage
+                                            ? 'Envoi photo'
+                                            : 'Envoi média'))),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                     if (percent.isNotEmpty)
                       Text(
                         percent,
                         style: TextStyle(
-                          color: done ? const Color(0xFF2ECC71) : Colors.white70,
+                          color: done
+                              ? const Color(0xFF2ECC71)
+                              : Colors.white70,
                           fontSize: 11,
                           fontWeight: FontWeight.w800,
                         ),
@@ -4553,7 +6587,11 @@ Future<void> _editContactLocal(String otherId) async {
                             color: Colors.black.withOpacity(0.35),
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.done_rounded, color: Color(0xFF2ECC71), size: 22),
+                          child: const Icon(
+                            Icons.done_rounded,
+                            color: Color(0xFF2ECC71),
+                            size: 22,
+                          ),
                         ),
                     ],
                   ),
@@ -4580,7 +6618,11 @@ Future<void> _editContactLocal(String otherId) async {
                       alignment: Alignment.centerRight,
                       child: Text(
                         '${_fmtBytes(displayedSent)}/${_fmtBytes(total)}',
-                        style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
@@ -4594,11 +6636,18 @@ Future<void> _editContactLocal(String otherId) async {
 
   Widget _buildMessageList() {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
-    final Color cardBg = isDark ? Colors.white10 : Colors.black.withOpacity(0.05);
+    final Color cardBg = isDark
+        ? Colors.white10
+        : Colors.black.withOpacity(0.05);
     final Color text = isDark ? Colors.white : Colors.black87;
     final Color sub = isDark ? Colors.white70 : Colors.black54;
     return StreamBuilder<QuerySnapshot>(
-      stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).collection('messages').orderBy('timestamp', descending: true).snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId)
+          .collection('messages')
+          .orderBy('timestamp', descending: true)
+          .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const SizedBox();
         if (snapshot.hasData && snapshot.data!.docs.isEmpty) {
@@ -4606,13 +6655,27 @@ Future<void> _editContactLocal(String otherId) async {
             child: Container(
               width: MediaQuery.of(context).size.width * 0.86,
               padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(color: cardBg, borderRadius: BorderRadius.circular(14)),
+              decoration: BoxDecoration(
+                color: cardBg,
+                borderRadius: BorderRadius.circular(14),
+              ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text("Aucun message ici pour l'instant...", style: TextStyle(color: text, fontSize: 16, fontWeight: FontWeight.bold)),
+                  Text(
+                    "Aucun message ici pour l'instant...",
+                    style: TextStyle(
+                      color: text,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   const SizedBox(height: 8),
-                  Text("Envoyez un message ou touchez la salutation ci‑dessous.", style: TextStyle(color: sub), textAlign: TextAlign.center),
+                  Text(
+                    "Envoyez un message ou touchez la salutation ci‑dessous.",
+                    style: TextStyle(color: sub),
+                    textAlign: TextAlign.center,
+                  ),
                   const SizedBox(height: 16),
                   SizedBox(
                     height: 150,
@@ -4620,14 +6683,24 @@ Future<void> _editContactLocal(String otherId) async {
                       onTap: () async {
                         // send a quick greeting message
                         if (currentUser == null) return;
-                        await _saveToFirestore({'type': 'text', 'text': 'salut'});
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Salut envoyé')));
+                        await _saveToFirestore({
+                          'type': 'text',
+                          'text': 'salut',
+                        });
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Salut envoyé')),
+                        );
                       },
                       child: Lottie.network(
                         'https://assets10.lottiefiles.com/packages/lf20_touohxv0.json',
                         fit: BoxFit.contain,
                         repeat: true,
-                        errorBuilder: (context, error, stackTrace) => Lottie.asset('assets/lottie/animated_orangutan.json', fit: BoxFit.contain, repeat: true),
+                        errorBuilder: (context, error, stackTrace) =>
+                            Lottie.asset(
+                              'assets/lottie/animated_orangutan.json',
+                              fit: BoxFit.contain,
+                              repeat: true,
+                            ),
                       ),
                     ),
                   ),
@@ -4639,7 +6712,9 @@ Future<void> _editContactLocal(String otherId) async {
         // Marquer messages comme delivered / read quand le destinataire ouvre la conversation
         try {
           _markMessagesAsDeliveredAndRead(snapshot.data!.docs);
-        } catch (e) { debugPrint('Mark error: $e'); }
+        } catch (e) {
+          debugPrint('Mark error: $e');
+        }
 
         if (_pendingJumpMessageId != null) {
           final jumpId = _pendingJumpMessageId!;
@@ -4648,7 +6723,11 @@ Future<void> _editContactLocal(String otherId) async {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               final ctx = key.currentContext;
               if (ctx != null) {
-                Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 350), alignment: 0.3);
+                Scrollable.ensureVisible(
+                  ctx,
+                  duration: const Duration(milliseconds: 350),
+                  alignment: 0.3,
+                );
                 setState(() => _highlightMessageId = jumpId);
                 Future.delayed(const Duration(seconds: 2), () {
                   if (mounted && _highlightMessageId == jumpId) {
@@ -4670,32 +6749,50 @@ Future<void> _editContactLocal(String otherId) async {
             final doc = snapshot.data!.docs[index];
             // `reverse: true` means index 0 renders at the bottom (newest).
             // For Telegram-like bubble grouping we need the neighbors in the visual stack.
-            final QueryDocumentSnapshot? newerDoc = index > 0 ? snapshot.data!.docs[index - 1] : null; // below
-            final QueryDocumentSnapshot? olderDoc = (index + 1) < snapshot.data!.docs.length ? snapshot.data!.docs[index + 1] : null; // above
+            final QueryDocumentSnapshot? newerDoc = index > 0
+                ? snapshot.data!.docs[index - 1]
+                : null; // below
+            final QueryDocumentSnapshot? olderDoc =
+                (index + 1) < snapshot.data!.docs.length
+                ? snapshot.data!.docs[index + 1]
+                : null; // above
             final key = _messageKeys.putIfAbsent(doc.id, () => GlobalKey());
-            return KeyedSubtree(key: key, child: _buildBubble(doc, olderDoc: olderDoc, newerDoc: newerDoc));
+            return KeyedSubtree(
+              key: key,
+              child: _buildBubble(doc, olderDoc: olderDoc, newerDoc: newerDoc),
+            );
           },
         );
       },
     );
   }
 
-  Widget _buildBubble(QueryDocumentSnapshot doc, {QueryDocumentSnapshot? olderDoc, QueryDocumentSnapshot? newerDoc}) {
+  Widget _buildBubble(
+    QueryDocumentSnapshot doc, {
+    QueryDocumentSnapshot? olderDoc,
+    QueryDocumentSnapshot? newerDoc,
+  }) {
     final m = doc.data() as Map<String, dynamic>;
     bool isMe = m['senderId'] == currentUser?.uid;
     String type = m['type'] ?? 'text';
-    String time = m['timestamp'] != null ? DateFormat('HH:mm').format((m['timestamp'] as Timestamp).toDate()) : "";
+    String time = m['timestamp'] != null
+        ? DateFormat('HH:mm').format((m['timestamp'] as Timestamp).toDate())
+        : "";
     final bool isHighlighted = _highlightMessageId == doc.id;
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
     final Color pendingColor = isDark ? Colors.white30 : Colors.black38;
     final Color systemTimeColor = isDark ? Colors.white38 : Colors.black38;
-    final Color systemBg = isDark ? Colors.white10 : Colors.black.withOpacity(0.06);
+    final Color systemBg = isDark
+        ? Colors.white10
+        : Colors.black.withOpacity(0.06);
     Widget statusIcon = const SizedBox.shrink();
     if (isMe) {
       if ((m['isRead'] ?? false)) {
         statusIcon = Icon(Icons.done_all, size: 14, color: tgAccent);
-      } else if ((m['delivered'] ?? false)) statusIcon = Icon(Icons.done_all, size: 14, color: pendingColor);
-      else statusIcon = Icon(Icons.done, size: 14, color: pendingColor);
+      } else if ((m['delivered'] ?? false))
+        statusIcon = Icon(Icons.done_all, size: 14, color: pendingColor);
+      else
+        statusIcon = Icon(Icons.done, size: 14, color: pendingColor);
     }
 
     // Render system messages as centered labels (WhatsApp-style)
@@ -4726,7 +6823,10 @@ Future<void> _editContactLocal(String otherId) async {
             mainAxisSize: MainAxisSize.min,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: systemBg,
                   borderRadius: BorderRadius.circular(14),
@@ -4751,7 +6851,10 @@ Future<void> _editContactLocal(String otherId) async {
               ),
               if (time.isNotEmpty) ...[
                 const SizedBox(height: 4),
-                Text(time, style: TextStyle(color: systemTimeColor, fontSize: 10)),
+                Text(
+                  time,
+                  style: TextStyle(color: systemTimeColor, fontSize: 10),
+                ),
               ],
             ],
           ),
@@ -4771,8 +6874,12 @@ Future<void> _editContactLocal(String otherId) async {
     final Color borderColor = onDarkBubble
         ? Colors.white.withOpacity(isMe ? 0.18 : 0.12)
         : Colors.black.withOpacity(isMe ? 0.08 : 0.06);
-    final Color shadowBase = isDark ? Colors.black.withOpacity(0.35) : Colors.black.withOpacity(0.08);
-    final Color accentShadowBase = (isMe ? tgAccent : otherBase).withOpacity(isDark ? 0.18 : 0.12);
+    final Color shadowBase = isDark
+        ? Colors.black.withOpacity(0.35)
+        : Colors.black.withOpacity(0.08);
+    final Color accentShadowBase = (isMe ? tgAccent : otherBase).withOpacity(
+      isDark ? 0.18 : 0.12,
+    );
     final Color timeColor = onDarkBubble ? Colors.white70 : Colors.black54;
     final Color statusBg = onDarkBubble ? Colors.white10 : Colors.black12;
     final meColors = [
@@ -4821,7 +6928,8 @@ Future<void> _editContactLocal(String otherId) async {
     final bool canGroup = type != 'system';
     final bool sameAbove = canGroup && sameSender(olderDoc);
     final bool sameBelow = canGroup && sameSender(newerDoc);
-    final bool showTail = canGroup && !sameBelow; // only on last bubble of a run (bottom-most)
+    final bool showTail =
+        canGroup && !sameBelow; // only on last bubble of a run (bottom-most)
 
     BorderRadius bubbleRadius() {
       // Slightly tighter radii => more compact Telegram/WhatsApp feel.
@@ -4834,7 +6942,9 @@ Future<void> _editContactLocal(String otherId) async {
           topLeft: const Radius.circular(r),
           topRight: Radius.circular(sameAbove ? join : r),
           bottomLeft: const Radius.circular(r),
-          bottomRight: Radius.circular(showTail ? tail : (sameBelow ? join : r)),
+          bottomRight: Radius.circular(
+            showTail ? tail : (sameBelow ? join : r),
+          ),
         );
       }
       return BorderRadius.only(
@@ -4861,19 +6971,35 @@ Future<void> _editContactLocal(String otherId) async {
       borderRadius: bubbleRadius(),
       border: Border.all(color: borderColor),
       boxShadow: [
-        BoxShadow(color: shadowBase, blurRadius: isDark ? 14 : 8, offset: const Offset(0, 6)),
-        BoxShadow(color: accentShadowBase, blurRadius: isDark ? 22 : 14, offset: const Offset(0, 10)),
+        BoxShadow(
+          color: shadowBase,
+          blurRadius: isDark ? 14 : 8,
+          offset: const Offset(0, 6),
+        ),
+        BoxShadow(
+          color: accentShadowBase,
+          blurRadius: isDark ? 22 : 14,
+          offset: const Offset(0, 10),
+        ),
       ],
     );
 
     // Special styling for alert messages to make them stand out
     if (type == 'alert') {
       bubbleDecoration = BoxDecoration(
-        gradient: LinearGradient(colors: [Color(0xFFFF7043), Color(0xFFFFB74D)], begin: Alignment.topLeft, end: Alignment.bottomRight),
+        gradient: LinearGradient(
+          colors: [Color(0xFFFF7043), Color(0xFFFFB74D)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
         borderRadius: BorderRadius.circular(14),
         border: Border(left: BorderSide(color: Colors.redAccent, width: 6)),
         boxShadow: [
-          BoxShadow(color: Colors.red.withOpacity(0.28), blurRadius: 18, offset: const Offset(0, 8)),
+          BoxShadow(
+            color: Colors.red.withOpacity(0.28),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
         ],
       );
     }
@@ -4899,7 +7025,8 @@ Future<void> _editContactLocal(String otherId) async {
           margin: bubbleMargin,
           constraints: BoxConstraints(
             // Slightly narrower bubbles (less "big blocks")
-            maxWidth: MediaQuery.of(context).size.width * (isMedia ? 0.78 : 0.72),
+            maxWidth:
+                MediaQuery.of(context).size.width * (isMedia ? 0.78 : 0.72),
           ),
           // highlight when selected
           decoration: _selectedMessageIds.contains(doc.id) || isHighlighted
@@ -4907,13 +7034,17 @@ Future<void> _editContactLocal(String otherId) async {
                   gradient: bubbleDecoration.gradient,
                   borderRadius: bubbleDecoration.borderRadius as BorderRadius?,
                   boxShadow: bubbleDecoration.boxShadow,
-                  border: Border.all(color: isHighlighted ? Colors.amber : tgAccent, width: 2),
+                  border: Border.all(
+                    color: isHighlighted ? Colors.amber : tgAccent,
+                    width: 2,
+                  ),
                 )
               : bubbleDecoration,
           child: Material(
             color: Colors.transparent,
             child: Stack(
-              clipBehavior: Clip.none, // tail can extend outside the bubble bounds
+              clipBehavior:
+                  Clip.none, // tail can extend outside the bubble bounds
               children: [
                 if (showTail)
                   Positioned(
@@ -4933,7 +7064,10 @@ Future<void> _editContactLocal(String otherId) async {
                             opacity: (0.10 + 0.90 * t).clamp(0.0, 1.0),
                             child: Transform.translate(
                               offset: Offset(dx, dy),
-                              child: Transform.scale(scale: scale, child: child),
+                              child: Transform.scale(
+                                scale: scale,
+                                child: child,
+                              ),
                             ),
                           );
                         },
@@ -4941,7 +7075,8 @@ Future<void> _editContactLocal(String otherId) async {
                           angle: isMe ? 0.26 : -0.26,
                           child: CustomPaint(
                             painter: _BubbleTailPainter(
-                              color: (isMe ? meColors.first : otherColors.first).withOpacity(0.94),
+                              color: (isMe ? meColors.first : otherColors.first)
+                                  .withOpacity(0.94),
                               pointRight: isMe,
                             ),
                             size: const Size(20, 14),
@@ -4953,114 +7088,157 @@ Future<void> _editContactLocal(String otherId) async {
                 ClipRRect(
                   borderRadius: bubbleDecoration.borderRadius as BorderRadius,
                   child: InkWell(
-                onLongPress: () => _onMessageLongPress(doc, m),
-                onDoubleTap: () => _toggleReaction(doc.reference, '❤️'),
-                onTap: () {
-                  if (_selectionMode) {
-                    _toggleSelection(doc.id);
-                  } else {
-                    _onMessageOpen(doc, m);
-                  }
-                },
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: IgnorePointer(
-                        child: Opacity(
-                          opacity: 0.35,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [Colors.white.withOpacity(0.18), Colors.transparent],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
+                    onLongPress: () => _onMessageLongPress(doc, m),
+                    onDoubleTap: () => _toggleReaction(doc.reference, '❤️'),
+                    onTap: () {
+                      if (_selectionMode) {
+                        _toggleSelection(doc.id);
+                      } else {
+                        _onMessageOpen(doc, m);
+                      }
+                    },
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: Opacity(
+                              opacity: 0.35,
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      Colors.white.withOpacity(0.18),
+                                      Colors.transparent,
+                                    ],
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                    Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        isMedia ? 5 : 10,
-                        isMedia ? 5 : 8,
-                        isMedia ? 5 : 10,
-                        8,
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (_isGroupChat && !isMe) ...[
-                            Builder(builder: (ctx) {
-                              final bool isDark = Theme.of(ctx).brightness == Brightness.dark;
-                              final Color nameColor = (isDark || isMe) ? Colors.white70 : Colors.black54;
-                              final senderId = (m['senderId'] ?? '').toString();
-                              final fallbackName = (m['senderName'] ?? 'Utilisateur').toString();
-                              return FutureBuilder<Map<String, dynamic>?>(
-                                future: senderId.isNotEmpty ? _getUserProfile(senderId) : Future.value(null),
-                                builder: (c, snap) {
-                                  final data = snap.data?['data'] as Map<String, dynamic>? ?? <String, dynamic>{};
-                                  final accountType = snap.data?['collection'] as String?;
-                                  final name = UserUtils.formatName(data);
-                                  final displayName = name.isNotEmpty ? name : fallbackName;
-                                  final isCert = data['isCertified'] == true;
-                                  return Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Flexible(
-                                        child: Text(
-                                          displayName,
-                                          style: TextStyle(color: nameColor, fontWeight: FontWeight.w700, fontSize: 12),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      if (isCert || (accountType != null && accountType.isNotEmpty)) ...[
-                                        const SizedBox(width: 6),
-                                        AccountBadges(isCertified: isCert, accountType: accountType, fontSize: 9),
-                                      ],
-                                    ],
-                                  );
-                                },
-                              );
-                            }),
-                            const SizedBox(height: 4),
-                          ],
-                          _buildReplyInBubble(context, m, isMe: isMe),
-                          _buildContent(m, type, isMe: isMe),
-                          const SizedBox(height: 4),
-                          _buildReactions(m, doc.reference),
-                          const SizedBox(height: 6),
-                          Row(
+                        Padding(
+                          padding: EdgeInsets.fromLTRB(
+                            isMedia ? 5 : 10,
+                            isMedia ? 5 : 8,
+                            isMedia ? 5 : 10,
+                            8,
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Spacer(),
-                              Text(
-                                time,
-                                style: TextStyle(color: timeColor, fontSize: 11),
-                              ),
-                              if (isMe) const SizedBox(width: 8),
-                              if (isMe)
-                                // Requested: read receipts should not be inside circles.
-                                AnimatedSwitcher(
-                                  duration: const Duration(milliseconds: 220),
-                                  transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
-                                  child: IconTheme(
-                                    key: ValueKey('${m['isRead']}_${m['delivered']}'),
-                                    data: const IconThemeData(size: 14),
-                                    child: statusIcon,
-                                  ),
+                              if (_isGroupChat && !isMe) ...[
+                                Builder(
+                                  builder: (ctx) {
+                                    final bool isDark =
+                                        Theme.of(ctx).brightness ==
+                                        Brightness.dark;
+                                    final Color nameColor = (isDark || isMe)
+                                        ? Colors.white70
+                                        : Colors.black54;
+                                    final senderId = (m['senderId'] ?? '')
+                                        .toString();
+                                    final fallbackName =
+                                        (m['senderName'] ?? 'Utilisateur')
+                                            .toString();
+                                    return FutureBuilder<Map<String, dynamic>?>(
+                                      future: senderId.isNotEmpty
+                                          ? _getUserProfile(senderId)
+                                          : Future.value(null),
+                                      builder: (c, snap) {
+                                        final data =
+                                            snap.data?['data']
+                                                as Map<String, dynamic>? ??
+                                            <String, dynamic>{};
+                                        final accountType =
+                                            snap.data?['collection'] as String?;
+                                        final name = UserUtils.formatName(data);
+                                        final displayName = name.isNotEmpty
+                                            ? name
+                                            : fallbackName;
+                                        final isCert =
+                                            data['isCertified'] == true;
+                                        return Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Flexible(
+                                              child: Text(
+                                                displayName,
+                                                style: TextStyle(
+                                                  color: nameColor,
+                                                  fontWeight: FontWeight.w700,
+                                                  fontSize: 12,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                            if (isCert ||
+                                                (accountType != null &&
+                                                    accountType
+                                                        .isNotEmpty)) ...[
+                                              const SizedBox(width: 6),
+                                              AccountBadges(
+                                                isCertified: isCert,
+                                                accountType: accountType,
+                                                fontSize: 9,
+                                              ),
+                                            ],
+                                          ],
+                                        );
+                                      },
+                                    );
+                                  },
                                 ),
+                                const SizedBox(height: 4),
+                              ],
+                              _buildReplyInBubble(context, m, isMe: isMe),
+                              _buildContent(m, type, isMe: isMe),
+                              const SizedBox(height: 4),
+                              _buildReactions(m, doc.reference),
+                              const SizedBox(height: 6),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Spacer(),
+                                  Text(
+                                    time,
+                                    style: TextStyle(
+                                      color: timeColor,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                  if (isMe) const SizedBox(width: 8),
+                                  if (isMe)
+                                    // Requested: read receipts should not be inside circles.
+                                    AnimatedSwitcher(
+                                      duration: const Duration(
+                                        milliseconds: 220,
+                                      ),
+                                      transitionBuilder: (child, anim) =>
+                                          ScaleTransition(
+                                            scale: anim,
+                                            child: child,
+                                          ),
+                                      child: IconTheme(
+                                        key: ValueKey(
+                                          '${m['isRead']}_${m['delivered']}',
+                                        ),
+                                        data: const IconThemeData(size: 14),
+                                        child: statusIcon,
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ],
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
               ],
             ),
           ),
@@ -5109,31 +7287,57 @@ Future<void> _editContactLocal(String otherId) async {
         String avatarLetterLocal = '';
         if (snap.hasData && snap.data != null && snap.data!.exists) {
           final raw = snap.data!.data();
-          final ud = raw is Map ? Map<String, dynamic>.from(raw as Map<String, dynamic>) : <String, dynamic>{};
-          photo = (ud['photoUrl'] ?? ud['photo'] ?? ud['avatar'] ?? '') as String;
+          final ud = raw is Map
+              ? Map<String, dynamic>.from(raw as Map<String, dynamic>)
+              : <String, dynamic>{};
+          photo =
+              (ud['photoUrl'] ?? ud['photo'] ?? ud['avatar'] ?? '') as String;
           final nm = ud['displayName'] ?? ud['name'] ?? '';
-          if (nm is String && nm.isNotEmpty) avatarLetterLocal = nm[0].toUpperCase();
+          if (nm is String && nm.isNotEmpty)
+            avatarLetterLocal = nm[0].toUpperCase();
         } else {
           // fallback to message senderName
           final maybeName = (m['senderName'] ?? '') as String? ?? '';
-          if (maybeName.isNotEmpty) avatarLetterLocal = maybeName[0].toUpperCase();
+          if (maybeName.isNotEmpty)
+            avatarLetterLocal = maybeName[0].toUpperCase();
         }
 
         final avatarWidget = GestureDetector(
-          onTap: () => _showAvatarActions(senderId, canEdit: senderId == currentUser?.uid, photoUrl: photo),
+          onTap: () => _showAvatarActions(
+            senderId,
+            canEdit: senderId == currentUser?.uid,
+            photoUrl: photo,
+          ),
           child: Container(
             width: 36,
             height: 36,
             margin: const EdgeInsets.only(right: 8, left: 6),
-            decoration: BoxDecoration(shape: BoxShape.circle, boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 6)]),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(color: Colors.black.withOpacity(0.25), blurRadius: 6),
+              ],
+            ),
             child: CircleAvatar(
               radius: 18,
               backgroundColor: Colors.transparent,
-              backgroundImage: photo.isNotEmpty ? CachedNetworkImageProvider(photo) as ImageProvider : null,
+              backgroundImage: photo.isNotEmpty
+                  ? CachedNetworkImageProvider(photo) as ImageProvider
+                  : null,
               child: photo.isEmpty
                   ? (avatarLetterLocal.isNotEmpty
-                      ? Text(avatarLetterLocal, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))
-                      : const Icon(Icons.person, color: Colors.white70, size: 18))
+                        ? Text(
+                            avatarLetterLocal,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          )
+                        : const Icon(
+                            Icons.person,
+                            color: Colors.white70,
+                            size: 18,
+                          ))
                   : null,
             ),
           ),
@@ -5150,308 +7354,314 @@ Future<void> _editContactLocal(String otherId) async {
     );
   }
 
-  
-Future<Map<String, dynamic>?> _getUserProfile(String userId) async {
-  final firestore = FirebaseFirestore.instance;
-  for (final col in ['classic_users', 'enterprise_users', 'pro_users']) {
-    final snap = await firestore.collection(col).doc(userId).get();
-    if (snap.exists) {
-      final raw = snap.data();
-      final data = raw is Map ? Map<String, dynamic>.from(raw as Map<String, dynamic>) : <String, dynamic>{};
-      return {'data': data, 'collection': col};
-    }
-  }
-  return null;
-}
-
-Future<DocumentSnapshot?> _getUserDoc(String userId) async {
-  final firestore = FirebaseFirestore.instance;
-
-  // Essayer dans classic_users
-  var snap = await firestore.collection('classic_users').doc(userId).get();
-  if (snap.exists) return snap;
-
-  // Essayer dans enterprise_users
-  snap = await firestore.collection('enterprise_users').doc(userId).get();
-  if (snap.exists) return snap;
-
-  // Essayer dans pro_users
-  snap = await firestore.collection('pro_users').doc(userId).get();
-  if (snap.exists) return snap;
-
-  // Aucun document trouvé
-  return null;
-}
-
-Future<List<String>> _resolveNames(List<String> ids) async {
-  final out = <String>[];
-  for (final id in ids) {
-    try {
-      final snap = await _getUserDoc(id);
-      if (snap != null && snap.exists) {
+  Future<Map<String, dynamic>?> _getUserProfile(String userId) async {
+    final firestore = FirebaseFirestore.instance;
+    for (final col in ['classic_users', 'enterprise_users', 'pro_users']) {
+      final snap = await firestore.collection(col).doc(userId).get();
+      if (snap.exists) {
         final raw = snap.data();
-        final ud = raw is Map ? Map<String, dynamic>.from(raw as Map<String, dynamic>) : <String, dynamic>{};
-        final name = UserUtils.formatName(ud);
-        out.add(name.isNotEmpty ? name : id);
-      } else {
+        final data = raw is Map
+            ? Map<String, dynamic>.from(raw as Map<String, dynamic>)
+            : <String, dynamic>{};
+        return {'data': data, 'collection': col};
+      }
+    }
+    return null;
+  }
+
+  Future<DocumentSnapshot?> _getUserDoc(String userId) async {
+    final firestore = FirebaseFirestore.instance;
+
+    // Essayer dans classic_users
+    var snap = await firestore.collection('classic_users').doc(userId).get();
+    if (snap.exists) return snap;
+
+    // Essayer dans enterprise_users
+    snap = await firestore.collection('enterprise_users').doc(userId).get();
+    if (snap.exists) return snap;
+
+    // Essayer dans pro_users
+    snap = await firestore.collection('pro_users').doc(userId).get();
+    if (snap.exists) return snap;
+
+    // Aucun document trouvé
+    return null;
+  }
+
+  Future<List<String>> _resolveNames(List<String> ids) async {
+    final out = <String>[];
+    for (final id in ids) {
+      try {
+        final snap = await _getUserDoc(id);
+        if (snap != null && snap.exists) {
+          final raw = snap.data();
+          final ud = raw is Map
+              ? Map<String, dynamic>.from(raw as Map<String, dynamic>)
+              : <String, dynamic>{};
+          final name = UserUtils.formatName(ud);
+          out.add(name.isNotEmpty ? name : id);
+        } else {
+          out.add(id);
+        }
+      } catch (_) {
         out.add(id);
       }
-    } catch (_) {
-      out.add(id);
     }
+    return out;
   }
-  return out;
-}
 
-Future<void> _showAvatarActions(
-  String uid, {
-  required bool canEdit,
-  String? photoUrl,
-}) async {
-  final photo = photoUrl ?? '';
+  Future<void> _showAvatarActions(
+    String uid, {
+    required bool canEdit,
+    String? photoUrl,
+  }) async {
+    final photo = photoUrl ?? '';
 
-  showModalBottomSheet(
-    context: context,
-    backgroundColor: Colors.transparent,
-    builder: (ctx) {
-      return SafeArea(
-        child: Container(
-          decoration: BoxDecoration(
-            color: _modalBg(ctx),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-          ),
-          child: Wrap(
-            children: [
-              // =======================
-              // VOIR LA PHOTO
-              // =======================
-              if (photo.isNotEmpty)
-                ListTile(
-                  leading: Icon(Icons.visibility, color: _modalSub(ctx)),
-                  title: Text(
-                    'Voir la photo',
-                    style: TextStyle(color: _modalText(ctx)),
-                  ),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    showDialog(
-                      context: context,
-                      builder: (_) => Dialog(
-                        child: InteractiveViewer(
-                          child: Image.network(photo),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-
-              // =======================
-              // CHANGER LA PHOTO
-              // =======================
-              if (canEdit)
-                ListTile(
-                  leading: Icon(Icons.photo_camera, color: _modalSub(ctx)),
-                  title: Text(
-                    'Changer la photo',
-                    style: TextStyle(color: _modalText(ctx)),
-                  ),
-                  onTap: () async {
-                    Navigator.pop(ctx);
-
-                    final picker = ImagePicker();
-                    final img = await picker.pickImage(
-                      source: ImageSource.gallery,
-                      maxWidth: 1000,
-                    );
-                    if (img == null) return;
-
-                    try {
-                      String url = '';
-
-                      // 🔹 SUPABASE / FIREBASE (support web bytes)
-                      Uint8List bytes;
-                      if (kIsWeb) {
-                        bytes = await img.readAsBytes();
-                      } else {
-                        bytes = await File(img.path).readAsBytes();
-                      }
-
-                      if (SupabaseService.isInitialized) {
-                        url = await SupabaseService.uploadBytes(
-                          bytes,
-                          'users/$uid/profile.jpg',
-                          'IDENTITY',
-                        );
-                      }
-                      // 🔹 FIREBASE
-                      else {
-                        final ref = FirebaseStorage.instance
-                            .ref()
-                            .child('users/$uid/profile.jpg');
-
-                        if (kIsWeb) {
-                          await ref.putData(bytes);
-                        } else {
-                          await ref.putFile(File(img.path));
-                        }
-                        url = await ref.getDownloadURL();
-                      }
-
-                      // Mise à jour du profil Firebase Auth
-                      if (uid == currentUser?.uid) {
-                        try {
-                          await FirebaseAuth.instance.currentUser
-                              ?.updatePhotoURL(url);
-                        } catch (_) {}
-                      }
-
-                      // Mise à jour Firestore
-                      for (var c in [
-                        'classic_users',
-                        'pro_users',
-                        'enterprise_users'
-                      ]) {
-                        final doc =
-                            FirebaseFirestore.instance.collection(c).doc(uid);
-                        final snap = await doc.get();
-                        if (snap.exists) {
-                          await doc.update({
-                            'photoUrl': url,
-                            'photo': url,
-                          });
-                          break;
-                        }
-                      }
-
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Photo mise à jour'),
-                          ),
-                        );
-                      }
-                    } catch (e) {
-                      debugPrint('update avatar err: $e');
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Erreur lors de l\'upload'),
-                          ),
-                        );
-                      }
-                    }
-                  },
-                ),
-
-              // =======================
-              // SUPPRIMER LA PHOTO
-              // =======================
-              if (canEdit && photo.isNotEmpty)
-                ListTile(
-                  leading: Icon(Icons.delete, color: _modalSub(ctx)),
-                  title: Text(
-                    'Supprimer la photo',
-                    style: TextStyle(color: _modalText(ctx)),
-                  ),
-                  onTap: () async {
-                    Navigator.pop(ctx);
-
-                    final ok = await showDialog<bool>(
-                      context: context,
-                      builder: (d) => AlertDialog(
-                        backgroundColor: _modalBg(d),
-                        title: Text('Confirmer', style: TextStyle(color: _modalText(d))),
-                        content: Text('Supprimer la photo de profil ?', style: TextStyle(color: _modalSub(d))),
-                        actions: [
-                          TextButton(
-                            onPressed: () => Navigator.pop(d, false),
-                            child: Text('Annuler', style: TextStyle(color: _modalSub(d))),
-                          ),
-                          TextButton(
-                            onPressed: () => Navigator.pop(d, true),
-                            child: Text('Supprimer', style: TextStyle(color: _modalText(d))),
-                          ),
-                        ],
-                      ),
-                    );
-
-                    if (ok != true) return;
-
-                    // 🔹 Suppression STORAGE
-                    try {
-                      if (SupabaseService.isInitialized) {
-                        await Supabase.instance.client.storage
-                            .from('IDENTITY')
-                            .remove(['users/$uid/profile.jpg']);
-                      } else {
-                        final ref = FirebaseStorage.instance
-                            .ref()
-                            .child('users/$uid/profile.jpg');
-                        await ref.delete();
-                      }
-                    } catch (_) {}
-
-                    // 🔹 Suppression Firestore + Auth
-                    try {
-                      for (var c in [
-                        'classic_users',
-                        'pro_users',
-                        'enterprise_users'
-                      ]) {
-                        final doc = FirebaseFirestore.instance
-                            .collection(c)
-                            .doc(uid);
-                        final snap = await doc.get();
-                        if (snap.exists) {
-                          await doc.update({
-                            'photoUrl': FieldValue.delete(),
-                            'photo': FieldValue.delete(),
-                          });
-                          break;
-                        }
-                      }
-
-                      if (uid == currentUser?.uid) {
-                        try {
-                          await FirebaseAuth.instance.currentUser
-                              ?.updatePhotoURL('');
-                        } catch (_) {}
-                      }
-
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Photo supprimée'),
-                          ),
-                        );
-                      }
-                    } catch (e) {
-                      debugPrint('delete avatar err: $e');
-                    }
-                  },
-                ),
-
-              // =======================
-              // ANNULER
-              // =======================
-              ListTile(
-                leading: const Icon(Icons.close, color: Colors.white54),
-                title: const Text(
-                  'Annuler',
-                  style: TextStyle(color: Colors.white54),
-                ),
-                onTap: () => Navigator.pop(ctx),
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return SafeArea(
+          child: Container(
+            decoration: BoxDecoration(
+              color: _modalBg(ctx),
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(16),
               ),
-            ],
+            ),
+            child: Wrap(
+              children: [
+                // =======================
+                // VOIR LA PHOTO
+                // =======================
+                if (photo.isNotEmpty)
+                  ListTile(
+                    leading: Icon(Icons.visibility, color: _modalSub(ctx)),
+                    title: Text(
+                      'Voir la photo',
+                      style: TextStyle(color: _modalText(ctx)),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      showDialog(
+                        context: context,
+                        builder: (_) => Dialog(
+                          child: InteractiveViewer(child: Image.network(photo)),
+                        ),
+                      );
+                    },
+                  ),
+
+                // =======================
+                // CHANGER LA PHOTO
+                // =======================
+                if (canEdit)
+                  ListTile(
+                    leading: Icon(Icons.photo_camera, color: _modalSub(ctx)),
+                    title: Text(
+                      'Changer la photo',
+                      style: TextStyle(color: _modalText(ctx)),
+                    ),
+                    onTap: () async {
+                      Navigator.pop(ctx);
+
+                      final picker = ImagePicker();
+                      final img = await picker.pickImage(
+                        source: ImageSource.gallery,
+                        maxWidth: 1000,
+                      );
+                      if (img == null) return;
+
+                      try {
+                        String url = '';
+
+                        // 🔹 SUPABASE / FIREBASE (support web bytes)
+                        Uint8List bytes;
+                        if (kIsWeb) {
+                          bytes = await img.readAsBytes();
+                        } else {
+                          bytes = await File(img.path).readAsBytes();
+                        }
+
+                        if (SupabaseService.isInitialized) {
+                          url = await SupabaseService.uploadBytes(
+                            bytes,
+                            'users/$uid/profile.jpg',
+                            'IDENTITY',
+                          );
+                        }
+                        // 🔹 FIREBASE
+                        else {
+                          final ref = FirebaseStorage.instance.ref().child(
+                            'users/$uid/profile.jpg',
+                          );
+
+                          if (kIsWeb) {
+                            await ref.putData(bytes);
+                          } else {
+                            await ref.putFile(File(img.path));
+                          }
+                          url = await ref.getDownloadURL();
+                        }
+
+                        // Mise à jour du profil Firebase Auth
+                        if (uid == currentUser?.uid) {
+                          try {
+                            await FirebaseAuth.instance.currentUser
+                                ?.updatePhotoURL(url);
+                          } catch (_) {}
+                        }
+
+                        // Mise à jour Firestore
+                        for (var c in [
+                          'classic_users',
+                          'pro_users',
+                          'enterprise_users',
+                        ]) {
+                          final doc = FirebaseFirestore.instance
+                              .collection(c)
+                              .doc(uid);
+                          final snap = await doc.get();
+                          if (snap.exists) {
+                            await doc.update({'photoUrl': url, 'photo': url});
+                            break;
+                          }
+                        }
+
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Photo mise à jour')),
+                          );
+                        }
+                      } catch (e) {
+                        debugPrint('update avatar err: $e');
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Erreur lors de l\'upload'),
+                            ),
+                          );
+                        }
+                      }
+                    },
+                  ),
+
+                // =======================
+                // SUPPRIMER LA PHOTO
+                // =======================
+                if (canEdit && photo.isNotEmpty)
+                  ListTile(
+                    leading: Icon(Icons.delete, color: _modalSub(ctx)),
+                    title: Text(
+                      'Supprimer la photo',
+                      style: TextStyle(color: _modalText(ctx)),
+                    ),
+                    onTap: () async {
+                      Navigator.pop(ctx);
+
+                      final ok = await showDialog<bool>(
+                        context: context,
+                        builder: (d) => AlertDialog(
+                          backgroundColor: _modalBg(d),
+                          title: Text(
+                            'Confirmer',
+                            style: TextStyle(color: _modalText(d)),
+                          ),
+                          content: Text(
+                            'Supprimer la photo de profil ?',
+                            style: TextStyle(color: _modalSub(d)),
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(d, false),
+                              child: Text(
+                                'Annuler',
+                                style: TextStyle(color: _modalSub(d)),
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.pop(d, true),
+                              child: Text(
+                                'Supprimer',
+                                style: TextStyle(color: _modalText(d)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+
+                      if (ok != true) return;
+
+                      // 🔹 Suppression STORAGE
+                      try {
+                        if (SupabaseService.isInitialized) {
+                          await Supabase.instance.client.storage
+                              .from('IDENTITY')
+                              .remove(['users/$uid/profile.jpg']);
+                        } else {
+                          final ref = FirebaseStorage.instance.ref().child(
+                            'users/$uid/profile.jpg',
+                          );
+                          await ref.delete();
+                        }
+                      } catch (_) {}
+
+                      // 🔹 Suppression Firestore + Auth
+                      try {
+                        for (var c in [
+                          'classic_users',
+                          'pro_users',
+                          'enterprise_users',
+                        ]) {
+                          final doc = FirebaseFirestore.instance
+                              .collection(c)
+                              .doc(uid);
+                          final snap = await doc.get();
+                          if (snap.exists) {
+                            await doc.update({
+                              'photoUrl': FieldValue.delete(),
+                              'photo': FieldValue.delete(),
+                            });
+                            break;
+                          }
+                        }
+
+                        if (uid == currentUser?.uid) {
+                          try {
+                            await FirebaseAuth.instance.currentUser
+                                ?.updatePhotoURL('');
+                          } catch (_) {}
+                        }
+
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Photo supprimée')),
+                          );
+                        }
+                      } catch (e) {
+                        debugPrint('delete avatar err: $e');
+                      }
+                    },
+                  ),
+
+                // =======================
+                // ANNULER
+                // =======================
+                ListTile(
+                  leading: const Icon(Icons.close, color: Colors.white54),
+                  title: const Text(
+                    'Annuler',
+                    style: TextStyle(color: Colors.white54),
+                  ),
+                  onTap: () => Navigator.pop(ctx),
+                ),
+              ],
+            ),
           ),
-        ),
-      );
-    },
-  );
-}
-
-
-  
+        );
+      },
+    );
+  }
 
   Widget _buildContent(Map m, String type, {required bool isMe}) {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
@@ -5512,7 +7722,9 @@ Future<void> _showAvatarActions(
                   left: 8,
                   bottom: 8,
                   child: Container(
-                    padding: badgePadding ?? const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        badgePadding ??
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
                       color: Colors.black.withOpacity(0.50),
                       borderRadius: BorderRadius.circular(999),
@@ -5532,12 +7744,18 @@ Future<void> _showAvatarActions(
         ),
       );
     }
+
     // Afficher message supprimé pour l'utilisateur courant
     try {
       if (currentUser != null && m['deletedFor'] is Map) {
-        final df = Map<String, dynamic>.from((m['deletedFor'] as Map<String, dynamic>?) ?? {});
+        final df = Map<String, dynamic>.from(
+          (m['deletedFor'] as Map<String, dynamic>?) ?? {},
+        );
         if (df[currentUser!.uid] == true) {
-          return Text('Message supprimé', style: TextStyle(color: mutedText, fontStyle: FontStyle.italic));
+          return Text(
+            'Message supprimé',
+            style: TextStyle(color: mutedText, fontStyle: FontStyle.italic),
+          );
         }
       }
     } catch (_) {}
@@ -5545,17 +7763,28 @@ Future<void> _showAvatarActions(
       case 'image':
         return m['url'] != null
             ? FutureBuilder<File?>(
-                future: _getCachedMediaFile(m['url'].toString()),
+                future: _getCachedMediaFile(
+                  m['url'].toString(),
+                  expectedBytes: (m['size'] is int) ? (m['size'] as int) : null,
+                ),
                 builder: (c, snap) {
-                  final int? expected = (m['size'] is int) ? (m['size'] as int) : null;
+                  final int? expected = (m['size'] is int)
+                      ? (m['size'] as int)
+                      : null;
                   final local = snap.data;
                   if (local != null && local.existsSync()) {
                     return GestureDetector(
-                      onTap: () => _openMediaViewer(m['url'].toString(), 'image', sizeBytes: expected),
+                      onTap: () => _openMediaViewer(
+                        m['url'].toString(),
+                        'image',
+                        sizeBytes: expected,
+                      ),
                       child: telegramMediaShell(
                         badge: 'Photo',
                         child: ConstrainedBox(
-                          constraints: BoxConstraints(maxHeight: mediaWidth * 1.35),
+                          constraints: BoxConstraints(
+                            maxHeight: mediaWidth * 1.35,
+                          ),
                           child: Image.file(
                             local,
                             width: mediaWidth,
@@ -5570,10 +7799,14 @@ Future<void> _showAvatarActions(
                   final url = m['url'].toString();
                   final downloading = _mediaTransfers.isDownloading(url);
                   final int received = _mediaTransfers.receivedBytes(url);
-                  final int? total = _mediaTransfers.totalBytes(url) ?? expected;
-                  final double? progress = (total != null && total > 0) ? (received / total).clamp(0.0, 1.0) : null;
+                  final int? total =
+                      _mediaTransfers.totalBytes(url) ?? expected;
+                  final double? progress = (total != null && total > 0)
+                      ? (received / total).clamp(0.0, 1.0)
+                      : null;
                   return GestureDetector(
-                    onTap: () => _openMediaViewer(url, 'image', sizeBytes: expected),
+                    onTap: () =>
+                        _openMediaViewer(url, 'image', sizeBytes: expected),
                     child: telegramMediaShell(
                       badge: 'Photo',
                       child: Stack(
@@ -5592,13 +7825,19 @@ Future<void> _showAvatarActions(
                               width: mediaWidth,
                               height: mediaWidth * 0.72,
                               child: Center(
-                                child: CircularProgressIndicator(color: Theme.of(c).colorScheme.primary),
+                                child: CircularProgressIndicator(
+                                  color: Theme.of(c).colorScheme.primary,
+                                ),
                               ),
                             ),
                             errorWidget: (c, s, e) => SizedBox(
                               width: mediaWidth,
                               height: mediaWidth * 0.72,
-                              child: Icon(Icons.broken_image, color: iconMuted, size: 50),
+                              child: Icon(
+                                Icons.broken_image,
+                                color: iconMuted,
+                                size: 50,
+                              ),
                             ),
                           ),
                           if (!kIsWeb)
@@ -5610,11 +7849,21 @@ Future<void> _showAvatarActions(
                                     ? null
                                     : () async {
                                         final ok = await _askDownloadMedia();
-                                        if (ok) await _downloadMediaToCache(url, expectedBytes: expected);
+                                        if (ok)
+                                          await _downloadMediaToCache(
+                                            url,
+                                            expectedBytes: expected,
+                                          );
                                       },
                                 child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                  decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(14)),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 6,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.black54,
+                                    borderRadius: BorderRadius.circular(14),
+                                  ),
                                   child: downloading
                                       ? Row(
                                           mainAxisSize: MainAxisSize.min,
@@ -5630,14 +7879,24 @@ Future<void> _showAvatarActions(
                                             ),
                                             const SizedBox(width: 6),
                                             Text(
-                                              progress != null ? '${(progress * 100).toStringAsFixed(0)}%' : _fmtBytes(received),
-                                              style: TextStyle(color: iconColor, fontSize: 11, fontWeight: FontWeight.w700),
+                                              progress != null
+                                                  ? '${(progress * 100).toStringAsFixed(0)}%'
+                                                  : _fmtBytes(received),
+                                              style: TextStyle(
+                                                color: iconColor,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.w700,
+                                              ),
                                             ),
                                             if (total != null) ...[
                                               const SizedBox(width: 6),
                                               Text(
                                                 '${_fmtBytes(received)}/${_fmtBytes(total)}',
-                                                style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+                                                style: const TextStyle(
+                                                  color: Colors.white70,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
                                               ),
                                             ],
                                           ],
@@ -5645,10 +7904,21 @@ Future<void> _showAvatarActions(
                                       : Row(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            Icon(Icons.download, size: 14, color: iconColor),
+                                            Icon(
+                                              Icons.download,
+                                              size: 14,
+                                              color: iconColor,
+                                            ),
                                             if (expected != null) ...[
                                               const SizedBox(width: 6),
-                                              Text(_fmtBytes(expected), style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600)),
+                                              Text(
+                                                _fmtBytes(expected),
+                                                style: TextStyle(
+                                                  color: Colors.white70,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
                                             ],
                                           ],
                                         ),
@@ -5666,17 +7936,26 @@ Future<void> _showAvatarActions(
       case 'video':
         return m['url'] != null
             ? FutureBuilder<File?>(
-                future: _getCachedMediaFile(m['url'].toString()),
+                future: _getCachedMediaFile(
+                  m['url'].toString(),
+                  expectedBytes: (m['size'] is int) ? (m['size'] as int) : null,
+                ),
                 builder: (c, snap) {
                   final local = snap.data;
                   final url = m['url'].toString();
                   final downloading = _mediaTransfers.isDownloading(url);
-                  final int? expected = (m['size'] is int) ? (m['size'] as int) : null;
+                  final int? expected = (m['size'] is int)
+                      ? (m['size'] as int)
+                      : null;
                   final int received = _mediaTransfers.receivedBytes(url);
-                  final int? total = _mediaTransfers.totalBytes(url) ?? expected;
-                  final double? progress = (total != null && total > 0) ? (received / total).clamp(0.0, 1.0) : null;
+                  final int? total =
+                      _mediaTransfers.totalBytes(url) ?? expected;
+                  final double? progress = (total != null && total > 0)
+                      ? (received / total).clamp(0.0, 1.0)
+                      : null;
                   return GestureDetector(
-                    onTap: () => _openMediaViewer(url, 'video', sizeBytes: expected),
+                    onTap: () =>
+                        _openMediaViewer(url, 'video', sizeBytes: expected),
                     child: telegramMediaShell(
                       badge: 'Vidéo',
                       child: SizedBox(
@@ -5690,16 +7969,31 @@ Future<void> _showAvatarActions(
                                 gradient: LinearGradient(
                                   begin: Alignment.topLeft,
                                   end: Alignment.bottomRight,
-                                  colors: [Color(0xFF121A2A), Color(0xFF0B101C)],
+                                  colors: [
+                                    Color(0xFF121A2A),
+                                    Color(0xFF0B101C),
+                                  ],
                                 ),
                               ),
-                              child: SizedBox(width: mediaWidth, height: mediaWidth * 0.62),
+                              child: SizedBox(
+                                width: mediaWidth,
+                                height: mediaWidth * 0.62,
+                              ),
                             ),
                             if (local != null && local.existsSync())
-                              Icon(Icons.play_circle_fill_rounded, color: subText, size: 54)
+                              Icon(
+                                Icons.play_circle_fill_rounded,
+                                color: subText,
+                                size: 54,
+                              )
                             else
-                              Icon(Icons.play_circle_fill_rounded, color: mutedText, size: 54),
-                            if (!kIsWeb && (local == null || !local.existsSync()))
+                              Icon(
+                                Icons.play_circle_fill_rounded,
+                                color: mutedText,
+                                size: 54,
+                              ),
+                            if (!kIsWeb &&
+                                (local == null || !local.existsSync()))
                               Positioned(
                                 right: 6,
                                 bottom: 6,
@@ -5708,11 +8002,21 @@ Future<void> _showAvatarActions(
                                       ? null
                                       : () async {
                                           final ok = await _askDownloadMedia();
-                                          if (ok) await _downloadMediaToCache(url, expectedBytes: expected);
+                                          if (ok)
+                                            await _downloadMediaToCache(
+                                              url,
+                                              expectedBytes: expected,
+                                            );
                                         },
                                   child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-                                    decoration: BoxDecoration(color: Colors.black54, borderRadius: BorderRadius.circular(14)),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 6,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black54,
+                                      borderRadius: BorderRadius.circular(14),
+                                    ),
                                     child: downloading
                                         ? Row(
                                             mainAxisSize: MainAxisSize.min,
@@ -5720,22 +8024,33 @@ Future<void> _showAvatarActions(
                                               SizedBox(
                                                 width: 14,
                                                 height: 14,
-                                                child: CircularProgressIndicator(
-                                                  strokeWidth: 2,
-                                                  color: iconColor,
-                                                  value: progress,
-                                                ),
+                                                child:
+                                                    CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color: iconColor,
+                                                      value: progress,
+                                                    ),
                                               ),
                                               const SizedBox(width: 6),
                                               Text(
-                                                progress != null ? '${(progress * 100).toStringAsFixed(0)}%' : _fmtBytes(received),
-                                                style: TextStyle(color: iconColor, fontSize: 11, fontWeight: FontWeight.w700),
+                                                progress != null
+                                                    ? '${(progress * 100).toStringAsFixed(0)}%'
+                                                    : _fmtBytes(received),
+                                                style: TextStyle(
+                                                  color: iconColor,
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
                                               ),
                                               if (total != null) ...[
                                                 const SizedBox(width: 6),
                                                 Text(
                                                   '${_fmtBytes(received)}/${_fmtBytes(total)}',
-                                                  style: const TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600),
+                                                  style: const TextStyle(
+                                                    color: Colors.white70,
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
                                                 ),
                                               ],
                                             ],
@@ -5743,10 +8058,21 @@ Future<void> _showAvatarActions(
                                         : Row(
                                             mainAxisSize: MainAxisSize.min,
                                             children: [
-                                              Icon(Icons.download, size: 14, color: iconColor),
+                                              Icon(
+                                                Icons.download,
+                                                size: 14,
+                                                color: iconColor,
+                                              ),
                                               if (expected != null) ...[
                                                 const SizedBox(width: 6),
-                                                Text(_fmtBytes(expected), style: TextStyle(color: Colors.white70, fontSize: 11, fontWeight: FontWeight.w600)),
+                                                Text(
+                                                  _fmtBytes(expected),
+                                                  style: TextStyle(
+                                                    color: Colors.white70,
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
                                               ],
                                             ],
                                           ),
@@ -5764,15 +8090,22 @@ Future<void> _showAvatarActions(
 
       case 'file':
         return FutureBuilder<File?>(
-          future: _getCachedMediaFile(m['url'] ?? ''),
+          future: _getCachedMediaFile(
+            m['url'] ?? '',
+            expectedBytes: (m['size'] is int) ? (m['size'] as int) : null,
+          ),
           builder: (c, snap) {
             final url = (m['url'] ?? '').toString();
             final local = snap.data;
             final downloading = _mediaTransfers.isDownloading(url);
-            final int? expected = (m['size'] is int) ? (m['size'] as int) : null;
+            final int? expected = (m['size'] is int)
+                ? (m['size'] as int)
+                : null;
             final int received = _mediaTransfers.receivedBytes(url);
             final int? total = _mediaTransfers.totalBytes(url) ?? expected;
-            final double? progress = (total != null && total > 0) ? (received / total).clamp(0.0, 1.0) : null;
+            final double? progress = (total != null && total > 0)
+                ? (received / total).clamp(0.0, 1.0)
+                : null;
             return GestureDetector(
               onTap: () async {
                 if (url.isEmpty) return;
@@ -5790,7 +8123,12 @@ Future<void> _showAvatarActions(
                 } else {
                   final uri = Uri.tryParse(url);
                   if (uri != null) {
-                    try { await launchUrl(uri, mode: LaunchMode.externalApplication); } catch (_) {}
+                    try {
+                      await launchUrl(
+                        uri,
+                        mode: LaunchMode.externalApplication,
+                      );
+                    } catch (_) {}
                   }
                 }
               },
@@ -5799,10 +8137,22 @@ Future<void> _showAvatarActions(
                 children: [
                   Icon(Icons.insert_drive_file, color: iconColor),
                   const SizedBox(width: 8),
-                  Flexible(child: Text(m['fileName'] ?? "Fichier", style: TextStyle(color: textColor))),
+                  Flexible(
+                    child: Text(
+                      m['fileName'] ?? "Fichier",
+                      style: TextStyle(color: textColor),
+                    ),
+                  ),
                   if (expected != null) ...[
                     const SizedBox(width: 8),
-                    Text(_fmtBytes(expected), style: TextStyle(color: subText, fontSize: 12, fontWeight: FontWeight.w600)),
+                    Text(
+                      _fmtBytes(expected),
+                      style: TextStyle(
+                        color: subText,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
                   ],
                   const SizedBox(width: 10),
                   if (!kIsWeb)
@@ -5813,18 +8163,32 @@ Future<void> _showAvatarActions(
                               SizedBox(
                                 width: 14,
                                 height: 14,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: iconColor, value: progress),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: iconColor,
+                                  value: progress,
+                                ),
                               ),
                               const SizedBox(width: 6),
                               Text(
-                                progress != null ? '${(progress * 100).toStringAsFixed(0)}%' : _fmtBytes(received),
-                                style: TextStyle(color: subText, fontSize: 12, fontWeight: FontWeight.w700),
+                                progress != null
+                                    ? '${(progress * 100).toStringAsFixed(0)}%'
+                                    : _fmtBytes(received),
+                                style: TextStyle(
+                                  color: subText,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                               if (total != null) ...[
                                 const SizedBox(width: 6),
                                 Text(
                                   '${_fmtBytes(received)}/${_fmtBytes(total)}',
-                                  style: TextStyle(color: subText, fontSize: 11, fontWeight: FontWeight.w600),
+                                  style: TextStyle(
+                                    color: subText,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ],
                             ],
@@ -5838,26 +8202,37 @@ Future<void> _showAvatarActions(
 
       case 'audio':
         return FutureBuilder<File?>(
-          future: _getCachedMediaFile(m['url'] ?? ''),
+          future: _getCachedMediaFile(
+            m['url'] ?? '',
+            expectedBytes: (m['size'] is int) ? (m['size'] as int) : null,
+          ),
           builder: (c, snap) {
             final url = (m['url'] ?? '').toString();
             final local = snap.data;
             final downloading = _mediaTransfers.isDownloading(url);
-            final int? expected = (m['size'] is int) ? (m['size'] as int) : null;
+            final int? expected = (m['size'] is int)
+                ? (m['size'] as int)
+                : null;
             final int received = _mediaTransfers.receivedBytes(url);
             final int? total = _mediaTransfers.totalBytes(url) ?? expected;
-            final double? progress = (total != null && total > 0) ? (received / total).clamp(0.0, 1.0) : null;
+            final double? progress = (total != null && total > 0)
+                ? (received / total).clamp(0.0, 1.0)
+                : null;
             return Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Expanded(
                   child: AudioMessagePlayer(
-                    url: (local != null && local.existsSync()) ? 'file://${local.path}' : url,
+                    url: (local != null && local.existsSync())
+                        ? 'file://${local.path}'
+                        : url,
                     fileName: m['fileName'] ?? 'Audio',
                     onDarkBubble: onDarkBubble,
                   ),
                 ),
-                if (!kIsWeb && url.isNotEmpty && (local == null || !local.existsSync()))
+                if (!kIsWeb &&
+                    url.isNotEmpty &&
+                    (local == null || !local.existsSync()))
                   Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -5866,35 +8241,60 @@ Future<void> _showAvatarActions(
                             ? SizedBox(
                                 width: 16,
                                 height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: iconColor, value: progress),
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: iconColor,
+                                  value: progress,
+                                ),
                               )
                             : Icon(Icons.download, color: subText, size: 18),
                         onPressed: downloading
                             ? null
                             : () async {
                                 final ok = await _askDownloadMedia();
-                                if (ok) await _downloadMediaToCache(url, expectedBytes: expected);
+                                if (ok)
+                                  await _downloadMediaToCache(
+                                    url,
+                                    expectedBytes: expected,
+                                  );
                               },
                       ),
                       if (downloading)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 2),
                           child: Text(
-                            progress != null ? '${(progress * 100).toStringAsFixed(0)}%' : _fmtBytes(received),
-                            style: TextStyle(color: subText, fontSize: 10, fontWeight: FontWeight.w700),
+                            progress != null
+                                ? '${(progress * 100).toStringAsFixed(0)}%'
+                                : _fmtBytes(received),
+                            style: TextStyle(
+                              color: subText,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         )
                       else if (expected != null)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 2),
-                          child: Text(_fmtBytes(expected), style: TextStyle(color: subText, fontSize: 10, fontWeight: FontWeight.w600)),
+                          child: Text(
+                            _fmtBytes(expected),
+                            style: TextStyle(
+                              color: subText,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ),
                       if (downloading && total != null)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 2),
                           child: Text(
                             '${_fmtBytes(received)}/${_fmtBytes(total)}',
-                            style: TextStyle(color: subText, fontSize: 10, fontWeight: FontWeight.w600),
+                            style: TextStyle(
+                              color: subText,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ),
                     ],
@@ -5913,8 +8313,17 @@ Future<void> _showAvatarActions(
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(m['contactName'] ?? "Contact", style: TextStyle(color: textColor, fontWeight: FontWeight.bold)),
-                Text(m['phone'] ?? "", style: TextStyle(color: subText, fontSize: 12)),
+                Text(
+                  m['contactName'] ?? "Contact",
+                  style: TextStyle(
+                    color: textColor,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  m['phone'] ?? "",
+                  style: TextStyle(color: subText, fontSize: 12),
+                ),
               ],
             ),
           ],
@@ -5924,8 +8333,18 @@ Future<void> _showAvatarActions(
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text("📊 SONDAGE", style: TextStyle(color: Color(0xFF64B5F6), fontSize: 10, fontWeight: FontWeight.bold)),
-            Text(m['question'] ?? "", style: TextStyle(color: textColor, fontSize: 16)),
+            const Text(
+              "📊 SONDAGE",
+              style: TextStyle(
+                color: Color(0xFF64B5F6),
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            Text(
+              m['question'] ?? "",
+              style: TextStyle(color: textColor, fontSize: 16),
+            ),
           ],
         );
 
@@ -5940,38 +8359,77 @@ Future<void> _showAvatarActions(
       case 'alert':
         try {
           final loc = m['location'];
-          final hasLoc = loc != null && loc['lat'] != null && loc['lng'] != null;
+          final hasLoc =
+              loc != null && loc['lat'] != null && loc['lng'] != null;
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(children: [
-                const Icon(Icons.warning_amber_rounded, color: Color(0xFFFFE082), size: 28),
-                const SizedBox(width: 10),
-                Expanded(child: Text(m['text'] ?? 'Je me sens en insécurité.', style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.w800))),
-              ]),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    color: Color(0xFFFFE082),
+                    size: 28,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      m['text'] ?? 'Je me sens en insécurité.',
+                      style: TextStyle(
+                        color: textColor,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
               if (hasLoc) ...[
                 const SizedBox(height: 8),
                 GestureDetector(
                   onTap: () async {
-                    final uri = Uri.tryParse('https://www.google.com/maps?q=${loc['lat']},${loc['lng']}');
+                    final uri = Uri.tryParse(
+                      'https://www.google.com/maps?q=${loc['lat']},${loc['lng']}',
+                    );
                     if (uri == null) return;
                     try {
-                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                      await launchUrl(
+                        uri,
+                        mode: LaunchMode.externalApplication,
+                      );
                     } catch (e) {
-                      try { await launchUrl(uri); } catch (_) {}
+                      try {
+                        await launchUrl(uri);
+                      } catch (_) {}
                     }
                   },
-                  child: Text('Voir la position', style: TextStyle(color: subText, decoration: TextDecoration.underline)),
+                  child: Text(
+                    'Voir la position',
+                    style: TextStyle(
+                      color: subText,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
                 ),
               ],
             ],
           );
         } catch (_) {
-          return Text(m['text'] ?? 'Je me sens en insécurité.', style: TextStyle(color: textColor, fontSize: 16, fontWeight: FontWeight.w800));
+          return Text(
+            m['text'] ?? 'Je me sens en insécurité.',
+            style: TextStyle(
+              color: textColor,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
+          );
         }
 
       default:
-        return Text(m['text'] ?? "", style: TextStyle(color: textColor, fontSize: 16));
+        return Text(
+          m['text'] ?? "",
+          style: TextStyle(color: textColor, fontSize: 16),
+        );
     }
   }
 
@@ -5980,11 +8438,23 @@ Future<void> _showAvatarActions(
       context: context,
       builder: (c) => AlertDialog(
         backgroundColor: _modalBg(c),
-        title: Text('Supprimer la conversation', style: TextStyle(color: _modalText(c))),
-        content: Text('Voulez-vous supprimer cette conversation pour vous uniquement ?', style: TextStyle(color: _modalSub(c))),
+        title: Text(
+          'Supprimer la conversation',
+          style: TextStyle(color: _modalText(c)),
+        ),
+        content: Text(
+          'Voulez-vous supprimer cette conversation pour vous uniquement ?',
+          style: TextStyle(color: _modalSub(c)),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: _modalSub(c)))),
-          TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Supprimer', style: TextStyle(color: tgAccent))),
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: Text('Annuler', style: TextStyle(color: _modalSub(c))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('Supprimer', style: TextStyle(color: tgAccent)),
+          ),
         ],
       ),
     );
@@ -5995,16 +8465,24 @@ Future<void> _showAvatarActions(
   Future<void> _deleteConversation() async {
     try {
       if (currentUser == null) return;
-      final chatRef = FirebaseFirestore.instance.collection('chats').doc(widget.chatId);
+      final chatRef = FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId);
       await chatRef.set({
         'hiddenFor.${currentUser!.uid}': true,
         'unreadCounts.${currentUser!.uid}': 0,
       }, SetOptions(merge: true));
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Conversation supprimée pour vous')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Conversation supprimée pour vous')),
+        );
       if (mounted) Navigator.pop(context);
     } catch (e) {
       debugPrint('Delete conversation error: $e');
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Erreur lors de la suppression')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Erreur lors de la suppression')),
+        );
     }
   }
 
@@ -6019,22 +8497,31 @@ Future<void> _showAvatarActions(
     final Color muted = isDark ? Colors.white38 : Colors.black45;
 
     return StreamBuilder<DocumentSnapshot>(
-      stream: FirebaseFirestore.instance.collection('chats').doc(widget.chatId).snapshots(),
+      stream: FirebaseFirestore.instance
+          .collection('chats')
+          .doc(widget.chatId)
+          .snapshots(),
       builder: (context, snap) {
         bool sendDisabled = false;
         bool isAdmin = false;
         if (snap.hasData && snap.data!.exists) {
           final data = (snap.data!.data() as Map<String, dynamic>?) ?? {};
-          final perms = (data['permissions'] is Map) ? Map<String, dynamic>.from(data['permissions']) : <String, dynamic>{};
+          final perms = (data['permissions'] is Map)
+              ? Map<String, dynamic>.from(data['permissions'])
+              : <String, dynamic>{};
           sendDisabled = perms['sendDisabled'] == true;
-          final admins = (data['admins'] as List?)?.map((e) => e.toString()).toList() ?? <String>[];
+          final admins =
+              (data['admins'] as List?)?.map((e) => e.toString()).toList() ??
+              <String>[];
           isAdmin = admins.contains(currentUser?.uid ?? '');
         }
         final blocked = sendDisabled && !isAdmin;
 
         return AnimatedPadding(
           duration: const Duration(milliseconds: 160),
-          padding: EdgeInsets.only(bottom: kb + MediaQuery.of(context).padding.bottom + 8),
+          padding: EdgeInsets.only(
+            bottom: kb + MediaQuery.of(context).padding.bottom + 8,
+          ),
           child: SafeArea(
             top: false,
             child: Column(
@@ -6043,17 +8530,30 @@ Future<void> _showAvatarActions(
                 if (blocked)
                   Container(
                     margin: const EdgeInsets.only(bottom: 6),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.orangeAccent.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: Colors.orangeAccent.withOpacity(0.35)),
+                      border: Border.all(
+                        color: Colors.orangeAccent.withOpacity(0.35),
+                      ),
                     ),
                     child: const Row(
                       children: [
                         Icon(Icons.block, color: Colors.orangeAccent, size: 16),
                         SizedBox(width: 8),
-                        Expanded(child: Text('L’envoi des messages est désactivé par les admins', style: TextStyle(color: Colors.orangeAccent, fontSize: 12))),
+                        Expanded(
+                          child: Text(
+                            'L’envoi des messages est désactivé par les admins',
+                            style: TextStyle(
+                              color: Colors.orangeAccent,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -6071,14 +8571,18 @@ Future<void> _showAvatarActions(
                             decoration: BoxDecoration(
                               color: bar,
                               borderRadius: BorderRadius.circular(26),
-                              border: isDark ? null : Border.all(color: Colors.black12),
+                              border: isDark
+                                  ? null
+                                  : Border.all(color: Colors.black12),
                             ),
                             child: Row(
                               children: [
                                 const SizedBox(width: 8),
                                 IconButton(
                                   icon: Icon(
-                                    _showEmoji ? Icons.keyboard : Icons.sentiment_satisfied_alt,
+                                    _showEmoji
+                                        ? Icons.keyboard
+                                        : Icons.sentiment_satisfied_alt,
                                     color: icon,
                                     size: 28,
                                   ),
@@ -6087,7 +8591,8 @@ Future<void> _showAvatarActions(
                                       : () {
                                           setState(() {
                                             _showEmoji = !_showEmoji;
-                                            if (_showEmoji) FocusScope.of(context).unfocus();
+                                            if (_showEmoji)
+                                              FocusScope.of(context).unfocus();
                                           });
                                         },
                                 ),
@@ -6098,8 +8603,12 @@ Future<void> _showAvatarActions(
                                       TextField(
                                         controller: _msgController,
                                         enabled: !blocked,
-                                        onTap: () => setState(() => _showEmoji = false),
-                                        style: TextStyle(color: text, fontSize: 16),
+                                        onTap: () =>
+                                            setState(() => _showEmoji = false),
+                                        style: TextStyle(
+                                          color: text,
+                                          fontSize: 16,
+                                        ),
                                         maxLines: 5,
                                         minLines: 1,
                                         decoration: InputDecoration(
@@ -6110,34 +8619,73 @@ Future<void> _showAvatarActions(
                                       ),
                                       if (_isRecording)
                                         Padding(
-                                          padding: const EdgeInsets.only(top: 6.0, bottom: 2.0),
+                                          padding: const EdgeInsets.only(
+                                            top: 6.0,
+                                            bottom: 2.0,
+                                          ),
                                           child: Row(
                                             children: [
-                                              Container(width: 8, height: 8, decoration: BoxDecoration(color: Colors.redAccent, shape: BoxShape.circle)),
+                                              Container(
+                                                width: 8,
+                                                height: 8,
+                                                decoration: BoxDecoration(
+                                                  color: Colors.redAccent,
+                                                  shape: BoxShape.circle,
+                                                ),
+                                              ),
                                               const SizedBox(width: 8),
                                               ValueListenableBuilder<int>(
-                                                valueListenable: _recordSecondsNotifier,
+                                                valueListenable:
+                                                    _recordSecondsNotifier,
                                                 builder: (context, secs, _) {
-                                                  final mm = (secs ~/ 60).toString().padLeft(2, '0');
-                                                  final ss = (secs % 60).toString().padLeft(2, '0');
+                                                  final mm = (secs ~/ 60)
+                                                      .toString()
+                                                      .padLeft(2, '0');
+                                                  final ss = (secs % 60)
+                                                      .toString()
+                                                      .padLeft(2, '0');
                                                   return Text(
                                                     '$mm:$ss',
-                                                    style: TextStyle(color: sub, fontSize: 12),
+                                                    style: TextStyle(
+                                                      color: sub,
+                                                      fontSize: 12,
+                                                    ),
                                                   );
                                                 },
                                               ),
                                               const Spacer(),
                                               if (!_recordLocked)
-                                                Text('Glisser pour annuler', style: TextStyle(color: muted, fontSize: 11)),
+                                                Text(
+                                                  'Glisser pour annuler',
+                                                  style: TextStyle(
+                                                    color: muted,
+                                                    fontSize: 11,
+                                                  ),
+                                                ),
                                               if (_recordLocked)
-                                                Text('Verrouillé', style: TextStyle(color: muted, fontSize: 11)),
+                                                Text(
+                                                  'Verrouillé',
+                                                  style: TextStyle(
+                                                    color: muted,
+                                                    fontSize: 11,
+                                                  ),
+                                                ),
                                             ],
                                           ),
                                         ),
                                     ],
                                   ),
                                 ),
-                                IconButton(icon: Icon(Icons.attach_file, color: icon, size: 26), onPressed: blocked ? null : _showAttachmentMenu),
+                                IconButton(
+                                  icon: Icon(
+                                    Icons.attach_file,
+                                    color: icon,
+                                    size: 26,
+                                  ),
+                                  onPressed: blocked
+                                      ? null
+                                      : _showAttachmentMenu,
+                                ),
                                 const SizedBox(width: 4),
                               ],
                             ),
@@ -6151,7 +8699,10 @@ Future<void> _showAvatarActions(
                             ? null
                             : () async {
                                 if (_hasText) {
-                                  _saveToFirestore({'text': _msgController.text.trim(), 'type': 'text'});
+                                  _saveToFirestore({
+                                    'text': _msgController.text.trim(),
+                                    'type': 'text',
+                                  });
                                   _msgController.clear();
                                   setState(() => _hasText = false);
                                   _setTyping(false);
@@ -6174,16 +8725,28 @@ Future<void> _showAvatarActions(
                             ? null
                             : (details) async {
                                 if (!_isRecording || _recordLocked) return;
-                                final dx = _recordStartDx != null ? (details.globalPosition.dx - _recordStartDx!) : details.offsetFromOrigin.dx;
-                                final dy = _recordStartDy != null ? (details.globalPosition.dy - _recordStartDy!) : details.offsetFromOrigin.dy;
+                                final dx = _recordStartDx != null
+                                    ? (details.globalPosition.dx -
+                                          _recordStartDx!)
+                                    : details.offsetFromOrigin.dx;
+                                final dy = _recordStartDy != null
+                                    ? (details.globalPosition.dy -
+                                          _recordStartDy!)
+                                    : details.offsetFromOrigin.dy;
                                 if (dx < -80 && !_recordCanceled) {
                                   setState(() => _recordCanceled = true);
                                   await _cancelRecording();
                                   if (mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Enregistrement annulé')));
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Enregistrement annulé'),
+                                      ),
+                                    );
                                   }
                                 }
-                                if (dy < -70 && !_recordLocked && !_recordCanceled) {
+                                if (dy < -70 &&
+                                    !_recordLocked &&
+                                    !_recordCanceled) {
                                   setState(() => _recordLocked = true);
                                 }
                               },
@@ -6207,19 +8770,60 @@ Future<void> _showAvatarActions(
                                 width: 52,
                                 height: 52,
                                 decoration: BoxDecoration(
-                                  gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [_isRecording ? Colors.redAccent : tgAccent.withOpacity(0.95), tgAccent]),
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topLeft,
+                                    end: Alignment.bottomRight,
+                                    colors: [
+                                      _isRecording
+                                          ? Colors.redAccent
+                                          : tgAccent.withOpacity(0.95),
+                                      tgAccent,
+                                    ],
+                                  ),
                                   shape: BoxShape.circle,
-                                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 8, offset: const Offset(0, 4))],
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.35),
+                                      blurRadius: 8,
+                                      offset: const Offset(0, 4),
+                                    ),
+                                  ],
                                 ),
                                 child: Center(
                                   child: AnimatedSwitcher(
                                     duration: const Duration(milliseconds: 220),
-                                    transitionBuilder: (child, anim) => ScaleTransition(scale: anim, child: child),
+                                    transitionBuilder: (child, anim) =>
+                                        ScaleTransition(
+                                          scale: anim,
+                                          child: child,
+                                        ),
                                     child: _recordLocked
-                                        ? const Icon(Icons.send, key: ValueKey('send_locked'), color: Colors.white, size: 24)
+                                        ? const Icon(
+                                            Icons.send,
+                                            key: ValueKey('send_locked'),
+                                            color: Colors.white,
+                                            size: 24,
+                                          )
                                         : (_isRecording
-                                            ? const Icon(Icons.mic, key: ValueKey('mic_rec'), color: Colors.white, size: 24)
-                                            : (_hasText ? const Icon(Icons.send, key: ValueKey('send'), color: Colors.white, size: 24) : const Icon(Icons.mic, key: ValueKey('mic'), color: Colors.white, size: 24))),
+                                              ? const Icon(
+                                                  Icons.mic,
+                                                  key: ValueKey('mic_rec'),
+                                                  color: Colors.white,
+                                                  size: 24,
+                                                )
+                                              : (_hasText
+                                                    ? const Icon(
+                                                        Icons.send,
+                                                        key: ValueKey('send'),
+                                                        color: Colors.white,
+                                                        size: 24,
+                                                      )
+                                                    : const Icon(
+                                                        Icons.mic,
+                                                        key: ValueKey('mic'),
+                                                        color: Colors.white,
+                                                        size: 24,
+                                                      ))),
                                   ),
                                 ),
                               ),
@@ -6232,8 +8836,11 @@ Future<void> _showAvatarActions(
                                   animation: _lockHintCtrl,
                                   builder: (context, child) {
                                     final v = _lockHintCtrl.value;
-                                    final pulse = 1.0 + (0.06 * (0.5 - (v - 0.5).abs()) * 2);
-                                    final floatY = -4.0 + (8.0 * (v <= 0.5 ? v : 1 - v));
+                                    final pulse =
+                                        1.0 +
+                                        (0.06 * (0.5 - (v - 0.5).abs()) * 2);
+                                    final floatY =
+                                        -4.0 + (8.0 * (v <= 0.5 ? v : 1 - v));
                                     return Transform.translate(
                                       offset: Offset(0, floatY),
                                       child: Transform.scale(
@@ -6246,18 +8853,33 @@ Future<void> _showAvatarActions(
                                     duration: const Duration(milliseconds: 160),
                                     opacity: _isRecording ? 1.0 : 0.0,
                                     child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 6,
+                                      ),
                                       decoration: BoxDecoration(
                                         color: Colors.black.withOpacity(0.6),
                                         borderRadius: BorderRadius.circular(16),
-                                        border: Border.all(color: Colors.white12),
+                                        border: Border.all(
+                                          color: Colors.white12,
+                                        ),
                                       ),
                                       child: const Row(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          Icon(Icons.lock, color: Colors.white70, size: 14),
+                                          Icon(
+                                            Icons.lock,
+                                            color: Colors.white70,
+                                            size: 14,
+                                          ),
                                           SizedBox(width: 6),
-                                          Text('↑ Verrouiller', style: TextStyle(color: Colors.white70, fontSize: 11)),
+                                          Text(
+                                            '↑ Verrouiller',
+                                            style: TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 11,
+                                            ),
+                                          ),
                                         ],
                                       ),
                                     ),
@@ -6278,9 +8900,7 @@ Future<void> _showAvatarActions(
                         _msgController.text = _msgController.text + emoji.emoji;
                       },
                       config: Config(
-                        emojiViewConfig: EmojiViewConfig(
-                          backgroundColor: bar,
-                        ),
+                        emojiViewConfig: EmojiViewConfig(backgroundColor: bar),
                         categoryViewConfig: CategoryViewConfig(
                           backgroundColor: bar,
                           indicatorColor: tgAccent,
@@ -6297,12 +8917,14 @@ Future<void> _showAvatarActions(
     );
   }
 
-
   Future<void> _startRecording() async {
     try {
       var status = await Permission.microphone.request();
       if (!status.isGranted) {
-        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Permission micro requise')));
+        if (mounted)
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Permission micro requise')),
+          );
         return;
       }
       if (mounted) {
@@ -6317,19 +8939,32 @@ Future<void> _showAvatarActions(
         _recorderInitialized = true;
       }
       final dir = await getTemporaryDirectory();
-      final path = '${dir.path}${Platform.pathSeparator}record_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      final path =
+          '${dir.path}${Platform.pathSeparator}record_${DateTime.now().millisecondsSinceEpoch}.m4a';
       // signaler action "recording" dans le document chat
       await _setUserAction('recording');
-        try {
+      try {
         await _recorder!.startRecorder(toFile: path, codec: fs.Codec.aacADTS);
       } catch (e) {
-        debugPrint('Start record error: $e — attempting fallback codec pcm16WAV');
+        debugPrint(
+          'Start record error: $e — attempting fallback codec pcm16WAV',
+        );
         try {
           final wavPath = path.replaceAll('.m4a', '.wav');
-          await _recorder!.startRecorder(toFile: wavPath, codec: fs.Codec.pcm16WAV);
+          await _recorder!.startRecorder(
+            toFile: wavPath,
+            codec: fs.Codec.pcm16WAV,
+          );
         } catch (e2) {
           debugPrint('Fallback record error: $e2');
-          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Impossible de démarrer l\'enregistrement audio sur cet appareil')));
+          if (mounted)
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Impossible de démarrer l\'enregistrement audio sur cet appareil',
+                ),
+              ),
+            );
           return;
         }
       }
@@ -6338,7 +8973,8 @@ Future<void> _showAvatarActions(
       _recordSecondsNotifier.value = 0;
       _recordTimer?.cancel();
       _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted) _recordSecondsNotifier.value = _recordSecondsNotifier.value + 1;
+        if (mounted)
+          _recordSecondsNotifier.value = _recordSecondsNotifier.value + 1;
       });
     } catch (e) {
       debugPrint('Start record error: $e');
@@ -6361,10 +8997,18 @@ Future<void> _showAvatarActions(
       await _setUserAction('idle');
       if (path != null && path.isNotEmpty) {
         if (!send) {
-          try { if (!kIsWeb) File(path).deleteSync(); } catch (_) {}
+          try {
+            if (!kIsWeb) File(path).deleteSync();
+          } catch (_) {}
           return;
         }
-        await _uploadAndSend(File(path), 'audio', 'chat_media', '🎤 Audio', extraData: {'fileName': path.split(Platform.pathSeparator).last});
+        await _uploadAndSend(
+          File(path),
+          'audio',
+          'chat_media',
+          '🎤 Audio',
+          extraData: {'fileName': path.split(Platform.pathSeparator).last},
+        );
       }
     } catch (e) {
       debugPrint('Stop record error: $e');
@@ -6380,8 +9024,10 @@ Future<void> _showAvatarActions(
   @override
   void initState() {
     super.initState();
-    _lockHintCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
-      ..repeat(reverse: true);
+    _lockHintCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
     _msgListener = () => _onUserTyped(_msgController.text);
     _msgController.addListener(_msgListener);
     // mark presence when opening the chat
@@ -6389,12 +9035,15 @@ Future<void> _showAvatarActions(
     // clear any pending alerts for this chat (stop header blinking)
     _clearPendingAlertsForChat();
     // clear local notifications for this chat (foreground banners)
-    try { NotificationService.clearNotificationsForChat(widget.chatId); } catch (_) {}
+    try {
+      NotificationService.clearNotificationsForChat(widget.chatId);
+    } catch (_) {}
     // lazy init recorder to avoid constructor side-effects during widget construction
     _recorder ??= fs.FlutterSoundRecorder();
     // animated background cycling
     _bgTimer = Timer.periodic(const Duration(seconds: 6), (_) {
-      if (mounted) setState(() => _bgIndex = (_bgIndex + 1) % _bgGradients.length);
+      if (mounted)
+        setState(() => _bgIndex = (_bgIndex + 1) % _bgGradients.length);
     });
 
     _mediaTransferListener = () {
@@ -6411,50 +9060,56 @@ Future<void> _showAvatarActions(
         .orderBy('timestamp', descending: true)
         .snapshots()
         .listen((snap) {
-      if (!mounted) return;
-      if (!_messageStreamInitialized) {
-        _messageStreamInitialized = true;
-        _deliveredMap.clear();
-        if (snap.docs.isNotEmpty) _lastMessageId = snap.docs.first.id;
-        for (var d in snap.docs) {
-          try {
-            final data = d.data();
-            _deliveredMap[d.id] = (data['delivered'] == true);
-          } catch (_) {
-            _deliveredMap[d.id] = false;
+          if (!mounted) return;
+          if (!_messageStreamInitialized) {
+            _messageStreamInitialized = true;
+            _deliveredMap.clear();
+            if (snap.docs.isNotEmpty) _lastMessageId = snap.docs.first.id;
+            for (var d in snap.docs) {
+              try {
+                final data = d.data();
+                _deliveredMap[d.id] = (data['delivered'] == true);
+              } catch (_) {
+                _deliveredMap[d.id] = false;
+              }
+            }
+            return;
           }
-        }
-        return;
-      }
 
-      // handle docChanges for precise transitions
-      for (var change in snap.docChanges) {
-      final id = change.doc.id;
-      final data = Map<String, dynamic>.from(change.doc.data() ?? {});
-      final bool delivered = data['delivered'] == true;
+          // handle docChanges for precise transitions
+          for (var change in snap.docChanges) {
+            final id = change.doc.id;
+            final data = Map<String, dynamic>.from(change.doc.data() ?? {});
+            final bool delivered = data['delivered'] == true;
 
-        // incoming new message: play incoming ringtone if not from current user
-        if (change.type == DocumentChangeType.added) {
-          if (data['senderId'] != currentUser?.uid) {
-            try { _playSfx('sounds/ringtone.mp3'); } catch (_) {}
+            // incoming new message: play incoming ringtone if not from current user
+            if (change.type == DocumentChangeType.added) {
+              if (data['senderId'] != currentUser?.uid) {
+                try {
+                  _playSfx('sounds/ringtone.mp3');
+                } catch (_) {}
+              }
+            }
+
+            // modified: check delivered transition for messages sent by current user
+            if (change.type == DocumentChangeType.modified) {
+              final wasDelivered = _deliveredMap[id] == true;
+              if (data['senderId'] == currentUser?.uid &&
+                  delivered &&
+                  !wasDelivered) {
+                try {
+                  _playTick();
+                } catch (_) {}
+              }
+            }
+
+            // update local map
+            _deliveredMap[id] = delivered;
           }
-        }
 
-        // modified: check delivered transition for messages sent by current user
-        if (change.type == DocumentChangeType.modified) {
-          final wasDelivered = _deliveredMap[id] == true;
-          if (data['senderId'] == currentUser?.uid && delivered && !wasDelivered) {
-            try { _playTick(); } catch (_) {}
-          }
-        }
-
-        // update local map
-        _deliveredMap[id] = delivered;
-      }
-
-      // keep track of latest id for other logic
-      if (snap.docs.isNotEmpty) _lastMessageId = snap.docs.first.id;
-    });
+          // keep track of latest id for other logic
+          if (snap.docs.isNotEmpty) _lastMessageId = snap.docs.first.id;
+        });
   }
 
   Future<void> _clearPendingAlertsForChat() async {
@@ -6466,7 +9121,9 @@ Future<void> _showAvatarActions(
           .collection('pending');
       final snap = await col.where('chatId', isEqualTo: widget.chatId).get();
       for (var d in snap.docs) {
-        try { await d.reference.delete(); } catch (_) {}
+        try {
+          await d.reference.delete();
+        } catch (_) {}
       }
     } catch (e) {
       debugPrint('clear pending alerts error: $e');
@@ -6495,7 +9152,9 @@ Future<void> _showAvatarActions(
     _msgController.removeListener(_msgListener);
     _msgController.dispose();
     _lockHintCtrl.dispose();
-    try { _mediaTransfers.revision.removeListener(_mediaTransferListener); } catch (_) {}
+    try {
+      _mediaTransfers.revision.removeListener(_mediaTransferListener);
+    } catch (_) {}
     if (_recorderInitialized) {
       try {
         _recorder?.closeRecorder();
@@ -6513,8 +9172,12 @@ Future<void> _showAvatarActions(
     _setPresence(false);
     _messagesSub?.cancel();
     _listController.dispose();
-    try { _sfxPlayer.dispose(); } catch (_) {}
-    try { _recordSecondsNotifier.dispose(); } catch (_) {}
+    try {
+      _sfxPlayer.dispose();
+    } catch (_) {}
+    try {
+      _recordSecondsNotifier.dispose();
+    } catch (_) {}
     super.dispose();
   }
 
@@ -6688,9 +9351,18 @@ class _AudioMessagePlayerState extends State<AudioMessagePlayer> {
   @override
   void initState() {
     super.initState();
-    _player.onDurationChanged.listen((d) { setState(() => _duration = d); });
-    _player.onPositionChanged.listen((p) { setState(() => _position = p); });
-    _player.onPlayerComplete.listen((_) { setState(() { _playing = false; _position = Duration.zero; }); });
+    _player.onDurationChanged.listen((d) {
+      setState(() => _duration = d);
+    });
+    _player.onPositionChanged.listen((p) {
+      setState(() => _position = p);
+    });
+    _player.onPlayerComplete.listen((_) {
+      setState(() {
+        _playing = false;
+        _position = Duration.zero;
+      });
+    });
   }
 
   @override
@@ -6699,7 +9371,8 @@ class _AudioMessagePlayerState extends State<AudioMessagePlayer> {
     super.dispose();
   }
 
-  String _fmt(Duration d) => '${d.inMinutes.toString().padLeft(2,'0')}:${(d.inSeconds%60).toString().padLeft(2,'0')}';
+  String _fmt(Duration d) =>
+      '${d.inMinutes.toString().padLeft(2, '0')}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
 
   @override
   Widget build(BuildContext context) {
@@ -6728,29 +9401,61 @@ class _AudioMessagePlayerState extends State<AudioMessagePlayer> {
                 }
               } catch (e) {
                 debugPrint('Audio play error: $e');
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Impossible de lire l\'audio')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Impossible de lire l\'audio')),
+                );
                 setState(() => _playing = false);
               }
             }
           },
         ),
-        SizedBox(width: 160, child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Slider(value: _duration.inMilliseconds > 0 ? _position.inMilliseconds / _duration.inMilliseconds : 0.0, onChanged: (v) async {
-            if (_duration.inMilliseconds > 0) {
-              final pos = Duration(milliseconds: (v * _duration.inMilliseconds).round());
-              await _player.seek(pos);
-            }
-          }, activeColor: fg, inactiveColor: muted),
-          Row(children: [
-            Expanded(child: Text(widget.fileName, style: TextStyle(color: fg, fontSize: 13), overflow: TextOverflow.ellipsis)),
-            const SizedBox(width: 8),
-            Text(_fmt(_position), style: TextStyle(color: sub, fontSize: 11)),
-            const SizedBox(width: 6),
-            Text('/', style: TextStyle(color: muted, fontSize: 11)),
-            const SizedBox(width: 6),
-            Text(_fmt(_duration), style: TextStyle(color: muted, fontSize: 11)),
-          ])
-        ]))
+        SizedBox(
+          width: 160,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Slider(
+                value: _duration.inMilliseconds > 0
+                    ? _position.inMilliseconds / _duration.inMilliseconds
+                    : 0.0,
+                onChanged: (v) async {
+                  if (_duration.inMilliseconds > 0) {
+                    final pos = Duration(
+                      milliseconds: (v * _duration.inMilliseconds).round(),
+                    );
+                    await _player.seek(pos);
+                  }
+                },
+                activeColor: fg,
+                inactiveColor: muted,
+              ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.fileName,
+                      style: TextStyle(color: fg, fontSize: 13),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _fmt(_position),
+                    style: TextStyle(color: sub, fontSize: 11),
+                  ),
+                  const SizedBox(width: 6),
+                  Text('/', style: TextStyle(color: muted, fontSize: 11)),
+                  const SizedBox(width: 6),
+                  Text(
+                    _fmt(_duration),
+                    style: TextStyle(color: muted, fontSize: 11),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -6783,14 +9488,15 @@ class _MediaViewerPageState extends State<_MediaViewerPage> {
   void initState() {
     super.initState();
     if (widget.type == 'video') {
-      _videoController = (widget.localPath != null && widget.localPath!.isNotEmpty)
-          ? VideoPlayerController.file(File(widget.localPath!))
-          : VideoPlayerController.networkUrl(Uri.parse(widget.url))
-        ..initialize().then((_) {
-          if (mounted) setState(() {});
-          _videoController?.play();
-          _videoController?.setLooping(true);
-        });
+      _videoController =
+          (widget.localPath != null && widget.localPath!.isNotEmpty)
+                ? VideoPlayerController.file(File(widget.localPath!))
+                : VideoPlayerController.networkUrl(Uri.parse(widget.url))
+            ..initialize().then((_) {
+              if (mounted) setState(() {});
+              _videoController?.play();
+              _videoController?.setLooping(true);
+            });
     }
   }
 
@@ -6841,7 +9547,9 @@ class _MediaViewerPageState extends State<_MediaViewerPage> {
         } else {
           Clipboard.setData(ClipboardData(text: widget.url));
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Lien copié')));
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(const SnackBar(content: Text('Lien copié')));
           }
         }
       } catch (_) {}
@@ -6853,7 +9561,11 @@ class _MediaViewerPageState extends State<_MediaViewerPage> {
       if (!ps.hasAccess) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Autorisez l\'accès Photos/Galerie pour enregistrer le média')),
+          const SnackBar(
+            content: Text(
+              'Autorisez l\'accès Photos/Galerie pour enregistrer le média',
+            ),
+          ),
         );
         await PhotoManager.openSetting();
         return;
@@ -6878,9 +9590,9 @@ class _MediaViewerPageState extends State<_MediaViewerPage> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Impossible d\'enregistrer: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Impossible d\'enregistrer: $e')));
     }
   }
 
@@ -6898,17 +9610,43 @@ class _MediaViewerPageState extends State<_MediaViewerPage> {
             onPressed: _saveMediaToGallery,
           ),
           if (widget.messageId != null)
-            IconButton(
-              icon: const Icon(Icons.delete, color: Colors.redAccent),
-              onPressed: () async {
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert, color: Colors.white),
+              onSelected: (value) async {
+                if (value != 'delete') return;
                 final ok = await showDialog<bool>(
                   context: context,
                   builder: (c) => AlertDialog(
-                    backgroundColor: Theme.of(c).brightness == Brightness.dark ? tgBar : Colors.white,
-                    title: Text('Supprimer ce média ?', style: TextStyle(color: Theme.of(c).brightness == Brightness.dark ? Colors.white : Colors.black87)),
+                    backgroundColor: Theme.of(c).brightness == Brightness.dark
+                        ? tgBar
+                        : Colors.white,
+                    title: Text(
+                      'Supprimer ce média ?',
+                      style: TextStyle(
+                        color: Theme.of(c).brightness == Brightness.dark
+                            ? Colors.white
+                            : Colors.black87,
+                      ),
+                    ),
                     actions: [
-                      TextButton(onPressed: () => Navigator.pop(c, false), child: Text('Annuler', style: TextStyle(color: Theme.of(c).brightness == Brightness.dark ? Colors.white70 : Colors.black54))),
-                      TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Supprimer', style: TextStyle(color: Colors.redAccent))),
+                      TextButton(
+                        onPressed: () => Navigator.pop(c, false),
+                        child: Text(
+                          'Annuler',
+                          style: TextStyle(
+                            color: Theme.of(c).brightness == Brightness.dark
+                                ? Colors.white70
+                                : Colors.black54,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(c, true),
+                        child: const Text(
+                          'Supprimer',
+                          style: TextStyle(color: Colors.redAccent),
+                        ),
+                      ),
                     ],
                   ),
                 );
@@ -6918,16 +9656,25 @@ class _MediaViewerPageState extends State<_MediaViewerPage> {
                   if (user == null) return;
                   bool canDelete = widget.senderId == user.uid;
                   if (!canDelete) {
-                    final chatSnap = await FirebaseFirestore.instance.collection('chats').doc(widget.chatId).get();
+                    final chatSnap = await FirebaseFirestore.instance
+                        .collection('chats')
+                        .doc(widget.chatId)
+                        .get();
                     if (chatSnap.exists) {
                       final data = chatSnap.data() ?? {};
-                      final admins = (data['admins'] as List?)?.map((e) => e.toString()).toList() ?? <String>[];
+                      final admins =
+                          (data['admins'] as List?)
+                              ?.map((e) => e.toString())
+                              .toList() ??
+                          <String>[];
                       canDelete = admins.contains(user.uid);
                     }
                   }
                   if (!canDelete) {
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Permission refusée')));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Permission refusée')),
+                      );
                     }
                     return;
                   }
@@ -6939,21 +9686,35 @@ class _MediaViewerPageState extends State<_MediaViewerPage> {
                       .delete();
                   if (context.mounted) {
                     Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Média supprimé')));
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Média supprimé')),
+                    );
                   }
                 } catch (_) {}
               },
+              itemBuilder: (c) => const [
+                PopupMenuItem<String>(
+                  value: 'delete',
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete, color: Colors.redAccent, size: 18),
+                      SizedBox(width: 8),
+                      Text('Supprimer'),
+                    ],
+                  ),
+                ),
+              ],
             ),
         ],
       ),
       body: Center(
         child: widget.type == 'video'
             ? (_videoController != null && _videoController!.value.isInitialized
-                ? AspectRatio(
-                    aspectRatio: _videoController!.value.aspectRatio,
-                    child: VideoPlayer(_videoController!),
-                  )
-                : const CircularProgressIndicator(color: Colors.white54))
+                  ? AspectRatio(
+                      aspectRatio: _videoController!.value.aspectRatio,
+                      child: VideoPlayer(_videoController!),
+                    )
+                  : const CircularProgressIndicator(color: Colors.white54))
             : InteractiveViewer(
                 child: widget.localPath != null && widget.localPath!.isNotEmpty
                     ? Image.file(

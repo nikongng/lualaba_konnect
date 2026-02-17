@@ -28,7 +28,11 @@ class MediaTransferService {
     int? expectedBytes,
   }) {
     if (_tasks.containsKey(url)) return _tasks[url]!;
-    final fut = _downloadToFileImpl(url: url, dest: dest, expectedBytes: expectedBytes);
+    final fut = _downloadToFileImpl(
+      url: url,
+      dest: dest,
+      expectedBytes: expectedBytes,
+    );
     _tasks[url] = fut;
     return fut;
   }
@@ -40,6 +44,8 @@ class MediaTransferService {
   }) async {
     http.Client? client;
     IOSink? sink;
+    File? tempFile;
+    bool completed = false;
     try {
       if (url.isEmpty) return null;
       if (kIsWeb) return null;
@@ -56,17 +62,26 @@ class MediaTransferService {
         dest.parent.createSync(recursive: true);
       }
 
+      tempFile = File('${dest.path}.part');
+      if (tempFile.existsSync()) {
+        try {
+          tempFile.deleteSync();
+        } catch (_) {}
+      }
+
       client = http.Client();
       final resp = await client.send(http.Request('GET', Uri.parse(url)));
       if (resp.statusCode < 200 || resp.statusCode >= 300) {
         return null;
       }
 
-      final total = (resp.contentLength != null && resp.contentLength! > 0) ? resp.contentLength : expectedBytes;
+      final total = (resp.contentLength != null && resp.contentLength! > 0)
+          ? resp.contentLength
+          : expectedBytes;
       _totalBytes[url] = total;
       _bump();
 
-      sink = dest.openWrite();
+      sink = tempFile.openWrite();
       int received = 0;
       int lastTick = DateTime.now().millisecondsSinceEpoch;
 
@@ -88,6 +103,25 @@ class MediaTransferService {
       _receivedBytes[url] = received;
       _bump();
 
+      if (total != null && total > 0 && received < total) {
+        return null;
+      }
+      if (expectedBytes != null && expectedBytes > 0) {
+        final int minExpected = (expectedBytes * 0.60).round();
+        final int floor = minExpected > 256 ? minExpected : 256;
+        if (received < floor) {
+          return null;
+        }
+      }
+
+      if (dest.existsSync()) {
+        try {
+          dest.deleteSync();
+        } catch (_) {}
+      }
+      await tempFile.rename(dest.path);
+      completed = true;
+
       return dest;
     } catch (_) {
       return null;
@@ -99,6 +133,13 @@ class MediaTransferService {
       try {
         client?.close();
       } catch (_) {}
+      if (!completed && tempFile != null) {
+        try {
+          if (tempFile.existsSync()) {
+            tempFile.deleteSync();
+          }
+        } catch (_) {}
+      }
 
       _downloading.remove(url);
       _receivedBytes.remove(url);
@@ -108,4 +149,3 @@ class MediaTransferService {
     }
   }
 }
-
