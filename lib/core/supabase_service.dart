@@ -8,17 +8,27 @@ class SupabaseService {
   static String? _url;
   static String? _anonKey;
   static bool _bucketCreateWarningShown = false;
+  static bool _authAttempted = false;
+  static bool _authWarningShown = false;
 
   // Public getter to check whether Supabase was initialized
   static bool get isInitialized => _initialized;
 
-  static Future<void> init({required String url, required String anonKey}) async {
+  static Future<void> init({
+    required String url,
+    required String anonKey,
+  }) async {
     if (_initialized) return;
-    debugPrint('SupabaseService.init: url=$url anonKey=${anonKey.substring(0,8)}...');
+    debugPrint(
+      'SupabaseService.init: url=$url anonKey=${anonKey.substring(0, 8)}...',
+    );
     await Supabase.initialize(url: url, anonKey: anonKey);
     _url = url;
     _anonKey = anonKey;
     _initialized = true;
+    try {
+      await ensureAuthenticated();
+    } catch (_) {}
     debugPrint('SupabaseService: initialized');
   }
 
@@ -41,9 +51,34 @@ class SupabaseService {
     return <String, String>{
       'apikey': anonKey,
       'Authorization': 'Bearer ${token ?? anonKey}',
-      if (contentType != null && contentType.trim().isNotEmpty) 'Content-Type': contentType.trim(),
+      if (contentType != null && contentType.trim().isNotEmpty)
+        'Content-Type': contentType.trim(),
       'x-upsert': 'true',
     };
+  }
+
+  /// Best-effort anonymous auth so "authenticated" storage buckets can be used.
+  /// Requires Anonymous provider enabled in Supabase Auth settings.
+  static Future<void> ensureAuthenticated() async {
+    if (!_initialized) return;
+    if (client.auth.currentSession != null) return;
+    if (_authAttempted) return;
+    _authAttempted = true;
+    try {
+      await client.auth.signInAnonymously();
+      final hasSession = client.auth.currentSession != null;
+      debugPrint(
+        'SupabaseService.ensureAuthenticated: anonymous session=$hasSession',
+      );
+    } catch (e) {
+      if (!_authWarningShown) {
+        _authWarningShown = true;
+        debugPrint(
+          'SupabaseService.ensureAuthenticated: anonymous sign-in unavailable ($e). '
+          'Use a public bucket or enable anonymous auth in Supabase.',
+        );
+      }
+    }
   }
 
   /// Ensure the storage bucket exists. Tries to create it if missing.
@@ -63,25 +98,36 @@ class SupabaseService {
   /// Upload a file to the given bucket (folder). Returns public URL or throws.
   static Future<String> uploadFile(File file, String bucket) async {
     if (!_initialized) throw Exception('Supabase not initialized');
+    await ensureAuthenticated();
     final bytes = await file.readAsBytes();
-    final fileName = '${DateTime.now().millisecondsSinceEpoch}_${file.uri.pathSegments.last}';
+    final fileName =
+        '${DateTime.now().millisecondsSinceEpoch}_${file.uri.pathSegments.last}';
     try {
       // Ensure bucket exists (best-effort). If creation requires service role it will fail silently.
       await ensureBucketExists(bucket);
-      debugPrint('SupabaseService.uploadFile: uploading to bucket="$bucket", file="$fileName", size=${bytes.length}');
+      debugPrint(
+        'SupabaseService.uploadFile: uploading to bucket="$bucket", file="$fileName", size=${bytes.length}',
+      );
       await client.storage.from(bucket).uploadBinary(fileName, bytes);
       debugPrint('SupabaseService.uploadFile: upload succeeded for $fileName');
     } catch (e) {
-      debugPrint('SupabaseService.uploadFile: upload error (${e.runtimeType}): $e');
+      debugPrint(
+        'SupabaseService.uploadFile: upload error (${e.runtimeType}): $e',
+      );
       // If the error indicates bucket not found, attempt to create then retry once.
       final msg = e.toString();
-      if (msg.toLowerCase().contains('bucket not found') || msg.toLowerCase().contains('404')) {
+      if (msg.toLowerCase().contains('bucket not found') ||
+          msg.toLowerCase().contains('404')) {
         try {
-          debugPrint('SupabaseService.uploadFile: bucket missing, attempting create+retry for $bucket');
+          debugPrint(
+            'SupabaseService.uploadFile: bucket missing, attempting create+retry for $bucket',
+          );
           await ensureBucketExists(bucket);
           await client.storage.from(bucket).uploadBinary(fileName, bytes);
           final public = client.storage.from(bucket).getPublicUrl(fileName);
-          debugPrint('SupabaseService.uploadFile: retry succeeded for $fileName');
+          debugPrint(
+            'SupabaseService.uploadFile: retry succeeded for $fileName',
+          );
           return public.toString();
         } catch (e2) {
           debugPrint('SupabaseService.uploadFile: retry failed: $e2');
@@ -107,6 +153,7 @@ class SupabaseService {
     String? contentType,
   }) async {
     if (!_initialized) throw Exception('Supabase not initialized');
+    await ensureAuthenticated();
     if (objectPath.trim().isEmpty) throw Exception('objectPath is empty');
 
     await ensureBucketExists(bucket);
@@ -150,24 +197,38 @@ class SupabaseService {
   }
 
   /// Upload raw bytes to Supabase storage. Returns public URL or throws.
-  static Future<String> uploadBytes(Uint8List bytes, String filename, String bucket) async {
+  static Future<String> uploadBytes(
+    Uint8List bytes,
+    String filename,
+    String bucket,
+  ) async {
     if (!_initialized) throw Exception('Supabase not initialized');
+    await ensureAuthenticated();
     try {
       // Ensure bucket exists (best-effort)
       await ensureBucketExists(bucket);
-      debugPrint('SupabaseService.uploadBytes: uploading to bucket="$bucket", file="$filename", size=${bytes.length}');
+      debugPrint(
+        'SupabaseService.uploadBytes: uploading to bucket="$bucket", file="$filename", size=${bytes.length}',
+      );
       await client.storage.from(bucket).uploadBinary(filename, bytes);
       debugPrint('SupabaseService.uploadBytes: upload succeeded for $filename');
     } catch (e) {
-      debugPrint('SupabaseService.uploadBytes: upload error (${e.runtimeType}): $e');
+      debugPrint(
+        'SupabaseService.uploadBytes: upload error (${e.runtimeType}): $e',
+      );
       final msg = e.toString();
-      if (msg.toLowerCase().contains('bucket not found') || msg.toLowerCase().contains('404')) {
+      if (msg.toLowerCase().contains('bucket not found') ||
+          msg.toLowerCase().contains('404')) {
         try {
-          debugPrint('SupabaseService.uploadBytes: bucket missing, attempting create+retry for $bucket');
+          debugPrint(
+            'SupabaseService.uploadBytes: bucket missing, attempting create+retry for $bucket',
+          );
           await ensureBucketExists(bucket);
           await client.storage.from(bucket).uploadBinary(filename, bytes);
           final public = client.storage.from(bucket).getPublicUrl(filename);
-          debugPrint('SupabaseService.uploadBytes: retry succeeded for $filename');
+          debugPrint(
+            'SupabaseService.uploadBytes: retry succeeded for $filename',
+          );
           return public.toString();
         } catch (e2) {
           debugPrint('SupabaseService.uploadBytes: retry failed: $e2');
@@ -191,6 +252,7 @@ class SupabaseService {
     String? contentType,
   }) async {
     if (!_initialized) throw Exception('Supabase not initialized');
+    await ensureAuthenticated();
     if (objectPath.trim().isEmpty) throw Exception('objectPath is empty');
 
     await ensureBucketExists(bucket);
@@ -214,7 +276,9 @@ class SupabaseService {
     int sent = 0;
     int lastTick = DateTime.now().millisecondsSinceEpoch;
     while (sent < totalBytes) {
-      final end = (sent + chunkSize) > totalBytes ? totalBytes : (sent + chunkSize);
+      final end = (sent + chunkSize) > totalBytes
+          ? totalBytes
+          : (sent + chunkSize);
       req.sink.add(bytes.sublist(sent, end));
       sent = end;
       final now = DateTime.now().millisecondsSinceEpoch;

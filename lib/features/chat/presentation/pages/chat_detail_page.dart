@@ -49,6 +49,10 @@ const Color tgAccent = Color(0xFF00CBA9);
 const Color tgMyBubble = Color(0xFF0B3A6D);
 const Color tgOtherBubble = Color(0xFF2E2F4F);
 const Color tgBar = Color(0xFF071011);
+const bool kAllowFirebaseMediaFallback = bool.fromEnvironment(
+  'ALLOW_FIREBASE_MEDIA_FALLBACK',
+  defaultValue: false,
+);
 
 class ChatDetailPage extends StatefulWidget {
   final String chatId;
@@ -276,7 +280,7 @@ class _ChatState extends State<ChatDetailPage>
         final double rawProgress = total > 0
             ? (_uploadSentBytes / total).clamp(0.0, 1.0)
             : 0.0;
-        final double cap = rawProgress > 0 ? 0.995 : 0.98;
+        final double cap = 0.999;
         final double current = max(_uploadVisualProgress, rawProgress);
         if (current >= cap) return;
         final double step = current < 0.35
@@ -475,6 +479,11 @@ class _ChatState extends State<ChatDetailPage>
       }
 
       String url;
+      String storageProvider = 'supabase';
+      String storageBucket = '';
+      String storagePath = '';
+      bool storageFallback = false;
+      String? storageError;
       try {
         // Ensure Supabase is initialized (try to init from --dart-define if missing)
         if (!SupabaseService.isInitialized) {
@@ -494,10 +503,13 @@ class _ChatState extends State<ChatDetailPage>
           }
         }
 
-        // try Supabase - use provided folder as bucket (chat media -> 'chat_media', stories -> 'stories')
+        // Supabase target: use folder as bucket (chat uses `chat_media`).
         final supabaseBucket = folder;
+        final supabaseObjectPath = fileName;
+        storageBucket = supabaseBucket;
+        storagePath = supabaseObjectPath;
         debugPrint(
-          'SupabaseService.isInitialized = ${SupabaseService.isInitialized}',
+          'Supabase upload target: bucket="$supabaseBucket" path="$supabaseObjectPath" initialized=${SupabaseService.isInitialized}',
         );
         if (SupabaseService.isInitialized) {
           int lastTick = 0;
@@ -559,7 +571,7 @@ class _ChatState extends State<ChatDetailPage>
           if (bytes != null) {
             url = await SupabaseService.uploadBytesNamed(
               bytes,
-              fileName,
+              supabaseObjectPath,
               supabaseBucket,
               onProgress: onProgress,
               contentType: contentType,
@@ -567,7 +579,7 @@ class _ChatState extends State<ChatDetailPage>
           } else if (file != null) {
             url = await SupabaseService.uploadFileNamed(
               file,
-              fileName,
+              supabaseObjectPath,
               supabaseBucket,
               onProgress: onProgress,
               contentType: contentType,
@@ -575,11 +587,20 @@ class _ChatState extends State<ChatDetailPage>
           } else {
             throw Exception('No file data to upload');
           }
+          storageProvider = 'supabase';
           debugPrint('Uploaded to Supabase: $url');
         } else {
           throw Exception('Supabase not initialized');
         }
       } catch (e) {
+        storageError = e.toString();
+        final supabaseBucket = folder;
+        final supabaseObjectPath = fileName;
+        if (!kAllowFirebaseMediaFallback) {
+          throw Exception(
+            'Supabase upload failed (bucket="$supabaseBucket", path="$supabaseObjectPath"): $e',
+          );
+        }
         debugPrint(
           'Supabase upload failed or unavailable: $e — falling back to Firebase Storage',
         );
@@ -587,6 +608,10 @@ class _ChatState extends State<ChatDetailPage>
             .ref()
             .child(folder)
             .child(fileName);
+        storageFallback = true;
+        storageProvider = 'firebase';
+        storageBucket = 'firebase_default';
+        storagePath = ref.fullPath;
         final UploadTask task = bytes != null
             ? ref.putData(bytes)
             : ref.putFile(file!);
@@ -619,6 +644,15 @@ class _ChatState extends State<ChatDetailPage>
         'type': type,
         'url': url,
         'text': text,
+        'storageProvider': storageProvider,
+        if (storageBucket.trim().isNotEmpty) 'storageBucket': storageBucket,
+        if (storagePath.trim().isNotEmpty) 'storagePath': storagePath,
+        if (storageFallback) 'storageFallback': true,
+        if (storageError != null && storageError.trim().isNotEmpty)
+          'storageError': storageError.substring(
+            0,
+            storageError.length > 280 ? 280 : storageError.length,
+          ),
         if (sizeBytes != null) 'size': sizeBytes,
         if ((originalName ?? localName)?.trim().isNotEmpty == true)
           'fileName': (originalName ?? localName)!.trim(),
@@ -6425,9 +6459,15 @@ class _ChatState extends State<ChatDetailPage>
         ? _uploadTotalBytes!
         : (done ? 100 : 0);
     final int sent = done ? total : _uploadSentBytes;
-    final double progressValue = done
+    final double rawProgress = (total > 0)
+        ? (sent / total).clamp(0.0, 1.0)
+        : 0.0;
+    double progressValue = done
         ? 1.0
-        : _uploadVisualProgress.clamp(0.0, 0.995);
+        : max(_uploadVisualProgress, rawProgress).clamp(0.0, 0.995);
+    if (!done && progressValue >= 0.96) {
+      progressValue = max(progressValue, 0.995);
+    }
     final int displayedSent = total > 0
         ? max(sent, (total * progressValue).round().clamp(0, total))
         : sent;
