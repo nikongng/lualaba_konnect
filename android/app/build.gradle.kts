@@ -1,6 +1,15 @@
 import java.util.Properties
 import java.io.FileInputStream
 
+val keystoreProperties = Properties()
+val keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    FileInputStream(keystorePropertiesFile).use { keystoreProperties.load(it) }
+}
+val releaseStoreFilePath = keystoreProperties.getProperty("storeFile")
+val hasReleaseSigning = !releaseStoreFilePath.isNullOrBlank() &&
+    rootProject.file(releaseStoreFilePath).exists()
+
 plugins {
     id("com.android.application")
     id("com.google.gms.google-services")
@@ -43,12 +52,27 @@ android {
         multiDexEnabled = true
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFilePath!!)
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         getByName("debug") {
             // Pas de changement
         }
         getByName("release") {
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             // Conseil : Pour la production, vous passerez minifyEnabled à true
             isMinifyEnabled = false
             isShrinkResources = false

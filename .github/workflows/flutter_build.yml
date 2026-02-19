@@ -1,38 +1,54 @@
-name: Build Flutter APK
+name: Build Flutter Android Production
 
 on:
   push:
     branches: ["main"]
+  workflow_dispatch:
 
 jobs:
-  build:
+  build-android-production:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Flutter (force exact version)
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.38.5'   # <-- la version exacte à utiliser
+          flutter-version: "3.38.5"
           channel: stable
-          cache: false
+          cache: true
 
-      - name: Show Flutter & Dart version (debug)
+      - name: Show Flutter version
         run: flutter --version
 
-      - name: Disable analytics (évite prompts)
+      - name: Disable analytics
         run: flutter config --no-analytics
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build APK
-        run: flutter build apk --debug
+      - name: Build production APK (release)
+        run: flutter build apk --release
 
-      - name: Upload APK
+      - name: Build production AAB (release)
+        run: flutter build appbundle --release
+
+      - name: Upload production APK
         uses: actions/upload-artifact@v4
         with:
-          name: lualaba-konnect-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          name: lualaba-konnect-apk-release
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload production AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: lualaba-konnect-aab-release
+          path: build/app/outputs/bundle/release/app-release.aab
