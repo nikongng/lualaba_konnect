@@ -105,6 +105,7 @@ class _ChatState extends State<ChatDetailPage>
   final _sfxPlayer = AudioPlayer();
   bool _messageStreamInitialized = false;
   bool _markingReceipts = false;
+  bool _needsUnreadClear = true;
 
   Future<Map<String, String>> _resolveSenderMeta(User user) async {
     // Cache to avoid hitting Firestore on every message/call.
@@ -189,6 +190,7 @@ class _ChatState extends State<ChatDetailPage>
   final Set<String> _selectedMessageIds = {};
   bool _selectionMode = false;
   bool _isGroupChat = false;
+  Set<String> _chatParticipantIds = <String>{};
   final ScrollController _listController = ScrollController();
   final Map<String, GlobalKey> _messageKeys = {};
   String? _pendingJumpMessageId;
@@ -211,6 +213,23 @@ class _ChatState extends State<ChatDetailPage>
       _isDark(context) ? Colors.white54 : Colors.black45;
   Color _modalTileBg(BuildContext context) =>
       _isDark(context) ? Colors.white10 : Colors.black12;
+
+  void _syncGroupMeta({required bool isGroup, required List<dynamic> participants}) {
+    final nextParticipants = participants
+        .map((e) => e.toString())
+        .where((e) => e.trim().isNotEmpty)
+        .toSet();
+    final bool groupChanged = _isGroupChat != isGroup;
+    final bool participantsChanged = !setEquals(_chatParticipantIds, nextParticipants);
+    if (!groupChanged && !participantsChanged) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() {
+        _isGroupChat = isGroup;
+        _chatParticipantIds = nextParticipants;
+      });
+    });
+  }
 
   String _safeExtFromName(String? name) {
     if (name == null) return '';
@@ -304,7 +323,7 @@ class _ChatState extends State<ChatDetailPage>
       final res = await FilePicker.platform.pickFiles(
         type: FileType.media,
         allowMultiple: true,
-        withData: true,
+        withData: kIsWeb,
       );
       if (res == null || res.files.isEmpty) return;
 
@@ -714,15 +733,14 @@ class _ChatState extends State<ChatDetailPage>
         (_uploadTotalBytes != null && _uploadTotalBytes! > 0)
         ? _uploadTotalBytes!
         : ((fallbackTotal != null && fallbackTotal > 0) ? fallbackTotal : 100);
-    final int targetSent = max(
-      _uploadSentBytes,
-      (resolvedTotal * 0.995).round(),
-    );
+    final int targetSent = max(_uploadSentBytes, resolvedTotal);
     setState(() {
       _uploadTotalBytes = resolvedTotal;
       _uploadSentBytes = targetSent;
-      _uploadVisualProgress = max(_uploadVisualProgress, 0.995);
-      _uploadLabel = 'Finalisation...';
+      // Supabase upload is finished here. Keep 100% while Firestore write runs.
+      _uploadVisualProgress = 1.0;
+      _uploadLabel = 'Synchronisation...';
+      _uploadVisualSuccess = false;
     });
   }
 
@@ -4792,6 +4810,7 @@ class _ChatState extends State<ChatDetailPage>
 
   Future<void> _saveToFirestore(Map<String, dynamic> data) async {
     final payload = <String, dynamic>{...data};
+    final String senderUid = (currentUser?.uid ?? '').trim();
     if (_replyTo != null) {
       payload['replyTo'] = _replyTo;
     }
@@ -4806,6 +4825,9 @@ class _ChatState extends State<ChatDetailPage>
           'isRead': false,
           'delivered': false,
           'deliveredAt': null,
+          if (senderUid.isNotEmpty) 'readBy': <String, dynamic>{senderUid: FieldValue.serverTimestamp()},
+          if (senderUid.isNotEmpty)
+            'deliveredBy': <String, dynamic>{senderUid: FieldValue.serverTimestamp()},
           ...payload,
         });
 
@@ -4962,6 +4984,7 @@ class _ChatState extends State<ChatDetailPage>
 
     final String uid = currentUser!.uid;
     bool shouldClearUnread = false;
+    bool hasIncomingMessages = false;
     int pendingOps = 0;
     WriteBatch batch = FirebaseFirestore.instance.batch();
 
@@ -4983,8 +5006,22 @@ class _ChatState extends State<ChatDetailPage>
 
         final senderId = (m['senderId'] ?? '').toString();
         if (senderId.isEmpty || senderId == uid) continue;
+        hasIncomingMessages = true;
 
         final Map<String, dynamic> update = {};
+        final Map<String, dynamic> deliveredBy = (m['deliveredBy'] is Map)
+            ? Map<String, dynamic>.from(m['deliveredBy'] as Map)
+            : <String, dynamic>{};
+        if (!deliveredBy.containsKey(uid)) {
+          update['deliveredBy.$uid'] = FieldValue.serverTimestamp();
+        }
+        final Map<String, dynamic> readBy = (m['readBy'] is Map)
+            ? Map<String, dynamic>.from(m['readBy'] as Map)
+            : <String, dynamic>{};
+        if (!readBy.containsKey(uid)) {
+          update['readBy.$uid'] = FieldValue.serverTimestamp();
+          shouldClearUnread = true;
+        }
         if (m['delivered'] != true) {
           update['delivered'] = true;
           update['deliveredAt'] = FieldValue.serverTimestamp();
@@ -5007,15 +5044,19 @@ class _ChatState extends State<ChatDetailPage>
 
       await commitBatch();
 
-      if (shouldClearUnread) {
+      final bool shouldSyncUnreadCount =
+          shouldClearUnread || (_needsUnreadClear && hasIncomingMessages);
+      if (shouldSyncUnreadCount) {
         final chatRef = FirebaseFirestore.instance
             .collection('chats')
             .doc(widget.chatId);
+        bool unreadCleared = false;
         try {
           await chatRef.update({
             'unreadCounts.$uid': 0,
             'lastReadAt.$uid': FieldValue.serverTimestamp(),
           });
+          unreadCleared = true;
         } catch (e) {
           // fallback merge if the doc shape is different/missing
           try {
@@ -5023,7 +5064,11 @@ class _ChatState extends State<ChatDetailPage>
               'unreadCounts': {uid: 0},
               'lastReadAt': {uid: FieldValue.serverTimestamp()},
             }, SetOptions(merge: true));
+            unreadCleared = true;
           } catch (_) {}
+        }
+        if (unreadCleared) {
+          _needsUnreadClear = false;
         }
 
         // Best effort: clear notifications so "push" doesn't stay visible after opening/reading.
@@ -5142,19 +5187,20 @@ class _ChatState extends State<ChatDetailPage>
             MaterialPageRoute(builder: (c) => const CameraScreen()),
           );
           if (media != null) {
+            final mediaType = _looksLikeVideo(media.path) ? 'video' : 'image';
             final result = await Navigator.push(
               parentContext,
               MaterialPageRoute(
                 builder: (c) => MediaPreviewScreen(
                   mediaFile: media,
-                  type: media.path.endsWith('.mp4') ? 'video' : 'image',
+                  type: mediaType,
                 ),
               ),
             );
             if (result != null) {
               _uploadAndSend(
                 result['file'],
-                media.path.endsWith('.mp4') ? 'video' : 'image',
+                mediaType,
                 'chat_media',
                 result['caption'],
               );
@@ -5168,7 +5214,7 @@ class _ChatState extends State<ChatDetailPage>
         onFileTap: () async {
           Navigator.pop(parentContext);
           FilePickerResult? res = await FilePicker.platform.pickFiles(
-            withData: true,
+            withData: kIsWeb,
           );
           if (res != null) {
             _uploadAndSend(
@@ -5198,7 +5244,7 @@ class _ChatState extends State<ChatDetailPage>
           Navigator.pop(context);
           FilePickerResult? res = await FilePicker.platform.pickFiles(
             type: FileType.audio,
-            withData: true,
+            withData: kIsWeb,
           );
           if (res != null) {
             _uploadAndSend(
@@ -5845,11 +5891,10 @@ class _ChatState extends State<ChatDetailPage>
                           )
                         : <String, dynamic>{};
                     isGroup = data['isGroup'] == true;
-                    if (_isGroupChat != isGroup) {
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (mounted) setState(() => _isGroupChat = isGroup);
-                      });
-                    }
+                    final List others = (data['participants'] is List)
+                        ? List.from(data['participants'])
+                        : [];
+                    _syncGroupMeta(isGroup: isGroup, participants: others);
                     if (isGroup) {
                       groupPhoto = (data['groupPhoto'] as String?) ?? '';
                       if (data['groupName'] is String &&
@@ -5896,9 +5941,6 @@ class _ChatState extends State<ChatDetailPage>
                     Map present = (data['present'] is Map)
                         ? data['present']
                         : {};
-                    List others = (data['participants'] is List)
-                        ? List.from(data['participants'])
-                        : [];
                     if (isGroup) {
                       groupParticipants = others
                           .map((e) => e.toString())
@@ -6462,25 +6504,27 @@ class _ChatState extends State<ChatDetailPage>
     final double rawProgress = (total > 0)
         ? (sent / total).clamp(0.0, 1.0)
         : 0.0;
+    final bool transferComplete = total > 0 && sent >= total;
     double progressValue = done
         ? 1.0
-        : max(_uploadVisualProgress, rawProgress).clamp(0.0, 0.995);
-    if (!done && progressValue >= 0.96) {
+        : max(_uploadVisualProgress, rawProgress).clamp(
+            0.0,
+            transferComplete ? 1.0 : 0.995,
+          );
+    if (!done && !transferComplete && progressValue >= 0.96) {
       progressValue = max(progressValue, 0.995);
     }
-    final int displayedSent = total > 0
-        ? max(sent, (total * progressValue).round().clamp(0, total))
-        : sent;
-    final String percent = done
-        ? '100%'
-        : '${(progressValue * 100).clamp(0, 100).toStringAsFixed(0)}%';
+    final Color progressColor = done
+        ? const Color(0xFF34D399)
+        : (isDark ? Colors.white70 : Colors.black54);
+    final Color progressTrackColor = isDark ? Colors.white24 : Colors.black12;
     final String mediaType = _uploadPreviewType ?? 'media';
     final bool isImage = mediaType == 'image';
     final bool isVideo = mediaType == 'video';
-    final double mediaWidth = MediaQuery.of(context).size.width * 0.56;
+    final double mediaWidth = 82;
     final double mediaHeight = isVideo
         ? (mediaWidth * 0.62)
-        : (mediaWidth * 0.92);
+        : (mediaWidth * 0.78);
     final bool hasPreviewBytes =
         _uploadPreviewBytes != null && _uploadPreviewBytes!.isNotEmpty;
     bool hasPreviewPath = false;
@@ -6541,35 +6585,33 @@ class _ChatState extends State<ChatDetailPage>
     }
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(10, 4, 10, 6),
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
       child: Align(
         alignment: Alignment.centerRight,
         child: Container(
           constraints: BoxConstraints(
-            maxWidth: MediaQuery.of(context).size.width * 0.72,
+            maxWidth: MediaQuery.of(context).size.width * 0.58,
           ),
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF0E3F75), Color(0xFF0A2B4F)],
-            ),
-            borderRadius: BorderRadius.circular(18),
+            color: isDark
+                ? const Color(0xB313161E)
+                : Colors.white.withOpacity(0.80),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(
               color: done
-                  ? const Color(0xFF2ECC71).withOpacity(0.85)
-                  : Colors.white.withOpacity(0.18),
+                  ? const Color(0x5534D399)
+                  : (isDark ? Colors.white12 : Colors.black12),
             ),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(isDark ? 0.34 : 0.12),
-                blurRadius: 12,
-                offset: const Offset(0, 6),
+                color: Colors.black.withOpacity(isDark ? 0.18 : 0.08),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
               ),
             ],
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+            padding: const EdgeInsets.fromLTRB(8, 7, 8, 7),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -6580,8 +6622,10 @@ class _ChatState extends State<ChatDetailPage>
                       done
                           ? Icons.check_circle_rounded
                           : Icons.file_upload_rounded,
-                      color: done ? const Color(0xFF2ECC71) : Colors.white70,
-                      size: 16,
+                      color: done
+                          ? const Color(0xFF34D399)
+                          : (isDark ? Colors.white70 : Colors.black54),
+                      size: 14,
                     ),
                     const SizedBox(width: 6),
                     Expanded(
@@ -6596,29 +6640,48 @@ class _ChatState extends State<ChatDetailPage>
                                             : 'Envoi média'))),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black87,
+                          fontSize: 11,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
-                    if (percent.isNotEmpty)
-                      Text(
-                        percent,
-                        style: TextStyle(
-                          color: done
-                              ? const Color(0xFF2ECC71)
-                              : Colors.white70,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                        ),
+                    SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 180),
+                        child: done
+                            ? const Icon(
+                                Icons.check_rounded,
+                                key: ValueKey('upload_done_circle'),
+                                color: Color(0xFF34D399),
+                                size: 14,
+                              )
+                            : TweenAnimationBuilder<double>(
+                                key: const ValueKey('upload_progress_circle'),
+                                tween: Tween<double>(
+                                  begin: 0.0,
+                                  end: progressValue,
+                                ),
+                                duration: const Duration(milliseconds: 180),
+                                curve: Curves.easeOutCubic,
+                                builder: (context, value, _) =>
+                                    CircularProgressIndicator(
+                                      value: value,
+                                      strokeWidth: 2.1,
+                                      color: progressColor,
+                                      backgroundColor: progressTrackColor,
+                                    ),
+                              ),
                       ),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 7),
+                const SizedBox(height: 6),
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(10),
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
@@ -6631,8 +6694,8 @@ class _ChatState extends State<ChatDetailPage>
                                 begin: Alignment.topCenter,
                                 end: Alignment.bottomCenter,
                                 colors: [
-                                  Colors.black.withOpacity(0.06),
-                                  Colors.black.withOpacity(0.24),
+                                  Colors.black.withOpacity(0.02),
+                                  Colors.black.withOpacity(0.10),
                                 ],
                               ),
                             ),
@@ -6641,50 +6704,20 @@ class _ChatState extends State<ChatDetailPage>
                       ),
                       if (done)
                         Container(
-                          padding: const EdgeInsets.all(9),
+                          padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
-                            color: Colors.black.withOpacity(0.35),
+                            color: Colors.black.withOpacity(0.20),
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(
                             Icons.done_rounded,
-                            color: Color(0xFF2ECC71),
-                            size: 22,
+                            color: Color(0xFF34D399),
+                            size: 15,
                           ),
                         ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 7),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(999),
-                  child: TweenAnimationBuilder<double>(
-                    tween: Tween<double>(begin: 0.0, end: progressValue),
-                    duration: Duration(milliseconds: done ? 280 : 210),
-                    curve: Curves.easeOutCubic,
-                    builder: (context, value, _) => LinearProgressIndicator(
-                      value: value,
-                      minHeight: 5,
-                      color: done ? const Color(0xFF2ECC71) : tgAccent,
-                      backgroundColor: Colors.white24,
-                    ),
-                  ),
-                ),
-                if (total > 0)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 4),
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        '${_fmtBytes(displayedSent)}/${_fmtBytes(total)}',
-                        style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                  ),
               ],
             ),
           ),
@@ -6846,13 +6879,55 @@ class _ChatState extends State<ChatDetailPage>
         : Colors.black.withOpacity(0.06);
     Widget statusIcon = const SizedBox.shrink();
     if (isMe) {
-      if ((m['isRead'] ?? false)) {
-        statusIcon = Icon(Icons.done_all, size: 14, color: tgAccent);
-      } else if ((m['delivered'] ?? false))
-        statusIcon = Icon(Icons.done_all, size: 14, color: pendingColor);
-      else
-        statusIcon = Icon(Icons.done, size: 14, color: pendingColor);
+      final Map<String, dynamic> readBy = (m['readBy'] is Map)
+          ? Map<String, dynamic>.from(m['readBy'] as Map)
+          : <String, dynamic>{};
+      final Map<String, dynamic> deliveredBy = (m['deliveredBy'] is Map)
+          ? Map<String, dynamic>.from(m['deliveredBy'] as Map)
+          : <String, dynamic>{};
+      final String me = (currentUser?.uid ?? '').trim();
+      final Set<String> recipients = _chatParticipantIds
+          .where((id) => id.trim().isNotEmpty && id != me)
+          .toSet();
+      final bool hasGroupRecipients = _isGroupChat && recipients.isNotEmpty;
+
+      if (hasGroupRecipients) {
+        final bool allReadByRecipients = recipients.every(
+          (id) => readBy.containsKey(id),
+        );
+        bool anyDeliveredToRecipients = recipients.any(
+          (id) => deliveredBy.containsKey(id) || readBy.containsKey(id),
+        );
+        if (!anyDeliveredToRecipients &&
+            ((m['isRead'] ?? false) || (m['delivered'] ?? false))) {
+          anyDeliveredToRecipients = true;
+        }
+        if (allReadByRecipients) {
+          statusIcon = Icon(Icons.done_all, size: 14, color: tgAccent);
+        } else if (anyDeliveredToRecipients) {
+          statusIcon = Icon(Icons.done_all, size: 14, color: pendingColor);
+        } else {
+          statusIcon = Icon(Icons.done, size: 14, color: pendingColor);
+        }
+      } else {
+        if ((m['isRead'] ?? false)) {
+          statusIcon = Icon(Icons.done_all, size: 14, color: tgAccent);
+        } else if ((m['delivered'] ?? false)) {
+          statusIcon = Icon(Icons.done_all, size: 14, color: pendingColor);
+        } else {
+          statusIcon = Icon(Icons.done, size: 14, color: pendingColor);
+        }
+      }
     }
+    final int readByCount = (m['readBy'] is Map)
+        ? (m['readBy'] as Map).length
+        : 0;
+    final int deliveredByCount = (m['deliveredBy'] is Map)
+        ? (m['deliveredBy'] as Map).length
+        : 0;
+    final String statusKey = _isGroupChat
+        ? '${readByCount}_${deliveredByCount}_${m['isRead']}_${m['delivered']}'
+        : '${m['isRead']}_${m['delivered']}';
 
     // Render system messages as centered labels (WhatsApp-style)
     if (type == 'system') {
@@ -7191,12 +7266,7 @@ class _ChatState extends State<ChatDetailPage>
                               if (_isGroupChat && !isMe) ...[
                                 Builder(
                                   builder: (ctx) {
-                                    final bool isDark =
-                                        Theme.of(ctx).brightness ==
-                                        Brightness.dark;
-                                    final Color nameColor = (isDark || isMe)
-                                        ? Colors.white70
-                                        : Colors.black54;
+                                    final Color nameColor = Colors.white70;
                                     final senderId = (m['senderId'] ?? '')
                                         .toString();
                                     final fallbackName =
@@ -7282,9 +7352,7 @@ class _ChatState extends State<ChatDetailPage>
                                             child: child,
                                           ),
                                       child: IconTheme(
-                                        key: ValueKey(
-                                          '${m['isRead']}_${m['delivered']}',
-                                        ),
+                                        key: ValueKey(statusKey),
                                         data: const IconThemeData(size: 14),
                                         child: statusIcon,
                                       ),
@@ -9144,6 +9212,7 @@ class _ChatState extends State<ChatDetailPage>
             // incoming new message: play incoming ringtone if not from current user
             if (change.type == DocumentChangeType.added) {
               if (data['senderId'] != currentUser?.uid) {
+                _needsUnreadClear = true;
                 try {
                   _playSfx('sounds/ringtone.mp3');
                 } catch (_) {}
