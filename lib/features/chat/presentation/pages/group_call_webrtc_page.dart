@@ -92,8 +92,9 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage>
             final kind = (data['kind'] ?? '').toString().trim().toLowerCase();
             final mode = (data['mode'] ?? '').toString().trim().toLowerCase();
             final live = kind == 'live' || mode == 'broadcast';
-            if (mounted && live != _isLiveMode)
+            if (mounted && live != _isLiveMode) {
               setState(() => _isLiveMode = live);
+            }
           });
     } catch (_) {}
   }
@@ -194,19 +195,21 @@ class _GroupCallWebRTCPageState extends State<GroupCallWebRTCPage>
     if (widget.isVideo) {
       final cam = statuses[Permission.camera];
       if (cam == null || !cam.isGranted) {
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Permission caméra requise')),
           );
+        }
       }
     }
     if (widget.publishAudio) {
       final mic = statuses[Permission.microphone];
       if (mic == null || !mic.isGranted) {
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Permission microphone requise')),
           );
+        }
       }
     }
   }

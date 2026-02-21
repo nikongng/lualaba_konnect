@@ -321,12 +321,13 @@ class StoryViewerPageState extends State<StoryViewerPage>
                                 'createdAt': FieldValue.serverTimestamp(),
                               });
                           Navigator.pop(ctx);
-                          if (mounted)
+                          if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text('Commentaire ajouté'),
                               ),
                             );
+                          }
                         },
                       ),
                     ],
@@ -882,22 +883,24 @@ class StoryViewerPageState extends State<StoryViewerPage>
                               data['videoUrl'] ??
                               data['audioUrl'];
                           if (url == null || url.isEmpty) {
-                            if (mounted)
+                            if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text('Pas de média à enregistrer'),
                                 ),
                               );
+                            }
                             return;
                           }
                           final path = await _downloadAndSave(url);
-                          if (mounted)
+                          if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(content: Text('Enregistré: $path')),
                             );
+                          }
                         } catch (e) {
                           debugPrint('Save story error: $e');
-                          if (mounted)
+                          if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text(
@@ -905,6 +908,7 @@ class StoryViewerPageState extends State<StoryViewerPage>
                                 ),
                               ),
                             );
+                          }
                         }
                       },
                       child: const Icon(
@@ -928,16 +932,17 @@ class StoryViewerPageState extends State<StoryViewerPage>
                               data['videoUrl'] ??
                               data['audioUrl'];
                           if (url == null || url.isEmpty) {
-                            if (mounted)
+                            if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text('Rien à partager'),
                                 ),
                               );
+                            }
                             return;
                           }
                           await Clipboard.setData(ClipboardData(text: url));
-                          if (mounted)
+                          if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text(
@@ -945,6 +950,7 @@ class StoryViewerPageState extends State<StoryViewerPage>
                                 ),
                               ),
                             );
+                          }
                         } catch (e) {
                           debugPrint('Share story error: $e');
                         }
@@ -974,7 +980,7 @@ class StoryViewerPageState extends State<StoryViewerPage>
                           await meRef.update({
                             'hiddenStories': FieldValue.arrayUnion([owner]),
                           });
-                          if (mounted)
+                          if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text(
@@ -982,6 +988,7 @@ class StoryViewerPageState extends State<StoryViewerPage>
                                 ),
                               ),
                             );
+                          }
                         } catch (e) {
                           debugPrint('Hide story error: $e');
                         }
@@ -1063,12 +1070,13 @@ class StoryViewerPageState extends State<StoryViewerPage>
                                 'blockedBy': FieldValue.arrayUnion([uid]),
                               });
                             } catch (_) {}
-                            if (mounted)
+                            if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text('Utilisateur bloqué'),
                                 ),
                               );
+                            }
                           }
                         } catch (e) {
                           debugPrint('Block story owner error: $e');
@@ -1096,8 +1104,9 @@ class StoryViewerPageState extends State<StoryViewerPage>
                     final data = doc.data() as Map<String, dynamic>? ?? {};
                     final owner = _ownerIdOf(data);
                     final uid = FirebaseAuth.instance.currentUser?.uid;
-                    if (uid == null || owner != uid)
+                    if (uid == null || owner != uid) {
                       return const SizedBox.shrink();
+                    }
                     return FloatingActionButton(
                       heroTag: 'delete_story',
                       mini: true,
@@ -1136,21 +1145,24 @@ class StoryViewerPageState extends State<StoryViewerPage>
                               .collection('stories')
                               .doc(id)
                               .delete();
-                          if (mounted)
+                          if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('Story supprimée')),
                             );
+                          }
                           if (mounted &&
-                              _currentIndex >= widget.stories.length - 1)
+                              _currentIndex >= widget.stories.length - 1) {
                             _closeViewer();
+                          }
                         } catch (e) {
                           debugPrint('Delete story error: $e');
-                          if (mounted)
+                          if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text('Erreur lors de la suppression'),
                               ),
                             );
+                          }
                         }
                       },
                       child: const Icon(
@@ -1186,8 +1198,9 @@ class StoryViewerPageState extends State<StoryViewerPage>
                                 data['legende'] ??
                                 '')
                             as String;
-                    if (currentCaption.trim().isEmpty)
+                    if (currentCaption.trim().isEmpty) {
                       return const SizedBox.shrink();
+                    }
                     return ConstrainedBox(
                       constraints: BoxConstraints(
                         maxWidth:
@@ -1233,8 +1246,9 @@ Future<String> _downloadAndSave(String url) async {
     final client = HttpClient();
     final req = await client.getUrl(uri);
     final res = await req.close();
-    if (res.statusCode != 200)
+    if (res.statusCode != 200) {
       throw Exception('Download failed: ${res.statusCode}');
+    }
     final bytes = await consolidateHttpClientResponseBytes(res);
     final dir = await getApplicationDocumentsDirectory();
     final folder = Directory('${dir.path}/Downloads/stories');

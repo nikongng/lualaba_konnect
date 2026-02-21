@@ -197,7 +197,7 @@ class _CallWebRTCPageState extends State<CallWebRTCPage>
       if (widget.isVideo) {
         final camStatus = statuses[Permission.camera];
         if (camStatus == null || !camStatus.isGranted) {
-          if (mounted)
+          if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text(
@@ -205,6 +205,7 @@ class _CallWebRTCPageState extends State<CallWebRTCPage>
                 ),
               ),
             );
+          }
           // If permanently denied, open app settings
           if (camStatus != null && camStatus.isPermanentlyDenied) {
             openAppSettings();
@@ -216,12 +217,14 @@ class _CallWebRTCPageState extends State<CallWebRTCPage>
       // Check microphone permission
       final micStatus = statuses[Permission.microphone];
       if (micStatus == null || !micStatus.isGranted) {
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Permission microphone requise')),
           );
-        if (micStatus != null && micStatus.isPermanentlyDenied)
+        }
+        if (micStatus != null && micStatus.isPermanentlyDenied) {
           openAppSettings();
+        }
         return;
       }
 
@@ -286,8 +289,9 @@ class _CallWebRTCPageState extends State<CallWebRTCPage>
   }
 
   Future<void> _handleEndedOrUpgrade() async {
-    if (_navigatingUpgrade || _endingHandled || _isClosingPage || _isDisposing)
+    if (_navigatingUpgrade || _endingHandled || _isClosingPage || _isDisposing) {
       return;
+    }
     _endingHandled = true;
 
     try {
@@ -362,12 +366,13 @@ class _CallWebRTCPageState extends State<CallWebRTCPage>
       final picked = await _pickContactUid();
       if (picked == null || picked.trim().isEmpty) return;
       if (picked == widget.otherId) {
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
               content: Text('Cette personne est déjà dans l’appel'),
             ),
           );
+        }
         return;
       }
       await _upgradeToGroupCall(addUid: picked.trim());

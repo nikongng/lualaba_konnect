@@ -166,8 +166,9 @@ class _ChatState extends State<ChatDetailPage>
     }
 
     if (name.isEmpty) name = 'Un utilisateur';
-    if (photo.isEmpty)
+    if (photo.isEmpty) {
       photo = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+    }
 
     _cachedSenderUid = user.uid;
     _cachedSenderName = name;
@@ -557,9 +558,9 @@ class _ChatState extends State<ChatDetailPage>
           final String extLower = ext.toLowerCase();
           String? contentType;
           if (type == 'image') {
-            if (extLower == '.png')
+            if (extLower == '.png') {
               contentType = 'image/png';
-            else if (extLower == '.webp')
+            } else if (extLower == '.webp')
               contentType = 'image/webp';
             else if (extLower == '.gif')
               contentType = 'image/gif';
@@ -568,16 +569,16 @@ class _ChatState extends State<ChatDetailPage>
             else
               contentType = 'image/jpeg';
           } else if (type == 'video') {
-            if (extLower == '.mov')
+            if (extLower == '.mov') {
               contentType = 'video/quicktime';
-            else if (extLower == '.webm')
+            } else if (extLower == '.webm')
               contentType = 'video/webm';
             else
               contentType = 'video/mp4';
           } else if (type == 'audio' || type == 'voice') {
-            if (extLower == '.wav')
+            if (extLower == '.wav') {
               contentType = 'audio/wav';
-            else if (extLower == '.m4a')
+            } else if (extLower == '.m4a')
               contentType = 'audio/mp4';
             else if (extLower == '.ogg' || extLower == '.oga')
               contentType = 'audio/ogg';
@@ -917,10 +918,11 @@ class _ChatState extends State<ChatDetailPage>
         );
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      }
     }
   }
 
@@ -948,10 +950,11 @@ class _ChatState extends State<ChatDetailPage>
         );
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      }
     }
   }
 
@@ -1188,15 +1191,17 @@ class _ChatState extends State<ChatDetailPage>
         });
       }
 
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Message supprimé')));
+      }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      }
     }
   }
 
@@ -1789,10 +1794,11 @@ class _ChatState extends State<ChatDetailPage>
           .limit(1)
           .get();
       if (existing.docs.isNotEmpty) {
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text('Déjà enregistré')));
+        }
         return;
       }
       final doc = {
@@ -1807,16 +1813,18 @@ class _ChatState extends State<ChatDetailPage>
         'createdAt': FieldValue.serverTimestamp(),
       };
       await FirebaseFirestore.instance.collection('saved_messages').add(doc);
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Message enregistré')));
+      }
     } catch (e) {
       debugPrint('Save msg err: $e');
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
+      }
     }
   }
 
@@ -1875,10 +1883,11 @@ class _ChatState extends State<ChatDetailPage>
       }
     } catch (e) {
       debugPrint('Delete selected error: $e');
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Erreur lors de la suppression')),
         );
+      }
     }
   }
 
@@ -1899,10 +1908,11 @@ class _ChatState extends State<ChatDetailPage>
         } catch (_) {}
       }
       if (snap == null) {
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text('Profil introuvable')));
+        }
         return;
       }
 
@@ -2382,7 +2392,7 @@ class _ChatState extends State<ChatDetailPage>
                                 (perms['canChangeInfo'] ?? 'admins').toString();
                             if (canChange == 'admins' &&
                                 !admins.contains(currentUser?.uid ?? '')) {
-                              if (mounted)
+                              if (mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text(
@@ -2390,6 +2400,7 @@ class _ChatState extends State<ChatDetailPage>
                                     ),
                                   ),
                                 );
+                              }
                               return;
                             }
                             final picker = ImagePicker();
@@ -2850,7 +2861,7 @@ class _ChatState extends State<ChatDetailPage>
                               .toString();
                           if (canChange == 'admins' &&
                               !admins.contains(currentUser?.uid ?? '')) {
-                            if (mounted)
+                            if (mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
                                   content: Text(
@@ -2858,6 +2869,7 @@ class _ChatState extends State<ChatDetailPage>
                                   ),
                                 ),
                               );
+                            }
                             return;
                           }
                           await _showGroupSettingsSheet(
@@ -3171,7 +3183,7 @@ class _ChatState extends State<ChatDetailPage>
                                   query,
                                 );
                                 if (user == null) {
-                                  if (mounted)
+                                  if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
                                         content: Text(
@@ -3179,11 +3191,12 @@ class _ChatState extends State<ChatDetailPage>
                                         ),
                                       ),
                                     );
+                                  }
                                   return;
                                 }
                                 final uid = user['uid'] as String;
                                 if (existingIds.contains(uid)) {
-                                  if (mounted)
+                                  if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
                                         content: Text(
@@ -3191,6 +3204,7 @@ class _ChatState extends State<ChatDetailPage>
                                         ),
                                       ),
                                     );
+                                  }
                                   return;
                                 }
                                 final exists =
@@ -3332,7 +3346,7 @@ class _ChatState extends State<ChatDetailPage>
                                     [];
                                 if (canAdd == 'admins' &&
                                     !admins.contains(current.uid)) {
-                                  if (mounted)
+                                  if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
                                         content: Text(
@@ -3340,6 +3354,7 @@ class _ChatState extends State<ChatDetailPage>
                                         ),
                                       ),
                                     );
+                                  }
                                   return;
                                 }
 
@@ -3352,12 +3367,13 @@ class _ChatState extends State<ChatDetailPage>
                                     .where((u) => !existing.contains(u))
                                     .toList();
                                 if (toAdd.isEmpty) {
-                                  if (mounted)
+                                  if (mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
                                       const SnackBar(
                                         content: Text('Aucun nouveau membre'),
                                       ),
                                     );
+                                  }
                                   return;
                                 }
 
@@ -3395,9 +3411,10 @@ class _ChatState extends State<ChatDetailPage>
                                       FieldValue.serverTimestamp(),
                                 };
                                 for (var p in allParticipants) {
-                                  if (p != current.uid)
+                                  if (p != current.uid) {
                                     metaUpdates['unreadCounts.$p'] =
                                         FieldValue.increment(1);
+                                  }
                                 }
                                 await chatRef.update(metaUpdates);
 
@@ -3411,12 +3428,13 @@ class _ChatState extends State<ChatDetailPage>
                                 }
                               } catch (e) {
                                 debugPrint('add members err: $e');
-                                if (mounted)
+                                if (mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
                                       content: Text('Erreur lors de l’ajout'),
                                     ),
                                   );
+                                }
                               }
                             },
                             child: const Text('Ajouter'),
@@ -3742,10 +3760,11 @@ class _ChatState extends State<ChatDetailPage>
       });
     } catch (e) {
       debugPrint('set admin err: $e');
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Erreur admin')));
+      }
     }
   }
 
@@ -3816,8 +3835,9 @@ class _ChatState extends State<ChatDetailPage>
         'lastMessageTime': FieldValue.serverTimestamp(),
       };
       for (var p in remaining) {
-        if (p != currentUser?.uid)
+        if (p != currentUser?.uid) {
           metaUpdates['unreadCounts.$p'] = FieldValue.increment(1);
+        }
       }
       await chatRef.update(metaUpdates);
 
@@ -3826,10 +3846,11 @@ class _ChatState extends State<ChatDetailPage>
       }
     } catch (e) {
       debugPrint('remove member err: $e');
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Erreur suppression membre')),
         );
+      }
     }
   }
 
@@ -4188,8 +4209,9 @@ class _ChatState extends State<ChatDetailPage>
                                         final url = await _uploadGroupPhoto(
                                           newPhoto!,
                                         );
-                                        if (url != null && url.isNotEmpty)
+                                        if (url != null && url.isNotEmpty) {
                                           updates['groupPhoto'] = url;
+                                        }
                                       }
                                       await FirebaseFirestore.instance
                                           .collection('chats')
@@ -4209,7 +4231,7 @@ class _ChatState extends State<ChatDetailPage>
                                       }
                                     } catch (e) {
                                       debugPrint('group settings err: $e');
-                                      if (mounted)
+                                      if (mounted) {
                                         ScaffoldMessenger.of(
                                           context,
                                         ).showSnackBar(
@@ -4219,6 +4241,7 @@ class _ChatState extends State<ChatDetailPage>
                                             ),
                                           ),
                                         );
+                                      }
                                     }
                                   },
                                   child: const Text('Enregistrer'),
@@ -4376,16 +4399,18 @@ class _ChatState extends State<ChatDetailPage>
             'lastMessageTime': FieldValue.serverTimestamp(),
             if (currentUser != null) 'unreadCounts.${currentUser!.uid}': 0,
           });
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(const SnackBar(content: Text('Discussion effacée')));
+      }
     } catch (e) {
       debugPrint('clear chat err: $e');
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Erreur lors de l’effacement')),
         );
+      }
     }
   }
 
@@ -4404,10 +4429,11 @@ class _ChatState extends State<ChatDetailPage>
       }
     } catch (e) {
       debugPrint('delete group err: $e');
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Erreur lors de la suppression')),
         );
+      }
     }
   }
 
@@ -5177,8 +5203,9 @@ class _ChatState extends State<ChatDetailPage>
         onImageSelected: (asset) async {
           Navigator.pop(parentContext);
           File? f = await asset.file;
-          if (f != null)
+          if (f != null) {
             _uploadAndSend(XFile(f.path), 'image', 'chat_media', '📸 Photo');
+          }
         },
         onCameraTap: () async {
           Navigator.pop(parentContext);
@@ -5881,8 +5908,9 @@ class _ChatState extends State<ChatDetailPage>
                   // Determine a resilient display name: prefer chat doc 'name', then widget.chatName,
                   // then current user's displayName, finally fallback to 'Utilisateur'.
                   String displayName = widget.chatName.trim();
-                  if (displayName.isEmpty)
+                  if (displayName.isEmpty) {
                     displayName = currentUser?.displayName ?? "";
+                  }
                   if (snap.hasData && snap.data!.exists) {
                     final rawChat = snap.data!.data();
                     var data = rawChat is Map
@@ -6327,16 +6355,18 @@ class _ChatState extends State<ChatDetailPage>
                             resolved = (ud['name'] as String).trim();
                           }
                         }
-                        if (resolved.isEmpty)
+                        if (resolved.isEmpty) {
                           resolved = currentUser?.displayName ?? 'Utilisateur';
+                        }
                         return buildRow(resolved, otherId: otherId);
                       },
                     );
                   }
 
                   // default
-                  if (displayName.isEmpty)
+                  if (displayName.isEmpty) {
                     displayName = currentUser?.displayName ?? 'Utilisateur';
+                  }
                   return buildRow(displayName, otherId: otherId);
                 },
               ),
@@ -7420,13 +7450,15 @@ class _ChatState extends State<ChatDetailPage>
           photo =
               (ud['photoUrl'] ?? ud['photo'] ?? ud['avatar'] ?? '') as String;
           final nm = ud['displayName'] ?? ud['name'] ?? '';
-          if (nm is String && nm.isNotEmpty)
+          if (nm is String && nm.isNotEmpty) {
             avatarLetterLocal = nm[0].toUpperCase();
+          }
         } else {
           // fallback to message senderName
           final maybeName = (m['senderName'] ?? '') as String? ?? '';
-          if (maybeName.isNotEmpty)
+          if (maybeName.isNotEmpty) {
             avatarLetterLocal = maybeName[0].toUpperCase();
+          }
         }
 
         final avatarWidget = GestureDetector(
@@ -7976,11 +8008,12 @@ class _ChatState extends State<ChatDetailPage>
                                     ? null
                                     : () async {
                                         final ok = await _askDownloadMedia();
-                                        if (ok)
+                                        if (ok) {
                                           await _downloadMediaToCache(
                                             url,
                                             expectedBytes: expected,
                                           );
+                                        }
                                       },
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(
@@ -8129,11 +8162,12 @@ class _ChatState extends State<ChatDetailPage>
                                       ? null
                                       : () async {
                                           final ok = await _askDownloadMedia();
-                                          if (ok)
+                                          if (ok) {
                                             await _downloadMediaToCache(
                                               url,
                                               expectedBytes: expected,
                                             );
+                                          }
                                         },
                                   child: Container(
                                     padding: const EdgeInsets.symmetric(
@@ -8379,11 +8413,12 @@ class _ChatState extends State<ChatDetailPage>
                             ? null
                             : () async {
                                 final ok = await _askDownloadMedia();
-                                if (ok)
+                                if (ok) {
                                   await _downloadMediaToCache(
                                     url,
                                     expectedBytes: expected,
                                   );
+                                }
                               },
                       ),
                       if (downloading)
@@ -8599,17 +8634,19 @@ class _ChatState extends State<ChatDetailPage>
         'hiddenFor.${currentUser!.uid}': true,
         'unreadCounts.${currentUser!.uid}': 0,
       }, SetOptions(merge: true));
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Conversation supprimée pour vous')),
         );
+      }
       if (mounted) Navigator.pop(context);
     } catch (e) {
       debugPrint('Delete conversation error: $e');
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Erreur lors de la suppression')),
         );
+      }
     }
   }
 
@@ -8718,8 +8755,9 @@ class _ChatState extends State<ChatDetailPage>
                                       : () {
                                           setState(() {
                                             _showEmoji = !_showEmoji;
-                                            if (_showEmoji)
+                                            if (_showEmoji) {
                                               FocusScope.of(context).unfocus();
+                                            }
                                           });
                                         },
                                 ),
@@ -9048,10 +9086,11 @@ class _ChatState extends State<ChatDetailPage>
     try {
       var status = await Permission.microphone.request();
       if (!status.isGranted) {
-        if (mounted)
+        if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Permission micro requise')),
           );
+        }
         return;
       }
       if (mounted) {
@@ -9084,7 +9123,7 @@ class _ChatState extends State<ChatDetailPage>
           );
         } catch (e2) {
           debugPrint('Fallback record error: $e2');
-          if (mounted)
+          if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text(
@@ -9092,6 +9131,7 @@ class _ChatState extends State<ChatDetailPage>
                 ),
               ),
             );
+          }
           return;
         }
       }
@@ -9100,8 +9140,9 @@ class _ChatState extends State<ChatDetailPage>
       _recordSecondsNotifier.value = 0;
       _recordTimer?.cancel();
       _recordTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-        if (mounted)
+        if (mounted) {
           _recordSecondsNotifier.value = _recordSecondsNotifier.value + 1;
+        }
       });
     } catch (e) {
       debugPrint('Start record error: $e');
@@ -9169,8 +9210,9 @@ class _ChatState extends State<ChatDetailPage>
     _recorder ??= fs.FlutterSoundRecorder();
     // animated background cycling
     _bgTimer = Timer.periodic(const Duration(seconds: 6), (_) {
-      if (mounted)
+      if (mounted) {
         setState(() => _bgIndex = (_bgIndex + 1) % _bgGradients.length);
+      }
     });
 
     _mediaTransferListener = () {

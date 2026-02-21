@@ -1,0 +1,55 @@
+workflows:
+  android-production:
+    name: Android Production (APK + AAB)
+    max_build_duration: 60
+    instance_type: linux_x2
+
+    triggering:
+      events:
+        - push
+        - tag
+      branch_patterns:
+        - pattern: main
+          include: true
+          source: true
+
+    environment:
+      flutter: 3.38.5
+      java: 17
+
+    cache:
+      cache_paths:
+        - $FLUTTER_ROOT/.pub-cache
+        - $HOME/.gradle/caches
+        - $HOME/.gradle/wrapper
+
+    scripts:
+      - name: Configure Android signing
+        script: |
+          if [ -n "$CM_KEYSTORE_B64" ] && [ -n "$CM_KEYSTORE_PASSWORD" ] && [ -n "$CM_KEY_ALIAS" ] && [ -n "$CM_KEY_PASSWORD" ]; then
+            echo "$CM_KEYSTORE_B64" | base64 --decode > android/release.keystore
+            cat > android/key.properties <<EOF
+            storePassword=$CM_KEYSTORE_PASSWORD
+            keyPassword=$CM_KEY_PASSWORD
+            keyAlias=$CM_KEY_ALIAS
+            storeFile=release.keystore
+            EOF
+            echo "Release signing configured from Codemagic environment variables."
+          elif [ -f android/key.properties ] && [ -f android/release.keystore ]; then
+            echo "Using signing files from repository."
+          else
+            echo "No release signing files found. Build can fallback to debug signing."
+          fi
+
+      - name: Install dependencies
+        script: flutter pub get
+
+      - name: Build release APK
+        script: flutter build apk --release
+
+      - name: Build release AAB
+        script: flutter build appbundle --release
+
+    artifacts:
+      - build/app/outputs/flutter-apk/app-release.apk
+      - build/app/outputs/bundle/release/app-release.aab
