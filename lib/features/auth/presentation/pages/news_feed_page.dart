@@ -16,6 +16,7 @@ import 'package:lualaba_konnect/core/config.dart';
 import 'package:lualaba_konnect/features/auth/presentation/pages/notifications_page.dart';
 import 'package:flutter/foundation.dart';
 import 'package:lualaba_konnect/core/supabase_service.dart';
+import 'package:video_player/video_player.dart';
 
 // ==========================================
 // DONNEES DEMO (utilisees si aucun post)
@@ -24,6 +25,53 @@ import 'package:lualaba_konnect/core/supabase_service.dart';
 
 final RegExp _mentionExpGlobal = RegExp(r'@\w+');
 const String _newsFeedBucket = 'Publications';
+
+class _PostMediaEntry {
+  final String type; // image | video
+  final String url;
+  const _PostMediaEntry({required this.type, required this.url});
+
+  bool get isVideo => type == 'video';
+}
+
+List<_PostMediaEntry> _extractPostMediaEntries(Map<String, dynamic> data) {
+  final out = <_PostMediaEntry>[];
+
+  final rawMedia = data['media'];
+  if (rawMedia is List) {
+    for (final raw in rawMedia) {
+      if (raw is! Map) continue;
+      final map = raw.map((k, v) => MapEntry(k.toString(), v));
+      final type = (map['type'] ?? '').toString().toLowerCase();
+      final url = (map['url'] ?? '').toString().trim();
+      if (url.isEmpty) continue;
+      out.add(_PostMediaEntry(type: type == 'video' ? 'video' : 'image', url: url));
+    }
+  }
+  if (out.isNotEmpty) return out;
+
+  final images = (data['images'] is List)
+      ? List<String>.from((data['images'] as List).map((e) => e.toString()))
+      : const <String>[];
+  final videos = (data['videos'] is List)
+      ? List<String>.from((data['videos'] as List).map((e) => e.toString()))
+      : const <String>[];
+
+  out.addAll(images.where((u) => u.trim().isNotEmpty).map((u) => _PostMediaEntry(type: 'image', url: u)));
+  out.addAll(videos.where((u) => u.trim().isNotEmpty).map((u) => _PostMediaEntry(type: 'video', url: u)));
+  return out;
+}
+
+String? _firstPostMediaUrl(Map<String, dynamic> data, {bool preferImage = true}) {
+  final items = _extractPostMediaEntries(data);
+  if (items.isEmpty) return null;
+  if (preferImage) {
+    for (final item in items) {
+      if (!item.isVideo) return item.url;
+    }
+  }
+  return items.first.url;
+}
 
 Widget _buildMentionTextInline(String text, {TextStyle? base, TextStyle? mention}) {
   final spans = <TextSpan>[];
@@ -902,7 +950,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
   Future<void> _openCreatePostSheet() async {
     final textCtrl = TextEditingController();
     final picker = ImagePicker();
-    final List<_PickedImage> selectedImages = [];
+    final List<_PickedMedia> selectedMedia = [];
     String selectedCat = _selectedCategory == 0 ? _categories[1] : _categories[_selectedCategory];
     bool isPosting = false;
     double uploadProgress = 0.0;
@@ -1030,20 +1078,29 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
                     ],
                   ),
                   const SizedBox(height: 10),
-                  if (selectedImages.isNotEmpty)
+                  if (selectedMedia.isNotEmpty)
                     SizedBox(
                       height: 80,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
-                        itemCount: selectedImages.length,
+                        itemCount: selectedMedia.length,
                         separatorBuilder: (_, __) => const SizedBox(width: 8),
                         itemBuilder: (_, i) {
-                          final img = selectedImages[i];
+                          final media = selectedMedia[i];
                           return ClipRRect(
                             borderRadius: BorderRadius.circular(10),
-                            child: kIsWeb
-                                ? Image.memory(img.bytes ?? Uint8List(0), width: 80, height: 80, fit: BoxFit.cover)
-                                : Image.file(File(img.path ?? ''), width: 80, height: 80, fit: BoxFit.cover),
+                            child: media.isVideo
+                                ? Container(
+                                    width: 80,
+                                    height: 80,
+                                    color: const Color(0xFF111827),
+                                    child: const Center(
+                                      child: Icon(Icons.play_circle_fill_rounded, color: Colors.white70, size: 34),
+                                    ),
+                                  )
+                                : (kIsWeb
+                                    ? Image.memory(media.bytes ?? Uint8List(0), width: 80, height: 80, fit: BoxFit.cover)
+                                    : Image.file(File(media.path ?? ''), width: 80, height: 80, fit: BoxFit.cover)),
                           );
                         },
                       ),
@@ -1055,22 +1112,41 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
                         onPressed: () async {
                           final imgs = await picker.pickMultiImage(imageQuality: 80);
                           if (imgs.isNotEmpty) {
-                            final picked = <_PickedImage>[];
+                            final picked = <_PickedMedia>[];
                             for (final x in imgs) {
                               if (kIsWeb) {
                                 final bytes = await x.readAsBytes();
-                                picked.add(_PickedImage(bytes: bytes));
+                                picked.add(_PickedMedia(bytes: bytes, name: x.name));
                               } else {
-                                picked.add(_PickedImage(path: x.path));
+                                picked.add(_PickedMedia(path: x.path, name: x.name));
                               }
                             }
                             setModal(() {
-                              selectedImages.addAll(picked);
+                              selectedMedia.addAll(picked);
                             });
                           }
                         },
                         icon: Icon(Icons.photo_library_outlined, color: subText),
                         label: Text('Photos', style: TextStyle(color: textColor)),
+                      ),
+                      TextButton.icon(
+                        onPressed: () async {
+                          final vid = await picker.pickVideo(source: ImageSource.gallery);
+                          if (vid == null) return;
+                          if (kIsWeb) {
+                            final bytes = await vid.readAsBytes();
+                            if (bytes.isEmpty) return;
+                            setModal(() {
+                              selectedMedia.add(_PickedMedia(bytes: bytes, isVideo: true, name: vid.name));
+                            });
+                          } else {
+                            setModal(() {
+                              selectedMedia.add(_PickedMedia(path: vid.path, isVideo: true, name: vid.name));
+                            });
+                          }
+                        },
+                        icon: Icon(Icons.videocam_outlined, color: subText),
+                        label: Text('Videos', style: TextStyle(color: textColor)),
                       ),
                       const Spacer(),
                       ElevatedButton(
@@ -1078,8 +1154,8 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
                             ? null
                             : () async {
                                 final text = textCtrl.text.trim();
-                                if (text.isEmpty && selectedImages.isEmpty) return;
-                                debugPrint('[NewsFeed] Publish tapped. textLen=${text.length} images=${selectedImages.length} cat=$selectedCat');
+                                if (text.isEmpty && selectedMedia.isEmpty) return;
+                                debugPrint('[NewsFeed] Publish tapped. textLen=${text.length} media=${selectedMedia.length} cat=$selectedCat');
                                 setModal(() {
                                   isPosting = true;
                                   uploadProgress = 0.0;
@@ -1087,7 +1163,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
                                 try {
                                   await _createPost(
                                     text,
-                                    selectedImages,
+                                    selectedMedia,
                                     selectedCat,
                                     onProgress: (p) {
                                       setModal(() => uploadProgress = p);
@@ -1121,61 +1197,99 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
     );
   }
 
+  String _safeMediaExt(String? value, {required bool isVideo}) {
+    final src = (value ?? '').trim();
+    final dot = src.lastIndexOf('.');
+    final fallback = isVideo ? '.mp4' : '.jpg';
+    if (dot == -1 || dot == src.length - 1) return fallback;
+    final ext = src.substring(dot).toLowerCase();
+    if (!RegExp(r'^\.[a-z0-9]{1,6}$').hasMatch(ext)) return fallback;
+    if (isVideo) {
+      const allowed = {'.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi', '.3gp'};
+      return allowed.contains(ext) ? ext : '.mp4';
+    }
+    const allowed = {'.jpg', '.jpeg', '.png', '.webp', '.gif', '.heic', '.heif'};
+    return allowed.contains(ext) ? ext : '.jpg';
+  }
+
   Future<void> _createPost(
     String text,
-    List<_PickedImage> localImages,
+    List<_PickedMedia> localMedia,
     String category, {
     required void Function(double) onProgress,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) return;
-    debugPrint('[NewsFeed] _createPost start user=${user.uid} images=${localImages.length} cat=$category');
+    debugPrint('[NewsFeed] _createPost start user=${user.uid} media=${localMedia.length} cat=$category');
     final profile = await _getUserProfileAny(user.uid);
     final userData = profile['data'] as Map<String, dynamic>?;
     final authorName = _pickName(userData, user);
     final authorAvatar = _pickAvatar(userData, user);
 
-    final List<String> urls = [];
-    final int total = localImages.isEmpty ? 1 : localImages.length;
-    for (int i = 0; i < localImages.length; i++) {
-      final img = localImages[i];
-      if (kIsWeb && (img.bytes == null || img.bytes!.isEmpty)) {
-        debugPrint('[NewsFeed] skip empty web image index=$i');
+    final List<String> imageUrls = [];
+    final List<String> videoUrls = [];
+    final List<Map<String, String>> media = [];
+    final int total = localMedia.isEmpty ? 1 : localMedia.length;
+    for (int i = 0; i < localMedia.length; i++) {
+      final picked = localMedia[i];
+      if (kIsWeb && (picked.bytes == null || picked.bytes!.isEmpty)) {
+        debugPrint('[NewsFeed] skip empty web media index=$i');
         continue;
       }
-      if (!kIsWeb && (img.path == null || img.path!.isEmpty)) {
-        debugPrint('[NewsFeed] skip empty file image index=$i');
+      if (!kIsWeb && (picked.path == null || picked.path!.isEmpty)) {
+        debugPrint('[NewsFeed] skip empty file media index=$i');
         continue;
       }
-      debugPrint('[NewsFeed] upload image index=$i (supabase)');
+      final mediaType = picked.isVideo ? 'video' : 'image';
+      debugPrint('[NewsFeed] upload $mediaType index=$i (supabase)');
       if (!SupabaseService.isInitialized) {
         throw Exception('Supabase non initialisé. Vérifie SUPABASE_URL et SUPABASE_ANON_KEY.');
       }
-      final fileName = 'news_feed/${user.uid}/${DateTime.now().millisecondsSinceEpoch}_$i.jpg';
-      String publicUrl;
-      Uint8List bytes;
-      if (kIsWeb) {
-        bytes = img.bytes ?? Uint8List(0);
-      } else {
-        bytes = await File(img.path ?? '').readAsBytes();
+      final ext = _safeMediaExt(picked.name ?? picked.path, isVideo: picked.isVideo);
+      final fileName = 'news_feed/${user.uid}/${DateTime.now().millisecondsSinceEpoch}_$i$ext';
+      final startProgress = i / total;
+      final stepWeight = 1 / total;
+      onProgress((startProgress + (0.06 * stepWeight)).clamp(0.0, 1.0));
+      Uint8List bytes = picked.bytes ?? Uint8List(0);
+      if (bytes.isEmpty && !kIsWeb && (picked.path ?? '').trim().isNotEmpty) {
+        final path = picked.path!.trim();
+        try {
+          bytes = await XFile(path).readAsBytes();
+        } catch (_) {}
+        if (bytes.isEmpty) {
+          try {
+            bytes = await File(path).readAsBytes();
+          } catch (_) {}
+        }
       }
-      publicUrl = await SupabaseService.uploadBytes(
+      if (bytes.isEmpty) {
+        throw Exception('Media local inaccessible sur ce telephone. Selectionne le fichier a nouveau.');
+      }
+      final publicUrl = await SupabaseService.uploadBytes(
         bytes,
         fileName,
         _newsFeedBucket,
       );
-      urls.add(publicUrl);
+      if (picked.isVideo) {
+        videoUrls.add(publicUrl);
+        media.add({'type': 'video', 'url': publicUrl});
+      } else {
+        imageUrls.add(publicUrl);
+        media.add({'type': 'image', 'url': publicUrl});
+      }
       final current = (i + 1) / total;
       onProgress(current.clamp(0.0, 1.0));
     }
 
-    debugPrint('[NewsFeed] uploading done urls=${urls.length}');
+    debugPrint('[NewsFeed] uploading done images=${imageUrls.length} videos=${videoUrls.length}');
     final docRef = await FirebaseFirestore.instance.collection('posts').add({
       'authorId': user.uid,
       'authorName': authorName,
       'authorAvatar': authorAvatar,
       'text': text,
-      'images': urls,
+      'images': imageUrls,
+      'videos': videoUrls,
+      'media': media,
       'category': category,
       'createdAt': FieldValue.serverTimestamp(),
       'likes': 0,
@@ -1538,8 +1652,8 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
   void _sharePost(String postId, Map<String, dynamic> data) async {
     final text = (data['text'] ?? '').toString();
     if (text.isEmpty) return;
-    final images = List<String>.from(data['images'] ?? []);
-    final content = images.isNotEmpty ? '$text\n${images.first}' : text;
+    final firstMediaUrl = _firstPostMediaUrl(data, preferImage: true);
+    final content = firstMediaUrl != null ? '$text\n$firstMediaUrl' : text;
     await Share.share(content, subject: 'Publication');
     final currentShares = data['sharesCount'] is int ? data['sharesCount'] as int : 0;
     _patchLocalPost(postId, {'sharesCount': currentShares + 1});
@@ -2049,8 +2163,7 @@ class _NewsFeedPageState extends State<NewsFeedPage> with SingleTickerProviderSt
       try {
         final postSnap = await FirebaseFirestore.instance.collection('posts').doc(postId).get();
         final p = postSnap.data() ?? {};
-        final images = List<String>.from(p['images'] ?? []);
-        if (images.isNotEmpty) imageUrl = images.first;
+        imageUrl = _firstPostMediaUrl(p, preferImage: true);
       } catch (_) {}
       await _sendMentionPush(
         recipients: recipients,
@@ -2569,7 +2682,7 @@ class _VerticalNewsPostState extends State<VerticalNewsPost> {
       if (v is num) return v.toInt();
       return int.tryParse(v?.toString() ?? '') ?? 0;
     }
-    final images = List<String>.from(data['images'] ?? []);
+    final mediaItems = _extractPostMediaEntries(data);
     final likes = asInt(data['likes']);
     final comments = asInt(data['commentsCount']);
     final shares = asInt(data['sharesCount']);
@@ -2650,7 +2763,7 @@ class _VerticalNewsPostState extends State<VerticalNewsPost> {
             ),
           ),
           const SizedBox(height: 12),
-          if (images.isNotEmpty) _buildImageGrid(images, widget.postId),
+          if (mediaItems.isNotEmpty) _buildMediaGrid(mediaItems, widget.postId),
           const SizedBox(height: 8),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -2713,37 +2826,95 @@ class _VerticalNewsPostState extends State<VerticalNewsPost> {
     );
   }
 
-  Widget _buildImageGrid(List<String> imgs, String postId) {
-    if (imgs.isEmpty) return const SizedBox.shrink();
+  void _openMediaViewer(_PostMediaEntry media, String tag) {
+    if (media.isVideo) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => _VideoViewerPage(videoUrl: media.url)),
+      );
+      return;
+    }
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => _ImageViewerPage(tag: tag, imageUrl: media.url),
+      ),
+    );
+  }
 
-    if (imgs.length == 1) {
-      final img = imgs.first;
+  Widget _buildMediaTile(_PostMediaEntry media, String tag) {
+    if (media.isVideo) {
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          _FeedVideoThumbnail(
+            videoUrl: media.url,
+            fit: BoxFit.cover,
+          ),
+          const Center(
+            child: Icon(
+              Icons.play_circle_fill_rounded,
+              color: Colors.white70,
+              size: 64,
+            ),
+          ),
+          const Positioned(
+            right: 10,
+            bottom: 10,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Color(0x99000000),
+                borderRadius: BorderRadius.all(Radius.circular(999)),
+              ),
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                child: Text(
+                  'Video',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+    return Hero(
+      tag: tag,
+      child: CachedNetworkImage(
+        imageUrl: media.url,
+        fit: BoxFit.cover,
+        width: double.infinity,
+        placeholder: (c, s) => Container(
+          color: Colors.black12,
+          child: const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+        ),
+        errorWidget: (c, s, e) => Container(
+          color: Colors.black12,
+          child: const Center(
+            child: Icon(Icons.broken_image_outlined, size: 40, color: Colors.grey),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMediaGrid(List<_PostMediaEntry> mediaItems, String postId) {
+    if (mediaItems.isEmpty) return const SizedBox.shrink();
+
+    if (mediaItems.length == 1) {
+      final media = mediaItems.first;
+      final tag = 'post-$postId-0';
       return AspectRatio(
         aspectRatio: 16 / 9,
         child: ClipRRect(
           borderRadius: BorderRadius.circular(0),
           child: GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => _ImageViewerPage(
-                    tag: 'post-$postId-0',
-                    imageUrl: img,
-                  ),
-                ),
-              );
-            },
-            child: Hero(
-              tag: 'post-$postId-0',
-              child: CachedNetworkImage(
-                imageUrl: img,
-                fit: BoxFit.cover,
-                width: double.infinity,
-                placeholder: (c, s) => Container(color: Colors.black12, child: const Center(child: CircularProgressIndicator(strokeWidth: 2))),
-                errorWidget: (c, s, e) => Container(color: Colors.black12, child: const Center(child: Icon(Icons.broken_image_outlined, size: 40, color: Colors.grey))),
-              ),
-            ),
+            onTap: () => _openMediaViewer(media, tag),
+            child: _buildMediaTile(media, tag),
           ),
         ),
       );
@@ -2752,40 +2923,112 @@ class _VerticalNewsPostState extends State<VerticalNewsPost> {
     return SizedBox(
       height: 230,
       child: PageView.builder(
-        itemCount: imgs.length,
+        itemCount: mediaItems.length,
         controller: PageController(viewportFraction: 0.95),
         itemBuilder: (context, i) {
-          final img = imgs[i];
+          final media = mediaItems[i];
+          final tag = 'post-$postId-$i';
           return Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6.0),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(15),
               child: GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => _ImageViewerPage(
-                        tag: 'post-$postId-$i',
-                        imageUrl: img,
-                      ),
-                    ),
-                  );
-                },
-                child: Hero(
-                  tag: 'post-$postId-$i',
-                  child: CachedNetworkImage(
-                    imageUrl: img,
-                    fit: BoxFit.cover,
-                    width: double.infinity,
-                    placeholder: (c, s) => Container(color: Colors.black12, child: const Center(child: CircularProgressIndicator(strokeWidth: 2))),
-                    errorWidget: (c, s, e) => Container(color: Colors.black12, child: const Center(child: Icon(Icons.broken_image_outlined, size: 40, color: Colors.grey))),
-                  ),
-                ),
+                onTap: () => _openMediaViewer(media, tag),
+                child: _buildMediaTile(media, tag),
               ),
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _FeedVideoThumbnail extends StatefulWidget {
+  final String videoUrl;
+  final BoxFit fit;
+  const _FeedVideoThumbnail({
+    required this.videoUrl,
+    this.fit = BoxFit.cover,
+  });
+
+  @override
+  State<_FeedVideoThumbnail> createState() => _FeedVideoThumbnailState();
+}
+
+class _FeedVideoThumbnailState extends State<_FeedVideoThumbnail> {
+  VideoPlayerController? _controller;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  @override
+  void didUpdateWidget(covariant _FeedVideoThumbnail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.videoUrl != widget.videoUrl) {
+      _init();
+    }
+  }
+
+  Future<void> _init() async {
+    _ready = false;
+    final prev = _controller;
+    _controller = null;
+    await prev?.dispose();
+    final raw = widget.videoUrl.trim();
+    if (raw.isEmpty) {
+      if (mounted) setState(() {});
+      return;
+    }
+    try {
+      final c = VideoPlayerController.networkUrl(Uri.parse(raw));
+      await c.setVolume(0);
+      await c.initialize();
+      await c.seekTo(Duration.zero);
+      if (!mounted) {
+        await c.dispose();
+        return;
+      }
+      _controller = c;
+      _ready = true;
+      setState(() {});
+    } catch (_) {
+      if (mounted) setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _controller;
+    if (!_ready || c == null || !c.value.isInitialized) {
+      return Container(color: const Color(0xFF0F172A));
+    }
+    final size = c.value.size;
+    if (size.width <= 0 || size.height <= 0) {
+      return Container(color: const Color(0xFF0F172A));
+    }
+    return Container(
+      color: const Color(0xFF0F172A),
+      child: SizedBox.expand(
+        child: FittedBox(
+          fit: widget.fit,
+          clipBehavior: Clip.hardEdge,
+          child: SizedBox(
+            width: size.width,
+            height: size.height,
+            child: VideoPlayer(c),
+          ),
+        ),
       ),
     );
   }
@@ -2813,6 +3056,93 @@ class _ImageViewerPage extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _VideoViewerPage extends StatefulWidget {
+  final String videoUrl;
+  const _VideoViewerPage({required this.videoUrl});
+
+  @override
+  State<_VideoViewerPage> createState() => _VideoViewerPageState();
+}
+
+class _VideoViewerPageState extends State<_VideoViewerPage> {
+  VideoPlayerController? _controller;
+  String? _videoError;
+
+  @override
+  void initState() {
+    super.initState();
+    _initVideo();
+  }
+
+  Future<void> _initVideo() async {
+    try {
+      final c = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+      _controller = c;
+      await c.initialize();
+      await c.setLooping(true);
+      if (!mounted) return;
+      setState(() {});
+      c.play();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _videoError = e.toString());
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _controller;
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        backgroundColor: Colors.black,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.white),
+      ),
+      body: Center(
+        child: _videoError != null
+            ? Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Text(
+                  'Lecture impossible.\n$_videoError',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white70),
+                ),
+              )
+            : (c != null && c.value.isInitialized)
+                ? AspectRatio(
+                    aspectRatio: c.value.aspectRatio,
+                    child: VideoPlayer(c),
+                  )
+                : const CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+      ),
+      floatingActionButton: (c != null && c.value.isInitialized)
+          ? FloatingActionButton(
+              backgroundColor: Colors.white24,
+              onPressed: () {
+                if (c.value.isPlaying) {
+                  c.pause();
+                } else {
+                  c.play();
+                }
+                setState(() {});
+              },
+              child: Icon(
+                c.value.isPlaying ? Icons.pause : Icons.play_arrow,
+                color: Colors.white,
+              ),
+            )
+          : null,
     );
   }
 }
@@ -2845,10 +3175,17 @@ class _GlassCard extends StatelessWidget {
   }
 }
 
-class _PickedImage {
+class _PickedMedia {
   final String? path;
   final Uint8List? bytes;
-  const _PickedImage({this.path, this.bytes});
+  final bool isVideo;
+  final String? name;
+  const _PickedMedia({
+    this.path,
+    this.bytes,
+    this.isVideo = false,
+    this.name,
+  });
 }
 
 class _NewsFeedSearchDelegate extends SearchDelegate<void> {
@@ -3037,8 +3374,8 @@ class _NewsFeedSearchDelegate extends SearchDelegate<void> {
             final fallbackAvatar = (data['authorAvatar'] ?? '').toString();
             final category = (data['category'] ?? '').toString();
             final when = _formatWhen(_dateFrom(data));
-            final images = (data['images'] is List) ? List<String>.from(data['images'] ?? const []) : const <String>[];
-            final thumb = images.isNotEmpty ? images.first : '';
+            final mediaItems = _extractPostMediaEntries(data);
+            final thumbMedia = mediaItems.isNotEmpty ? mediaItems.first : null;
 
             Widget tile = FutureBuilder<Map<String, dynamic>?>(
               future: authorId.isEmpty ? null : _getProfileAny(authorId),
@@ -3120,7 +3457,7 @@ class _NewsFeedSearchDelegate extends SearchDelegate<void> {
                               ],
                             ),
                           ),
-                          if (thumb.isNotEmpty) ...[
+                          if (thumbMedia != null) ...[
                             const SizedBox(width: 10),
                             ClipRRect(
                               borderRadius: BorderRadius.circular(12),
@@ -3128,11 +3465,28 @@ class _NewsFeedSearchDelegate extends SearchDelegate<void> {
                                 width: 62,
                                 height: 62,
                                 color: isDark ? Colors.white10 : Colors.black12,
-                                child: Image.network(
-                                  thumb,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Icon(Icons.image_not_supported_outlined, color: _sub),
-                                ),
+                                child: thumbMedia.isVideo
+                                    ? Stack(
+                                        fit: StackFit.expand,
+                                        children: [
+                                          _FeedVideoThumbnail(
+                                            videoUrl: thumbMedia.url,
+                                            fit: BoxFit.cover,
+                                          ),
+                                          const Center(
+                                            child: Icon(
+                                              Icons.play_circle_fill_rounded,
+                                              color: Colors.white70,
+                                              size: 28,
+                                            ),
+                                          ),
+                                        ],
+                                      )
+                                    : Image.network(
+                                        thumbMedia.url,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => Icon(Icons.image_not_supported_outlined, color: _sub),
+                                      ),
                               ),
                             ),
                           ],

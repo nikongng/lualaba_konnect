@@ -1,7 +1,157 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:video_player/video_player.dart';
 import 'news_feed_page.dart';
+
+class _HomeNewsMediaEntry {
+  final String url;
+  final bool isVideo;
+  const _HomeNewsMediaEntry({
+    required this.url,
+    required this.isVideo,
+  });
+}
+
+List<_HomeNewsMediaEntry> _extractHomeNewsMedia(Map<String, dynamic> data) {
+  final out = <_HomeNewsMediaEntry>[];
+  final rawMedia = data['media'];
+  if (rawMedia is List) {
+    for (final raw in rawMedia) {
+      if (raw is! Map) continue;
+      final map = raw.map((k, v) => MapEntry(k.toString(), v));
+      final url = (map['url'] ?? '').toString().trim();
+      if (url.isEmpty) continue;
+      final type = (map['type'] ?? '').toString().toLowerCase();
+      out.add(_HomeNewsMediaEntry(url: url, isVideo: type == 'video'));
+    }
+  }
+  if (out.isNotEmpty) return out;
+
+  final images = (data['images'] is List)
+      ? List<String>.from((data['images'] as List).map((e) => e.toString()))
+      : const <String>[];
+  final videos = (data['videos'] is List)
+      ? List<String>.from((data['videos'] as List).map((e) => e.toString()))
+      : const <String>[];
+
+  out.addAll(
+    images
+        .where((u) => u.trim().isNotEmpty)
+        .map((u) => _HomeNewsMediaEntry(url: u, isVideo: false)),
+  );
+  out.addAll(
+    videos
+        .where((u) => u.trim().isNotEmpty)
+        .map((u) => _HomeNewsMediaEntry(url: u, isVideo: true)),
+  );
+  return out;
+}
+
+_HomeNewsMediaEntry? _firstHomeNewsMedia(
+  Map<String, dynamic> data, {
+  bool preferImage = true,
+}) {
+  final items = _extractHomeNewsMedia(data);
+  if (items.isEmpty) return null;
+  if (preferImage) {
+    for (final item in items) {
+      if (!item.isVideo) return item;
+    }
+  }
+  return items.first;
+}
+
+class _HomeNewsVideoThumbnail extends StatefulWidget {
+  final String videoUrl;
+  final BoxFit fit;
+  const _HomeNewsVideoThumbnail({
+    required this.videoUrl,
+    this.fit = BoxFit.cover,
+  });
+
+  @override
+  State<_HomeNewsVideoThumbnail> createState() => _HomeNewsVideoThumbnailState();
+}
+
+class _HomeNewsVideoThumbnailState extends State<_HomeNewsVideoThumbnail> {
+  VideoPlayerController? _controller;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  @override
+  void didUpdateWidget(covariant _HomeNewsVideoThumbnail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.videoUrl != widget.videoUrl) {
+      _init();
+    }
+  }
+
+  Future<void> _init() async {
+    _ready = false;
+    final prev = _controller;
+    _controller = null;
+    await prev?.dispose();
+    final raw = widget.videoUrl.trim();
+    if (raw.isEmpty) {
+      if (mounted) setState(() {});
+      return;
+    }
+    try {
+      final c = VideoPlayerController.networkUrl(Uri.parse(raw));
+      await c.setVolume(0);
+      await c.initialize();
+      await c.seekTo(Duration.zero);
+      await c.pause();
+      if (!mounted) {
+        await c.dispose();
+        return;
+      }
+      _controller = c;
+      _ready = true;
+      setState(() {});
+    } catch (_) {
+      if (mounted) setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _controller;
+    if (!_ready || c == null || !c.value.isInitialized) {
+      return Container(color: const Color(0xFF202C33));
+    }
+    final size = c.value.size;
+    if (size.width <= 0 || size.height <= 0) {
+      return Container(color: const Color(0xFF202C33));
+    }
+    return Container(
+      color: const Color(0xFF202C33),
+      child: SizedBox.expand(
+        child: FittedBox(
+          fit: widget.fit,
+          clipBehavior: Clip.hardEdge,
+          child: SizedBox(
+            width: size.width,
+            height: size.height,
+            child: VideoPlayer(c),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 // Widgets pour la page d'accueil
 class HomePageWidgets {
@@ -145,10 +295,17 @@ class HomePageWidgets {
 
                 final source = (data['category'] ?? data['authorName'] ?? 'Actu').toString();
                 final title = (data['text'] ?? '').toString();
-                final images = (data['images'] is List) ? List.from(data['images']) : const [];
-                final img = images.isNotEmpty ? images.first.toString() : '';
+                final media = _firstHomeNewsMedia(data, preferImage: true);
+                final mediaUrl = media?.url ?? '';
+                final mediaIsVideo = media?.isVideo ?? false;
 
-                return _newsCard(source, title, isDark, img);
+                return _newsCard(
+                  source,
+                  title,
+                  isDark,
+                  mediaUrl,
+                  isVideo: mediaIsVideo,
+                );
               },
             );
           },
@@ -157,7 +314,13 @@ class HomePageWidgets {
     ]);
   }
 
-  static Widget _newsCard(String source, String title, bool isDark, String img) {
+  static Widget _newsCard(
+    String source,
+    String title,
+    bool isDark,
+    String mediaUrl, {
+    required bool isVideo,
+  }) {
     return Container(
       width: 260,
       margin: const EdgeInsets.only(right: 15),
@@ -196,36 +359,67 @@ class HomePageWidgets {
           Expanded(
             child: ClipRRect(
               borderRadius: BorderRadius.circular(15),
-              child: Image.network(
-                img,
-                fit: BoxFit.cover,
-                width: double.infinity,
-
-                // 🔄 Loader
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return Container(
-                    color: Colors.black12,
-                    child: const Center(
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  );
-                },
-
-                // ❌ Fallback si image cassée / 404
-                errorBuilder: (context, error, stackTrace) {
-                  return Container(
-                    color: Colors.black12,
-                    child: const Center(
-                      child: Icon(
-                        Icons.broken_image_outlined,
-                        size: 40,
-                        color: Colors.grey,
+              child: mediaUrl.isEmpty
+                  ? Container(
+                      color: Colors.black12,
+                      child: const Center(
+                        child: Icon(
+                          Icons.article_outlined,
+                          size: 40,
+                          color: Colors.grey,
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
+                    )
+                  : isVideo
+                      ? Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            _HomeNewsVideoThumbnail(
+                              videoUrl: mediaUrl,
+                              fit: BoxFit.cover,
+                            ),
+                            Container(
+                              color: Colors.black26,
+                              child: const Center(
+                                child: Icon(
+                                  Icons.play_circle_fill_rounded,
+                                  color: Colors.white70,
+                                  size: 40,
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : Image.network(
+                          mediaUrl,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+
+                          // 🔄 Loader
+                          loadingBuilder: (context, child, loadingProgress) {
+                            if (loadingProgress == null) return child;
+                            return Container(
+                              color: Colors.black12,
+                              child: const Center(
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            );
+                          },
+
+                          // ❌ Fallback si image cassée / 404
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              color: Colors.black12,
+                              child: const Center(
+                                child: Icon(
+                                  Icons.broken_image_outlined,
+                                  size: 40,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
             ),
           ),
 

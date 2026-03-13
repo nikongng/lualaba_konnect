@@ -9,6 +9,7 @@ import 'package:lualaba_konnect/features/services/presentation/pages/mobility_se
 import 'package:lualaba_konnect/features/services/presentation/pages/jobs_page.dart';
 import 'package:lualaba_konnect/features/services/presentation/pages/my_job_applications_page.dart';
 import 'package:lualaba_konnect/features/services/presentation/pages/enterprise_jobs_admin_page.dart';
+import 'package:lualaba_konnect/features/services/presentation/pages/real_estate_management_page.dart';
 
 class NotificationsPage extends StatefulWidget {
   const NotificationsPage({super.key});
@@ -291,6 +292,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
                       body = textRaw.isNotEmpty ? textRaw : 'Nouvelle offre';
                       typeIcon = Icons.business_center_outlined;
                       typeColor = const Color(0xFF64B5F6);
+                    } else if (type == 'new_commissioner_house' || type == 'new_owner_house') {
+                      body = textRaw.isNotEmpty ? textRaw : 'Nouvelle maison disponible';
+                      typeIcon = Icons.home_work_outlined;
+                      typeColor = const Color(0xFFFB8C00);
                     } else {
                       body = textRaw;
                       typeIcon = Icons.notifications_none;
@@ -330,6 +335,20 @@ class _NotificationsPageState extends State<NotificationsPage> {
                             }
                             if (type == 'new_job_offer') {
                               Navigator.push(context, MaterialPageRoute(builder: (_) => const JobsPage()));
+                              return;
+                            }
+
+                            if (type == 'new_commissioner_house' || type == 'new_owner_house') {
+                              final houseId = (data['houseId'] ?? '').toString().trim();
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => RealEstateManagementPage(
+                                    initialTabIndex: 0,
+                                    initialHouseId: houseId.isEmpty ? null : houseId,
+                                  ),
+                                ),
+                              );
                               return;
                             }
 

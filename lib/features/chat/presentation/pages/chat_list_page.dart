@@ -409,111 +409,151 @@ class ChatListPageState extends State<ChatListPage> with WidgetsBindingObserver,
             final callerName = data['callerName'] ?? 'Appel entrant';
             final bool isVideo = (data['type'] ?? '').toString().toLowerCase() == 'video';
             bool closed = false;
+            bool stopOnComplete = true;
             StreamSubscription<DocumentSnapshot>? callSub;
-            void closeSheet(BuildContext c) {
+            void closeSheet(BuildContext c, {bool cancelSub = true, bool stopRingtone = true}) {
               if (closed) return;
               closed = true;
-              try { NotificationService.stopRingtone(); } catch (_) {}
+              if (stopRingtone) {
+                try { NotificationService.stopRingtone(); } catch (_) {}
+              }
               try { Navigator.pop(c); } catch (_) {}
-              _showingIncoming = false;
-              callSub?.cancel();
+              if (cancelSub) {
+                _showingIncoming = false;
+                callSub?.cancel();
+                callSub = null;
+              }
             }
-            // show incoming call dialog
-            showModalBottomSheet(
-              context: context,
-              isDismissible: false,
-              enableDrag: false,
-              backgroundColor: Colors.transparent,
-              builder: (ctx) {
-                callSub ??= FirebaseFirestore.instance.collection('calls').doc(doc.id).snapshots().listen((snap) {
-                  if (!snap.exists) {
-                    closeSheet(ctx);
-                    return;
-                  }
-                  final d = (snap.data() is Map) ? Map<String, dynamic>.from(snap.data() as Map) : <String, dynamic>{};
-                  final status = (d['status'] ?? '').toString();
-                  if (status.isNotEmpty && status != 'ringing') {
-                    closeSheet(ctx);
-                    return;
-                  }
-                  if (d['acceptedBy'] != null && d['acceptedBy'].toString().isNotEmpty) {
-                    final accepted = d['acceptedBy'].toString();
-                    if (accepted != uid) {
+
+            Future<void> showIncomingSheet({required bool fullScreen}) async {
+              closed = false;
+              stopOnComplete = true;
+              await showModalBottomSheet(
+                context: context,
+                isDismissible: !fullScreen,
+                enableDrag: !fullScreen,
+                isScrollControlled: fullScreen,
+                backgroundColor: Colors.transparent,
+                builder: (ctx) {
+                  callSub ??= FirebaseFirestore.instance.collection('calls').doc(doc.id).snapshots().listen((snap) {
+                    if (!snap.exists) {
                       closeSheet(ctx);
                       return;
                     }
-                  }
-                });
-                return Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(color: const Color(0xFF17212B), borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    Text('$callerName', style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 8),
-                    Text(isVideo ? 'Appel vidéo entrant' : 'Appel entrant', style: const TextStyle(color: Colors.white70)),
-                    const SizedBox(height: 16),
-                    Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
-                      ElevatedButton.icon(
-                        onPressed: () async {
-                          // reject
-                          try {
-                            await FirebaseFirestore.instance.collection('calls').doc(doc.id).update({'status': 'rejected'});
-                          } catch (e) {
-                            debugPrint('Reject err: $e');
-                          }
-                          closeSheet(ctx);
-                        },
-                        icon: const Icon(Icons.call_end),
-                        label: const Text('Refuser'),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-                      ),
-                      ElevatedButton.icon(
-                        onPressed: () async {
-                          try {
-                            await FirebaseFirestore.instance.runTransaction((tx) async {
-                              final ref = FirebaseFirestore.instance.collection('calls').doc(doc.id);
-                              final snap = await tx.get(ref);
-                              if (!snap.exists) return;
-                              final d = (snap.data() is Map) ? Map<String, dynamic>.from(snap.data() as Map) : <String, dynamic>{};
-                              final status = (d['status'] ?? '').toString();
-                              if (status.isNotEmpty && status != 'ringing') return;
-                              tx.update(ref, {
-                                'status': 'accepted',
-                                'acceptedBy': uid,
-                                'acceptedAt': FieldValue.serverTimestamp(),
-                              });
-                            });
-                          } catch (_) {}
-                          // accept: open call page as callee
-                          closeSheet(ctx);
-                          Navigator.push(
-  context,
-  MaterialPageRoute(
-    builder: (_) => CallWebRTCPage(
-      callId: doc.id,
-      otherId: callerId,
-      isCaller: false,
-      name: callerName,
-      avatarLetter: callerName.isNotEmpty ? callerName[0].toUpperCase() : '?', // <-- ici !
-      isVideo: isVideo,
-    ),
-  ),
-);
+                    final d = (snap.data() is Map) ? Map<String, dynamic>.from(snap.data() as Map) : <String, dynamic>{};
+                    final status = (d['status'] ?? '').toString();
+                    if (status.isNotEmpty && status != 'ringing') {
+                      closeSheet(ctx);
+                      return;
+                    }
+                    if (d['acceptedBy'] != null && d['acceptedBy'].toString().isNotEmpty) {
+                      final accepted = d['acceptedBy'].toString();
+                      if (accepted != uid) {
+                        closeSheet(ctx);
+                        return;
+                      }
+                    }
+                  });
 
-                        },
-                        icon: const Icon(Icons.call),
-                        label: const Text('Accepter'),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-                      ),
-                    ])
-                  ]),
-                );
-              }
-            ).whenComplete(() {
-              try { NotificationService.stopRingtone(); } catch (_) {}
-              _showingIncoming = false;
-              callSub?.cancel();
-            });
+                  final box = Container(
+                    padding: const EdgeInsets.all(20),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF17212B),
+                      borderRadius: fullScreen ? BorderRadius.zero : const BorderRadius.vertical(top: Radius.circular(16)),
+                    ),
+                    child: Column(
+                      mainAxisSize: fullScreen ? MainAxisSize.max : MainAxisSize.min,
+                      mainAxisAlignment: fullScreen ? MainAxisAlignment.center : MainAxisAlignment.start,
+                      children: [
+                        if (fullScreen)
+                          Align(
+                            alignment: Alignment.topRight,
+                            child: TextButton.icon(
+                              onPressed: () {
+                                stopOnComplete = false;
+                                closeSheet(ctx, cancelSub: false, stopRingtone: false);
+                                showIncomingSheet(fullScreen: false);
+                              },
+                              icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white70),
+                              label: const Text('Reduire', style: TextStyle(color: Colors.white70)),
+                            ),
+                          ),
+                        Text('$callerName', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        Text(isVideo ? 'Appel video entrant' : 'Appel entrant', style: const TextStyle(color: Colors.white70)),
+                        const SizedBox(height: 16),
+                        Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+                          ElevatedButton.icon(
+                            onPressed: () async {
+                              try {
+                                await FirebaseFirestore.instance.collection('calls').doc(doc.id).update({'status': 'rejected'});
+                              } catch (e) {
+                                debugPrint('Reject err: $e');
+                              }
+                              closeSheet(ctx);
+                            },
+                            icon: const Icon(Icons.call_end),
+                            label: const Text('Refuser'),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+                          ),
+                          ElevatedButton.icon(
+                            onPressed: () async {
+                              try {
+                                await FirebaseFirestore.instance.runTransaction((tx) async {
+                                  final ref = FirebaseFirestore.instance.collection('calls').doc(doc.id);
+                                  final snap = await tx.get(ref);
+                                  if (!snap.exists) return;
+                                  final d = (snap.data() is Map) ? Map<String, dynamic>.from(snap.data() as Map) : <String, dynamic>{};
+                                  final status = (d['status'] ?? '').toString();
+                                  if (status.isNotEmpty && status != 'ringing') return;
+                                  tx.update(ref, {
+                                    'status': 'accepted',
+                                    'acceptedBy': uid,
+                                    'acceptedAt': FieldValue.serverTimestamp(),
+                                  });
+                                });
+                              } catch (_) {}
+                              closeSheet(ctx);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => CallWebRTCPage(
+                                    callId: doc.id,
+                                    otherId: callerId,
+                                    isCaller: false,
+                                    name: callerName,
+                                    avatarLetter: callerName.isNotEmpty ? callerName[0].toUpperCase() : '?',
+                                    isVideo: isVideo,
+                                  ),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.call),
+                            label: const Text('Accepter'),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
+                          ),
+                        ])
+                      ],
+                    ),
+                  );
+
+                  if (fullScreen) {
+                    return SizedBox(height: MediaQuery.of(ctx).size.height, child: box);
+                  }
+                  return box;
+                },
+              ).whenComplete(() {
+                if (stopOnComplete) {
+                  try { NotificationService.stopRingtone(); } catch (_) {}
+                  _showingIncoming = false;
+                  callSub?.cancel();
+                  callSub = null;
+                }
+              });
+            }
+
+            // show incoming call full screen with option to reduce
+            showIncomingSheet(fullScreen: true);
           }
         }
       });
@@ -3308,6 +3348,7 @@ Future<void> _showAvatarActions(
     },
   );
 }
+
 
 
 

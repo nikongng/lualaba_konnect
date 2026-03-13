@@ -9,7 +9,6 @@ import 'package:flutter/foundation.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_sound/flutter_sound.dart' as fs;
@@ -49,10 +48,6 @@ const Color tgAccent = Color(0xFF00CBA9);
 const Color tgMyBubble = Color(0xFF0B3A6D);
 const Color tgOtherBubble = Color(0xFF2E2F4F);
 const Color tgBar = Color(0xFF071011);
-const bool kAllowFirebaseMediaFallback = bool.fromEnvironment(
-  'ALLOW_FIREBASE_MEDIA_FALLBACK',
-  defaultValue: false,
-);
 
 class ChatDetailPage extends StatefulWidget {
   final String chatId;
@@ -90,6 +85,9 @@ class _ChatState extends State<ChatDetailPage>
   String? _uploadPreviewType;
   String? _uploadPreviewPath;
   Uint8List? _uploadPreviewBytes;
+  bool _uploadHasRealProgress = false;
+  // Keep a reliable upload path for mobile devices.
+  final bool _useSimpleChatUpload = true;
   bool _isRecording = false;
   bool _recordLocked = false;
   bool _recordCanceled = false;
@@ -252,6 +250,320 @@ class _ChatState extends State<ChatDetailPage>
     return vids.contains(ext);
   }
 
+  String _chatUploadObjectPath(String fileName) {
+    final uid = (currentUser?.uid ?? '').trim();
+    final chatId = widget.chatId.trim();
+    final safeUid = uid.isNotEmpty ? uid : 'anonymous';
+    final safeChatId = chatId.isNotEmpty ? chatId : 'chat';
+    return '$safeUid/$safeChatId/$fileName';
+  }
+
+  Duration _uploadTimeout({
+    required String type,
+    int? sizeBytes,
+  }) {
+    final int bytes = sizeBytes ?? 0;
+    final int mb = bytes > 0 ? (bytes / (1024 * 1024)).ceil() : 0;
+    int seconds;
+    if (mb <= 0) {
+      // Size can be unknown on some Android pickers; keep a generous budget.
+      switch (type) {
+        case 'video':
+          seconds = 20 * 60;
+          break;
+        case 'file':
+          seconds = 18 * 60;
+          break;
+        case 'audio':
+        case 'voice':
+          seconds = 12 * 60;
+          break;
+        case 'image':
+        default:
+          seconds = 10 * 60;
+          break;
+      }
+    } else {
+      switch (type) {
+        case 'video':
+          seconds = 240 + (mb * 18);
+          break;
+        case 'audio':
+        case 'voice':
+          seconds = 150 + (mb * 12);
+          break;
+        case 'file':
+          seconds = 180 + (mb * 15);
+          break;
+        case 'image':
+        default:
+          seconds = 120 + (mb * 10);
+          break;
+      }
+    }
+    final int minSeconds = (type == 'video' || type == 'file') ? 180 : 120;
+    final int maxSeconds = (type == 'video' || type == 'file') ? 2700 : 1800;
+    seconds = seconds.clamp(minSeconds, maxSeconds).toInt();
+    return Duration(seconds: seconds);
+  }
+
+  Duration _attemptTimeout(Duration base, int attempt) {
+    if (attempt <= 1) return base;
+    // Increase timeout on retries to avoid false failures on slow links.
+    final double factor = attempt == 2 ? 1.6 : 2.3;
+    final int seconds = (base.inSeconds * factor).round();
+    final int bounded = seconds.clamp(base.inSeconds, 3600).toInt();
+    return Duration(seconds: bounded);
+  }
+
+  Duration _attemptStallTimeout(Duration base, int attempt) {
+    // Stall timeout: fail only if there is no progress for too long.
+    final int root = (base.inSeconds / 6).round().clamp(120, 600).toInt();
+    final double factor = attempt <= 1 ? 1.0 : (attempt == 2 ? 1.35 : 1.7);
+    final int seconds = (root * factor).round().clamp(root, 1200).toInt();
+    return Duration(seconds: seconds);
+  }
+
+  int? _extractNoProgressTimeoutSeconds(String text) {
+    final m = RegExp(r'no-progress-timeout:(\d+)', caseSensitive: false)
+        .firstMatch(text);
+    return m == null ? null : int.tryParse(m.group(1) ?? '');
+  }
+
+  bool _isRetryableUploadError(Object error) {
+    if (error is TimeoutException) return true;
+    final s = error.toString().toLowerCase();
+    return s.contains('timeout') ||
+        s.contains('timed out') ||
+        s.contains('socketexception') ||
+        s.contains('connection reset') ||
+        s.contains('connection closed') ||
+        s.contains('connection aborted') ||
+        s.contains('connection terminated') ||
+        s.contains('network is unreachable') ||
+        s.contains('failed host lookup') ||
+        s.contains('broken pipe') ||
+        s.contains('clientexception') ||
+        s.contains('tls') ||
+        s.contains('503') ||
+        s.contains('502') ||
+        s.contains('504');
+  }
+
+  int? _extractUploadHttpCode(String text) {
+    final patterns = <RegExp>[
+      RegExp(r'supabase upload failed \((\d{3})\)', caseSensitive: false),
+      RegExp(r'statuscode["\s:=]+(\d{3})', caseSensitive: false),
+      RegExp(r'"status"\s*:\s*(\d{3})', caseSensitive: false),
+    ];
+    for (final p in patterns) {
+      final m = p.firstMatch(text);
+      if (m == null) continue;
+      final code = int.tryParse(m.group(1) ?? '');
+      if (code != null) return code;
+    }
+    return null;
+  }
+
+  String _compactError(Object error, {int maxLen = 150}) {
+    final compact = error.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (compact.length <= maxLen) return compact;
+    return '${compact.substring(0, maxLen - 3)}...';
+  }
+
+  String _uploadErrorMessage(Object error) {
+    final raw = error.toString();
+    final s = raw.toLowerCase();
+    final code = _extractUploadHttpCode(raw);
+
+    if (code == 401) {
+      return 'Session invalide pour l\'upload (401). Reconnecte-toi puis reessaie.';
+    }
+    if (code == 403) {
+      return 'Upload refuse (403). Verifie les regles du bucket chat_media.';
+    }
+    if (code == 404 || (s.contains('bucket') && s.contains('not found'))) {
+      return 'Bucket chat_media introuvable sur Supabase.';
+    }
+    if (code == 413) {
+      return 'Fichier trop volumineux pour l\'upload chat.';
+    }
+    if (code == 415) {
+      return 'Type de fichier non supporte pour cet upload.';
+    }
+    if (code == 429) {
+      return 'Trop de tentatives d\'upload. Attends 1 minute puis reessaie.';
+    }
+    if (code != null && code >= 500) {
+      return 'Serveur de stockage indisponible ($code). Reessaie dans quelques instants.';
+    }
+
+    if (s.contains('permission') ||
+        s.contains('policy') ||
+        s.contains('row-level security')) {
+      return 'Upload refuse par les regles du bucket chat_media.';
+    }
+    if (s.contains('not initialized') ||
+        s.contains('supabase url is missing') ||
+        s.contains('anon key is missing')) {
+      return 'Supabase non initialise sur cet appareil.';
+    }
+    if (s.contains('no file data to upload') ||
+        s.contains('empty file') ||
+        s.contains('null file')) {
+      return 'Fichier invalide ou inaccessible sur cet appareil.';
+    }
+    final stallSec = _extractNoProgressTimeoutSeconds(raw);
+    if (stallSec != null) {
+      final mins = (stallSec / 60).ceil();
+      return 'Upload bloque: aucune progression depuis $mins min. Verifie la connexion puis reessaie.';
+    }
+    if (error is TimeoutException || s.contains('timeout')) {
+      return 'Upload interrompu (delai depasse apres plusieurs tentatives). Reessaie avec un reseau stable.';
+    }
+    if (s.contains('socketexception') ||
+        s.contains('network') ||
+        s.contains('failed host lookup') ||
+        s.contains('connection reset') ||
+        s.contains('connection closed') ||
+        s.contains('connection aborted') ||
+        s.contains('connection terminated')) {
+      return 'Connexion instable pendant upload.';
+    }
+    final details = _compactError(error, maxLen: 120);
+    return 'Echec upload chat. Detail: $details';
+  }
+
+  Future<String> _uploadToSupabaseWithRetry({
+    required String bucket,
+    required String objectPath,
+    required Uint8List? bytes,
+    required File? file,
+    required String? contentType,
+    required Duration timeout,
+    required void Function(int sent, int total) onProgress,
+  }) async {
+    const int maxAttempts = 3;
+    Object? lastError;
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+      Timer? stallTimer;
+      try {
+        final Duration attemptTimeout = _attemptTimeout(timeout, attempt);
+        final Duration stallTimeout = _attemptStallTimeout(timeout, attempt);
+        if (attempt > 1 && mounted) {
+          setState(() {
+            _uploadLabel =
+                'Reprise upload ($attempt/$maxAttempts)...';
+          });
+        }
+        final guarded = Completer<String>();
+
+        void armStallTimer() {
+          stallTimer?.cancel();
+          stallTimer = Timer(stallTimeout, () {
+            if (!guarded.isCompleted) {
+              guarded.completeError(
+                TimeoutException(
+                  'no-progress-timeout:${stallTimeout.inSeconds}',
+                  stallTimeout,
+                ),
+              );
+            }
+          });
+        }
+
+        void guardedProgress(int sent, int total) {
+          armStallTimer();
+          onProgress(sent, total);
+        }
+
+        armStallTimer();
+        Future<String> uploadFuture;
+        if (bytes != null) {
+          uploadFuture = SupabaseService.uploadBytesNamed(
+            bytes,
+            objectPath,
+            bucket,
+            onProgress: guardedProgress,
+            contentType: contentType,
+          );
+        } else if (file != null) {
+          uploadFuture = SupabaseService.uploadFileNamed(
+            file,
+            objectPath,
+            bucket,
+            onProgress: guardedProgress,
+            contentType: contentType,
+          );
+        } else {
+          throw Exception('No file data to upload');
+        }
+        uploadFuture.then((value) {
+          if (!guarded.isCompleted) guarded.complete(value);
+        }).catchError((e, st) {
+          if (!guarded.isCompleted) guarded.completeError(e, st);
+        });
+        final String out = await guarded.future.timeout(attemptTimeout);
+        stallTimer?.cancel();
+        return out;
+      } catch (e) {
+        stallTimer?.cancel();
+        lastError = e;
+        if (attempt >= maxAttempts || !_isRetryableUploadError(e)) rethrow;
+        await Future.delayed(Duration(milliseconds: 800 * attempt));
+      }
+    }
+    throw Exception('Supabase upload failed: $lastError');
+  }
+
+  Future<String> _uploadToSupabaseSimpleWithRetry({
+    required String bucket,
+    required String objectPath,
+    required Uint8List? bytes,
+    required File? file,
+    required Duration timeout,
+  }) async {
+    const int maxAttempts = 3;
+    Object? lastError;
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        final Duration attemptTimeout = _attemptTimeout(timeout, attempt);
+        if (attempt > 1 && mounted) {
+          setState(() {
+            _uploadLabel = 'Reprise upload simple ($attempt/$maxAttempts)...';
+          });
+        }
+        Uint8List payload;
+        if (bytes != null) {
+          payload = bytes;
+        } else if (file != null) {
+          payload = await file.readAsBytes();
+        } else {
+          throw Exception('No file data to upload');
+        }
+        if (payload.isEmpty) {
+          throw Exception('empty file payload');
+        }
+        return await SupabaseService.uploadBytes(
+          payload,
+          objectPath,
+          bucket,
+        ).timeout(attemptTimeout);
+      } catch (e) {
+        lastError = e;
+        if (attempt >= maxAttempts || !_isRetryableUploadError(e)) rethrow;
+        await Future.delayed(Duration(milliseconds: 800 * attempt));
+      }
+    }
+    throw Exception('Supabase simple upload failed: $lastError');
+  }
+
+  void _showUploadError(Object error) {
+    if (!mounted) return;
+    final msg = _uploadErrorMessage(error);
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
   Map<String, dynamic> _extractUploadPreview(dynamic fileSource, String type) {
     String? previewPath;
     Uint8List? previewBytes;
@@ -300,7 +612,8 @@ class _ChatState extends State<ChatDetailPage>
         final double rawProgress = total > 0
             ? (_uploadSentBytes / total).clamp(0.0, 1.0)
             : 0.0;
-        final double cap = 0.999;
+        // Avoid showing a fake "almost done" state when network is stuck.
+        final double cap = _uploadHasRealProgress ? 0.995 : 0.22;
         final double current = max(_uploadVisualProgress, rawProgress);
         if (current >= cap) return;
         final double step = current < 0.35
@@ -332,6 +645,7 @@ class _ChatState extends State<ChatDetailPage>
         _isLoading = true;
         _uploadVisualSuccess = false;
         _uploadVisualProgress = 0.03;
+        _uploadHasRealProgress = false;
         _uploadPreviewType = null;
         _uploadPreviewPath = null;
         _uploadPreviewBytes = null;
@@ -351,6 +665,7 @@ class _ChatState extends State<ChatDetailPage>
             _uploadTotalBytes = pf.size > 0 ? pf.size : null;
             _uploadSentBytes = 0;
             _uploadVisualProgress = max(_uploadVisualProgress, 0.03);
+            _uploadHasRealProgress = false;
           });
         }
 
@@ -373,6 +688,7 @@ class _ChatState extends State<ChatDetailPage>
           _isLoading = false;
           _uploadVisualSuccess = false;
           _uploadVisualProgress = 0.0;
+          _uploadHasRealProgress = false;
           _uploadLabel = null;
           _uploadTotalBytes = null;
           _uploadSentBytes = 0;
@@ -401,8 +717,9 @@ class _ChatState extends State<ChatDetailPage>
         _isLoading = true;
         _uploadVisualSuccess = false;
         _uploadVisualProgress = 0.03;
+        _uploadHasRealProgress = false;
         _uploadLabel =
-            'Envoi ${type == "video" ? "vidéo" : (type == "image" ? "photo" : "média")}';
+            'Preparation ${type == "video" ? "video" : (type == "image" ? "photo" : "media")}...';
         _uploadTotalBytes = null;
         _uploadSentBytes = 0;
         _uploadPreviewType = preview['type'] as String?;
@@ -414,6 +731,7 @@ class _ChatState extends State<ChatDetailPage>
       setState(() {
         if (_uploadVisualSuccess) _uploadVisualSuccess = false;
         _uploadVisualProgress = max(_uploadVisualProgress, 0.03);
+        _uploadHasRealProgress = false;
         _uploadPreviewType = preview['type'] as String?;
         _uploadPreviewPath = preview['path'] as String?;
         _uploadPreviewBytes = preview['bytes'] as Uint8List?;
@@ -497,13 +815,15 @@ class _ChatState extends State<ChatDetailPage>
           _uploadVisualProgress = max(_uploadVisualProgress, 0.03);
         });
       }
+      final Duration uploadTimeout = _uploadTimeout(
+        type: type,
+        sizeBytes: sizeBytes,
+      );
 
       String url;
       String storageProvider = 'supabase';
       String storageBucket = '';
       String storagePath = '';
-      bool storageFallback = false;
-      String? storageError;
       try {
         // Ensure Supabase is initialized (try to init from --dart-define if missing)
         if (!SupabaseService.isInitialized) {
@@ -515,7 +835,7 @@ class _ChatState extends State<ChatDetailPage>
               debugPrint('SupabaseService init attempted in uploadAndSend.');
             } else {
               debugPrint(
-                'Supabase keys not provided at runtime (upload will fallback to Firebase).',
+                'Supabase keys not provided at runtime (upload will fail).',
               );
             }
           } catch (ie) {
@@ -525,20 +845,27 @@ class _ChatState extends State<ChatDetailPage>
 
         // Supabase target: use folder as bucket (chat uses `chat_media`).
         final supabaseBucket = folder;
-        final supabaseObjectPath = fileName;
+        final supabaseObjectPath = _chatUploadObjectPath(fileName);
         storageBucket = supabaseBucket;
         storagePath = supabaseObjectPath;
         debugPrint(
-          'Supabase upload target: bucket="$supabaseBucket" path="$supabaseObjectPath" initialized=${SupabaseService.isInitialized}',
+          'Supabase upload target: bucket="$supabaseBucket" path="$supabaseObjectPath" timeout=${uploadTimeout.inSeconds}s initialized=${SupabaseService.isInitialized}',
         );
         if (SupabaseService.isInitialized) {
           int lastTick = 0;
           void onProgress(int sent, int total) {
-            if (!manageLoading || !mounted) return;
+            if (!mounted) return;
             final now = DateTime.now().millisecondsSinceEpoch;
             if (now - lastTick < 90 && sent < total) return;
             lastTick = now;
             setState(() {
+              if (sent > 0) {
+                _uploadHasRealProgress = true;
+                final lbl = (_uploadLabel ?? '').toLowerCase();
+                if (lbl.startsWith('preparation')) {
+                  _uploadLabel = 'Transfert en cours...';
+                }
+              }
               _uploadSentBytes = sent;
               _uploadTotalBytes = total > 0 ? total : _uploadTotalBytes;
               final int t =
@@ -588,24 +915,33 @@ class _ChatState extends State<ChatDetailPage>
             contentType = 'application/octet-stream';
           }
 
-          if (bytes != null) {
-            url = await SupabaseService.uploadBytesNamed(
-              bytes,
-              supabaseObjectPath,
-              supabaseBucket,
-              onProgress: onProgress,
-              contentType: contentType,
-            ).timeout(const Duration(seconds: 120));
-          } else if (file != null) {
-            url = await SupabaseService.uploadFileNamed(
-              file,
-              supabaseObjectPath,
-              supabaseBucket,
-              onProgress: onProgress,
-              contentType: contentType,
-            ).timeout(const Duration(seconds: 120));
+          if (mounted) {
+            setState(() {
+              final lbl = (_uploadLabel ?? '').toLowerCase();
+              if (lbl.startsWith('preparation')) {
+                _uploadLabel = 'Transfert en cours...';
+              }
+            });
+          }
+
+          if (_useSimpleChatUpload) {
+            url = await _uploadToSupabaseSimpleWithRetry(
+              bucket: supabaseBucket,
+              objectPath: supabaseObjectPath,
+              bytes: bytes,
+              file: file,
+              timeout: uploadTimeout,
+            );
           } else {
-            throw Exception('No file data to upload');
+            url = await _uploadToSupabaseWithRetry(
+              bucket: supabaseBucket,
+              objectPath: supabaseObjectPath,
+              bytes: bytes,
+              file: file,
+              contentType: contentType,
+              timeout: uploadTimeout,
+              onProgress: onProgress,
+            );
           }
           storageProvider = 'supabase';
           debugPrint('Uploaded to Supabase: $url');
@@ -613,50 +949,11 @@ class _ChatState extends State<ChatDetailPage>
           throw Exception('Supabase not initialized');
         }
       } catch (e) {
-        storageError = e.toString();
         final supabaseBucket = folder;
-        final supabaseObjectPath = fileName;
-        if (!kAllowFirebaseMediaFallback) {
-          throw Exception(
-            'Supabase upload failed (bucket="$supabaseBucket", path="$supabaseObjectPath"): $e',
-          );
-        }
-        debugPrint(
-          'Supabase upload failed or unavailable: $e — falling back to Firebase Storage',
+        final supabaseObjectPath = _chatUploadObjectPath(fileName);
+        throw Exception(
+          'Supabase upload failed (bucket="$supabaseBucket", path="$supabaseObjectPath"): $e',
         );
-        Reference ref = FirebaseStorage.instance
-            .ref()
-            .child(folder)
-            .child(fileName);
-        storageFallback = true;
-        storageProvider = 'firebase';
-        storageBucket = 'firebase_default';
-        storagePath = ref.fullPath;
-        final UploadTask task = bytes != null
-            ? ref.putData(bytes)
-            : ref.putFile(file!);
-        final sub = task.snapshotEvents.listen((snap) {
-          if (!mounted) return;
-          setState(() {
-            _uploadSentBytes = snap.bytesTransferred;
-            _uploadTotalBytes = snap.totalBytes > 0
-                ? snap.totalBytes
-                : _uploadTotalBytes;
-            if (_uploadTotalBytes != null && _uploadTotalBytes! > 0) {
-              final double rp = (_uploadSentBytes / _uploadTotalBytes!).clamp(
-                0.0,
-                1.0,
-              );
-              _uploadVisualProgress = max(
-                _uploadVisualProgress,
-                rp.clamp(0.0, 0.995),
-              );
-            }
-          });
-        });
-        await task.timeout(const Duration(seconds: 180));
-        await sub.cancel();
-        url = await ref.getDownloadURL();
       }
 
       _markUploadUiFinalizing(fallbackTotal: sizeBytes);
@@ -667,12 +964,6 @@ class _ChatState extends State<ChatDetailPage>
         'storageProvider': storageProvider,
         if (storageBucket.trim().isNotEmpty) 'storageBucket': storageBucket,
         if (storagePath.trim().isNotEmpty) 'storagePath': storagePath,
-        if (storageFallback) 'storageFallback': true,
-        if (storageError != null && storageError.trim().isNotEmpty)
-          'storageError': storageError.substring(
-            0,
-            storageError.length > 280 ? 280 : storageError.length,
-          ),
         if (sizeBytes != null) 'size': sizeBytes,
         if ((originalName ?? localName)?.trim().isNotEmpty == true)
           'fileName': (originalName ?? localName)!.trim(),
@@ -690,6 +981,7 @@ class _ChatState extends State<ChatDetailPage>
       } catch (_) {}
     } catch (e) {
       debugPrint("Erreur upload: $e");
+      _showUploadError(e);
       _stopUploadVisualProgressPulse();
     }
     if (manageLoading && mounted) {
@@ -697,6 +989,7 @@ class _ChatState extends State<ChatDetailPage>
         _isLoading = false;
         _uploadVisualSuccess = false;
         _uploadVisualProgress = 0.0;
+        _uploadHasRealProgress = false;
         _uploadLabel = null;
         _uploadTotalBytes = null;
         _uploadSentBytes = 0;
@@ -721,6 +1014,7 @@ class _ChatState extends State<ChatDetailPage>
       _uploadTotalBytes = resolvedTotal;
       _uploadSentBytes = resolvedTotal;
       _uploadVisualProgress = 1.0;
+      _uploadHasRealProgress = true;
       _uploadLabel = 'Envoi réussi';
       _uploadVisualSuccess = true;
     });
@@ -740,6 +1034,7 @@ class _ChatState extends State<ChatDetailPage>
       _uploadSentBytes = targetSent;
       // Supabase upload is finished here. Keep 100% while Firestore write runs.
       _uploadVisualProgress = 1.0;
+      _uploadHasRealProgress = true;
       _uploadLabel = 'Synchronisation...';
       _uploadVisualSuccess = false;
     });
@@ -2624,10 +2919,16 @@ class _ChatState extends State<ChatDetailPage>
                                         child: Stack(
                                           fit: StackFit.expand,
                                           children: [
-                                            CachedNetworkImage(
-                                              imageUrl: url,
-                                              fit: BoxFit.cover,
-                                            ),
+                                            if (type == 'video')
+                                              _ChatVideoThumbnail(
+                                                videoUrl: url,
+                                                fit: BoxFit.cover,
+                                              )
+                                            else
+                                              CachedNetworkImage(
+                                                imageUrl: url,
+                                                fit: BoxFit.cover,
+                                              ),
                                             if (type == 'video')
                                               Container(
                                                 color: Colors.black26,
@@ -3684,10 +3985,16 @@ class _ChatState extends State<ChatDetailPage>
                                 child: Stack(
                                   fit: StackFit.expand,
                                   children: [
-                                    CachedNetworkImage(
-                                      imageUrl: url,
-                                      fit: BoxFit.cover,
-                                    ),
+                                    if (type == 'video')
+                                      _ChatVideoThumbnail(
+                                        videoUrl: url,
+                                        fit: BoxFit.cover,
+                                      )
+                                    else
+                                      CachedNetworkImage(
+                                        imageUrl: url,
+                                        fit: BoxFit.cover,
+                                      ),
                                     if (type == 'video')
                                       Container(
                                         color: Colors.black26,
@@ -4440,18 +4747,11 @@ class _ChatState extends State<ChatDetailPage>
   Future<String?> _uploadGroupPhoto(XFile file) async {
     try {
       final fileName = '${widget.chatId}/group_photo.jpg';
-      if (SupabaseService.isInitialized) {
-        final bytes = await file.readAsBytes();
-        return await SupabaseService.uploadBytes(bytes, fileName, 'chat_media');
+      if (!SupabaseService.isInitialized) {
+        throw Exception('Supabase not initialized');
       }
-      final ref = FirebaseStorage.instance.ref().child('chats/$fileName');
-      if (kIsWeb) {
-        final bytes = await file.readAsBytes();
-        await ref.putData(bytes);
-      } else {
-        await ref.putFile(File(file.path));
-      }
-      return await ref.getDownloadURL();
+      final bytes = await file.readAsBytes();
+      return await SupabaseService.uploadBytes(bytes, fileName, 'chat_media');
     } catch (e) {
       debugPrint('upload group photo err: $e');
       return null;
@@ -4877,27 +5177,30 @@ class _ChatState extends State<ChatDetailPage>
         .collection('chats')
         .doc(widget.chatId);
     List<dynamic> participants = const [];
+    final updateData = <String, dynamic>{
+      'lastMessage': payload['text'] ?? "",
+      'lastMessageTime': FieldValue.serverTimestamp(),
+    };
     try {
       final chatSnap = await chatRef.get().timeout(const Duration(seconds: 10));
       final chatData = chatSnap.data() ?? const <String, dynamic>{};
       participants = (chatData['participants'] is List)
           ? List.from(chatData['participants'])
           : const [];
+    } catch (e) {
+      debugPrint('Erreur lecture chat meta: $e');
+    }
 
-      final updateData = <String, dynamic>{
-        'lastMessage': payload['text'] ?? "",
-        'lastMessageTime': FieldValue.serverTimestamp(),
-      };
-
-      if (currentUser != null && participants.isNotEmpty) {
-        for (final p in participants) {
-          updateData['hiddenFor.$p'] = FieldValue.delete();
-          if (p != currentUser!.uid) {
-            updateData['unreadCounts.$p'] = FieldValue.increment(1);
-          }
+    if (currentUser != null && participants.isNotEmpty) {
+      for (final p in participants) {
+        updateData['hiddenFor.$p'] = FieldValue.delete();
+        if (p != currentUser!.uid) {
+          updateData['unreadCounts.$p'] = FieldValue.increment(1);
         }
       }
+    }
 
+    try {
       await chatRef
           .set(updateData, SetOptions(merge: true))
           .timeout(const Duration(seconds: 10));
@@ -6535,6 +6838,8 @@ class _ChatState extends State<ChatDetailPage>
         ? (sent / total).clamp(0.0, 1.0)
         : 0.0;
     final bool transferComplete = total > 0 && sent >= total;
+    final bool waitingForFirstChunk =
+        !done && !_uploadHasRealProgress && !transferComplete;
     double progressValue = done
         ? 1.0
         : max(_uploadVisualProgress, rawProgress).clamp(
@@ -6591,6 +6896,28 @@ class _ChatState extends State<ChatDetailPage>
         width: mediaWidth,
         height: mediaHeight,
         fit: BoxFit.cover,
+      );
+    } else if (isVideo && hasPreviewPath) {
+      preview = SizedBox(
+        width: mediaWidth,
+        height: mediaHeight,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _ChatVideoThumbnail(
+              videoUrl: '',
+              localPath: _uploadPreviewPath,
+              fit: BoxFit.cover,
+            ),
+            const Center(
+              child: Icon(
+                Icons.play_circle_fill_rounded,
+                color: Colors.white70,
+                size: 38,
+              ),
+            ),
+          ],
+        ),
       );
     } else {
       final IconData icon = isVideo
@@ -6689,22 +7016,30 @@ class _ChatState extends State<ChatDetailPage>
                                 color: Color(0xFF34D399),
                                 size: 14,
                               )
-                            : TweenAnimationBuilder<double>(
-                                key: const ValueKey('upload_progress_circle'),
-                                tween: Tween<double>(
-                                  begin: 0.0,
-                                  end: progressValue,
-                                ),
-                                duration: const Duration(milliseconds: 180),
-                                curve: Curves.easeOutCubic,
-                                builder: (context, value, _) =>
-                                    CircularProgressIndicator(
-                                      value: value,
-                                      strokeWidth: 2.1,
-                                      color: progressColor,
-                                      backgroundColor: progressTrackColor,
+                            : waitingForFirstChunk
+                                ? CircularProgressIndicator(
+                                    key: const ValueKey('upload_waiting_circle'),
+                                    value: null,
+                                    strokeWidth: 2.1,
+                                    color: progressColor,
+                                    backgroundColor: progressTrackColor,
+                                  )
+                                : TweenAnimationBuilder<double>(
+                                    key: const ValueKey('upload_progress_circle'),
+                                    tween: Tween<double>(
+                                      begin: 0.0,
+                                      end: progressValue,
                                     ),
-                              ),
+                                    duration: const Duration(milliseconds: 180),
+                                    curve: Curves.easeOutCubic,
+                                    builder: (context, value, _) =>
+                                        CircularProgressIndicator(
+                                          value: value,
+                                          strokeWidth: 2.1,
+                                          color: progressColor,
+                                          backgroundColor: progressTrackColor,
+                                        ),
+                                  ),
                       ),
                     ),
                   ],
@@ -7642,26 +7977,14 @@ class _ChatState extends State<ChatDetailPage>
                           bytes = await File(img.path).readAsBytes();
                         }
 
-                        if (SupabaseService.isInitialized) {
-                          url = await SupabaseService.uploadBytes(
-                            bytes,
-                            'users/$uid/profile.jpg',
-                            'IDENTITY',
-                          );
+                        if (!SupabaseService.isInitialized) {
+                          throw Exception('Supabase not initialized');
                         }
-                        // 🔹 FIREBASE
-                        else {
-                          final ref = FirebaseStorage.instance.ref().child(
-                            'users/$uid/profile.jpg',
-                          );
-
-                          if (kIsWeb) {
-                            await ref.putData(bytes);
-                          } else {
-                            await ref.putFile(File(img.path));
-                          }
-                          url = await ref.getDownloadURL();
-                        }
+                        url = await SupabaseService.uploadBytes(
+                          bytes,
+                          'users/$uid/profile.jpg',
+                          'IDENTITY',
+                        );
 
                         // Mise à jour du profil Firebase Auth
                         if (uid == currentUser?.uid) {
@@ -7753,16 +8076,12 @@ class _ChatState extends State<ChatDetailPage>
 
                       // 🔹 Suppression STORAGE
                       try {
-                        if (SupabaseService.isInitialized) {
-                          await Supabase.instance.client.storage
-                              .from('IDENTITY')
-                              .remove(['users/$uid/profile.jpg']);
-                        } else {
-                          final ref = FirebaseStorage.instance.ref().child(
-                            'users/$uid/profile.jpg',
-                          );
-                          await ref.delete();
+                        if (!SupabaseService.isInitialized) {
+                          throw Exception('Supabase not initialized');
                         }
+                        await Supabase.instance.client.storage
+                            .from('IDENTITY')
+                            .remove(['users/$uid/profile.jpg']);
                       } catch (_) {}
 
                       // 🔹 Suppression Firestore + Auth
@@ -8124,34 +8443,18 @@ class _ChatState extends State<ChatDetailPage>
                         child: Stack(
                           alignment: Alignment.center,
                           children: [
-                            DecoratedBox(
-                              decoration: const BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.topLeft,
-                                  end: Alignment.bottomRight,
-                                  colors: [
-                                    Color(0xFF121A2A),
-                                    Color(0xFF0B101C),
-                                  ],
-                                ),
-                              ),
-                              child: SizedBox(
-                                width: mediaWidth,
-                                height: mediaWidth * 0.62,
-                              ),
+                            _ChatVideoThumbnail(
+                              videoUrl: url,
+                              localPath: local?.path,
+                              fit: BoxFit.cover,
                             ),
-                            if (local != null && local.existsSync())
-                              Icon(
-                                Icons.play_circle_fill_rounded,
-                                color: subText,
-                                size: 54,
-                              )
-                            else
-                              Icon(
-                                Icons.play_circle_fill_rounded,
-                                color: mutedText,
-                                size: 54,
-                              ),
+                            Icon(
+                              Icons.play_circle_fill_rounded,
+                              color: (local != null && local.existsSync())
+                                  ? subText
+                                  : mutedText,
+                              size: 54,
+                            ),
                             if (!kIsWeb &&
                                 (local == null || !local.existsSync()))
                               Positioned(
@@ -9631,6 +9934,103 @@ class _AudioMessagePlayerState extends State<AudioMessagePlayer> {
   }
 }
 
+class _ChatVideoThumbnail extends StatefulWidget {
+  final String videoUrl;
+  final String? localPath;
+  final BoxFit fit;
+  const _ChatVideoThumbnail({
+    required this.videoUrl,
+    this.localPath,
+    this.fit = BoxFit.cover,
+  });
+
+  @override
+  State<_ChatVideoThumbnail> createState() => _ChatVideoThumbnailState();
+}
+
+class _ChatVideoThumbnailState extends State<_ChatVideoThumbnail> {
+  VideoPlayerController? _controller;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ChatVideoThumbnail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.videoUrl != widget.videoUrl ||
+        oldWidget.localPath != widget.localPath) {
+      _init();
+    }
+  }
+
+  Future<void> _init() async {
+    _ready = false;
+    final prev = _controller;
+    _controller = null;
+    await prev?.dispose();
+    try {
+      VideoPlayerController c;
+      if (!kIsWeb &&
+          (widget.localPath ?? '').trim().isNotEmpty &&
+          File(widget.localPath!).existsSync()) {
+        c = VideoPlayerController.file(File(widget.localPath!));
+      } else {
+        c = VideoPlayerController.networkUrl(Uri.parse(widget.videoUrl));
+      }
+      await c.setVolume(0);
+      await c.initialize();
+      await c.seekTo(Duration.zero);
+      if (!mounted) {
+        await c.dispose();
+        return;
+      }
+      _controller = c;
+      _ready = true;
+      setState(() {});
+    } catch (_) {
+      if (mounted) setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _controller;
+    if (!_ready || c == null || !c.value.isInitialized) {
+      return Container(
+        color: const Color(0xFF0B101C),
+      );
+    }
+    final size = c.value.size;
+    if (size.width <= 0 || size.height <= 0) {
+      return Container(color: const Color(0xFF0B101C));
+    }
+    return Container(
+      color: const Color(0xFF0B101C),
+      child: SizedBox.expand(
+        child: FittedBox(
+          fit: widget.fit,
+          clipBehavior: Clip.hardEdge,
+          child: SizedBox(
+            width: size.width,
+            height: size.height,
+            child: VideoPlayer(c),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _MediaViewerPage extends StatefulWidget {
   final String url;
   final String type;
@@ -9907,3 +10307,4 @@ class _MediaViewerPageState extends State<_MediaViewerPage> {
     );
   }
 }
+

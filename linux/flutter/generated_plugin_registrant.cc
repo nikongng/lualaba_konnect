@@ -10,6 +10,7 @@
 #include <emoji_picker_flutter/emoji_picker_flutter_plugin.h>
 #include <file_selector_linux/file_selector_plugin.h>
 #include <flutter_sound/flutter_sound_plugin.h>
+#include <flutter_timezone/flutter_timezone_plugin.h>
 #include <flutter_webrtc/flutter_web_r_t_c_plugin.h>
 #include <gtk/gtk_plugin.h>
 #include <url_launcher_linux/url_launcher_plugin.h>
@@ -27,6 +28,9 @@ void fl_register_plugins(FlPluginRegistry* registry) {
   g_autoptr(FlPluginRegistrar) flutter_sound_registrar =
       fl_plugin_registry_get_registrar_for_plugin(registry, "FlutterSoundPlugin");
   flutter_sound_plugin_register_with_registrar(flutter_sound_registrar);
+  g_autoptr(FlPluginRegistrar) flutter_timezone_registrar =
+      fl_plugin_registry_get_registrar_for_plugin(registry, "FlutterTimezonePlugin");
+  flutter_timezone_plugin_register_with_registrar(flutter_timezone_registrar);
   g_autoptr(FlPluginRegistrar) flutter_webrtc_registrar =
       fl_plugin_registry_get_registrar_for_plugin(registry, "FlutterWebRTCPlugin");
   flutter_web_r_t_c_plugin_register_with_registrar(flutter_webrtc_registrar);

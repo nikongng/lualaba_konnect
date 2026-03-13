@@ -4,6 +4,7 @@ import 'home_services_page.dart';
 import 'food_services_page.dart';
 import 'freelance_pros_page.dart';
 import 'mobility_services_page.dart';
+import 'real_estate_management_page.dart';
 import 'training_services_page.dart';
 
 class RapidServicesPage extends StatefulWidget {
@@ -110,6 +111,13 @@ class _RapidServicesPageState extends State<RapidServicesPage> {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const FreelanceProsPage()),
+      );
+      return;
+    }
+    if (key.contains('gestion immo')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const RealEstateManagementPage()),
       );
       return;
     }
@@ -302,6 +310,7 @@ class _RapidServicesPageState extends State<RapidServicesPage> {
       ServiceSection(
         title: 'MAISON & QUOTIDIEN',
         items: [
+          ServiceItem(title: 'Gestion Immo', sub: 'Locataire, Proprietaire, Commissionnaire', icon: Icons.apartment_outlined, color: Color(0xFF26A69A)),
           ServiceItem(title: 'Menage & Aide', sub: 'Nounou, Jardinier, Vigile', icon: Icons.auto_awesome_outlined, color: Color(0xFF64B5F6)),
           ServiceItem(title: 'Repas', sub: 'Livraison express', icon: Icons.restaurant_rounded, color: Color(0xFFFF8A00)),
           ServiceItem(title: 'Factures', sub: 'SNEL, Eau, TV, Net', icon: Icons.account_balance_wallet_outlined, color: Color(0xFFFFC107)),

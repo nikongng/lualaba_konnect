@@ -15,7 +15,18 @@ import 'categories.dart';
 class MarketplacePage extends StatefulWidget {
   final VoidCallback onBack;
   final bool isDark;
-  const MarketplacePage({super.key, required this.onBack, this.isDark = false});
+  final String? initialMainCategory;
+  final String? initialSubCategory;
+  final String? initialQuery;
+
+  const MarketplacePage({
+    super.key,
+    required this.onBack,
+    this.isDark = false,
+    this.initialMainCategory,
+    this.initialSubCategory,
+    this.initialQuery,
+  });
 
   @override
   State<MarketplacePage> createState() => _MarketplacePageState();
@@ -35,7 +46,24 @@ class _MarketplacePageState extends State<MarketplacePage> {
   @override
   void initState() {
     super.initState();
+    _applyInitialFilters();
     _loadProducts();
+  }
+
+  void _applyInitialFilters() {
+    final mains = Categories.mainCategories();
+    final initialMain = widget.initialMainCategory;
+    if (initialMain != null && mains.contains(initialMain)) {
+      _selectedMainCategory = initialMain;
+    }
+    final initialSub = widget.initialSubCategory;
+    if (initialSub != null && initialSub.trim().isNotEmpty) {
+      _selectedSubCategory = initialSub;
+    }
+    final initialQuery = widget.initialQuery;
+    if (initialQuery != null && initialQuery.trim().isNotEmpty) {
+      _query = initialQuery.trim();
+    }
   }
 
   Future<void> _loadProducts() async {

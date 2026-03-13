@@ -29,27 +29,46 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   String? body = message.notification?.body ?? data['body'] ?? data['messageText'];
 
   if (title != null || body != null) {
+    final String? chatId = (data['chatId'] ?? data['chat_id'] ?? data['conversationId'] ?? data['conversation_id'])?.toString();
     final fln = FlutterLocalNotificationsPlugin();
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     await fln.initialize(const InitializationSettings(android: androidInit));
 
-    const androidDetails = AndroidNotificationDetails(
+    final actions = <AndroidNotificationAction>[];
+    if (chatId != null && chatId.isNotEmpty) {
+      actions.add(
+        const AndroidNotificationAction(
+          'reply',
+          'Répondre',
+          inputs: <AndroidNotificationActionInput>[
+            AndroidNotificationActionInput(label: 'Votre réponse'),
+          ],
+          allowGeneratedReplies: true,
+          showsUserInterface: false,
+        ),
+      );
+    }
+
+    final androidDetails = AndroidNotificationDetails(
       'lualaba_channel_v2',
       'Lualaba Notifications',
       importance: Importance.max,
       priority: Priority.high,
       playSound: true,
       sound: RawResourceAndroidNotificationSound('lualaba_pop'),
+      actions: actions.isNotEmpty ? actions : null,
     );
 
     // Extraction du payload pour la navigation
-    final payload = data['orderId'] ?? data['chatId'] ?? data['type'];
+    final payload = chatId != null && chatId.isNotEmpty
+        ? 'chat:$chatId'
+        : (data['orderId'] ?? data['chatId'] ?? data['type']);
 
     await fln.show(
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
       title,
       body,
-      const NotificationDetails(android: androidDetails),
+      NotificationDetails(android: androidDetails),
       payload: payload != null ? 'nav:$payload' : null,
     );
   }
@@ -63,11 +82,13 @@ class FcmHandlers {
       final data = message.data;
       
       if (notif != null) {
+        final chatId = data['chatId'] ?? data['chat_id'] ?? data['conversationId'] ?? data['conversation_id'];
         final payload = data['orderId'] ?? data['order_id'] ?? data['order'];
         NotificationService.showNotification(
-          notif.title ?? 'Notification', 
-          notif.body ?? '', 
-          payload: payload != null ? 'order:$payload' : null
+          notif.title ?? 'Notification',
+          notif.body ?? '',
+          payload: payload != null ? 'order:$payload' : null,
+          chatId: chatId?.toString(),
         );
       }
 
@@ -195,3 +216,4 @@ class FcmHandlers {
     }
   }
 }
+

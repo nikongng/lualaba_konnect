@@ -21,6 +21,7 @@ dependencies:
   timeago: ^3.7.0
   flutter_contacts: ^1.1.9+2
   share_plus: ^10.0.2
+  qr_flutter: ^4.1.0
   
   
 
@@ -47,6 +48,7 @@ dependencies:
   # PDF & OCR
   syncfusion_flutter_pdf: ^28.1.33
   pdfx: ^2.4.0
+  excel: ^4.0.2
   # Keep MLKit in sync with Firebase iOS pods to avoid CocoaPods conflicts.
   # Note: Recent google_mlkit_* releases may require a higher iOS deployment target.
   google_mlkit_text_recognition: ^0.15.1
@@ -60,6 +62,8 @@ dependencies:
   # Notifications
   flutter_local_notifications: ^17.2.1
   flutter_foreground_task: ^6.1.2
+  timezone: ^0.9.2
+  flutter_timezone: ^5.0.1
 
 
   # AI & Network

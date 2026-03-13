@@ -2,16 +2,27 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:lualaba_konnect/firebase_options.dart';
+import 'package:timezone/data/latest.dart' as tz;
+import 'package:timezone/timezone.dart' as tz;
 // Avoid importing `dart:io` directly (breaks web builds). Use Flutter's
 // platform constants instead.
+
+@pragma('vm:entry-point')
+Future<void> notificationTapBackground(NotificationResponse response) async {
+  await NotificationService.handleNotificationResponse(response);
+}
 
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _fln = FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
   static bool _localInitialized = false;
+  static bool _tzInitialized = false;
 
   static int _stableHash32(String input) {
     // FNV-1a 32-bit (stable across runs/platforms)
@@ -24,6 +35,7 @@ class NotificationService {
   }
 
   static int notificationIdForChat(String chatId) => _stableHash32('chat:$chatId');
+  static int stableIdForKey(String key) => _stableHash32(key);
 
   // --- CONFIGURATION DU CANAL (ID UNIQUE) ---
   static const AndroidNotificationChannel channel = AndroidNotificationChannel(
@@ -40,6 +52,7 @@ class NotificationService {
   /// Local notifications + Android channel (sound is tied to the channel id).
   static Future<void> initLocalOnly() async {
     if (_localInitialized) return;
+    await _initTimeZones();
 
     // Create officially the channel on Android (required for background display + custom sound).
     await _fln
@@ -57,11 +70,32 @@ class NotificationService {
     await _fln.initialize(
       initSettings,
       onDidReceiveNotificationResponse: (NotificationResponse response) {
-        debugPrint("Notification cliquée avec payload: ${response.payload}");
+        handleNotificationResponse(response);
       },
+      onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
     );
 
     _localInitialized = true;
+  }
+
+  static Future<void> _initTimeZones() async {
+    if (_tzInitialized || kIsWeb) return;
+    try {
+      tz.initializeTimeZones();
+      String? name;
+      try {
+        final tzInfo = await FlutterTimezone.getLocalTimezone();
+        name = tzInfo.identifier;
+      } catch (_) {
+        name = null;
+      }
+      if (name != null && name.isNotEmpty) {
+        tz.setLocalLocation(tz.getLocation(name));
+      }
+      _tzInitialized = true;
+    } catch (e) {
+      debugPrint('Timezone init error: $e');
+    }
   }
 
   static Future<void> init() async {
@@ -143,8 +177,10 @@ class NotificationService {
             if (chatId != null && chatId.isNotEmpty) localId = notificationIdForChat(chatId);
           } catch (_) {}
 
+          final String? chatId = (data['chatId'] ?? data['chat_id'] ?? data['conversationId'] ?? data['conversation_id'])?.toString();
+          final String? payload = chatId != null && chatId.isNotEmpty ? 'chat:$chatId' : type;
           // show local banner and play short pop sound
-          showNotification(title, body, payload: type, id: localId);
+          showNotification(title, body, payload: payload, id: localId, chatId: chatId);
           try {
             FlutterRingtonePlayer().play(fromAsset: 'assets/sounds/pop.mp3', looping: false, volume: 1.0);
           } catch (_) {}
@@ -192,7 +228,137 @@ class NotificationService {
   }
 
   // --- FONCTION POUR AFFICHER LA NOTIFICATION ---
-  static Future<void> showNotification(String title, String body, {String? payload, int? id}) async {
+  static Future<void> showNotification(
+    String title,
+    String body, {
+    String? payload,
+    int? id,
+    String? chatId,
+  }) async {
+    await initLocalOnly();
+    final actions = <AndroidNotificationAction>[];
+    if (chatId != null && chatId.trim().isNotEmpty) {
+      actions.add(
+        const AndroidNotificationAction(
+          'reply',
+          'RÃ©pondre',
+          inputs: <AndroidNotificationActionInput>[
+            AndroidNotificationActionInput(label: 'Votre rÃ©ponse'),
+          ],
+          allowGeneratedReplies: true,
+          showsUserInterface: false,
+        ),
+      );
+    }
+    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+      channel.id,
+      channel.name,
+      channelDescription: channel.description,
+      importance: Importance.max,
+      priority: Priority.high,
+      playSound: true,
+      sound: const RawResourceAndroidNotificationSound('lualaba_pop'),
+      icon: '@mipmap/launcher_icon',
+      actions: actions.isNotEmpty ? actions : null,
+    );
+
+    final NotificationDetails platform = NotificationDetails(
+      android: androidDetails,
+      iOS: const DarwinNotificationDetails(),
+    );
+
+    final String? finalPayload = (payload == null || payload.isEmpty)
+        ? (chatId != null && chatId.trim().isNotEmpty ? 'chat:$chatId' : null)
+        : payload;
+    await _fln.show(
+      id ?? (DateTime.now().millisecondsSinceEpoch ~/ 1000),
+      title,
+      body,
+      platform,
+      payload: finalPayload,
+    );
+  }
+
+  static Future<void> handleNotificationResponse(NotificationResponse response) async {
+    final actionId = response.actionId ?? '';
+    final payload = response.payload ?? '';
+    if (actionId == 'reply') {
+      final text = (response.input ?? '').trim();
+      final chatId = _chatIdFromPayload(payload);
+      if (chatId.isNotEmpty && text.isNotEmpty) {
+        await _sendQuickReply(chatId, text);
+      }
+      return;
+    }
+    debugPrint("Notification cliquÃ©e avec payload: $payload");
+  }
+
+  static String _chatIdFromPayload(String payload) {
+    final p = payload.trim();
+    if (p.startsWith('chat:')) return p.substring(5);
+    if (p.startsWith('nav:chat:')) return p.substring(9);
+    return '';
+  }
+
+  static Future<void> _ensureFirebaseInitialized() async {
+    if (Firebase.apps.isNotEmpty) return;
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  }
+
+  static Future<void> _sendQuickReply(String chatId, String text) async {
+    try {
+      await _ensureFirebaseInitialized();
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) return;
+      final chatRef = FirebaseFirestore.instance.collection('chats').doc(chatId);
+      final chatSnap = await chatRef.get();
+      if (!chatSnap.exists) return;
+      final chatData = chatSnap.data() ?? const <String, dynamic>{};
+      final participants = (chatData['participants'] is List)
+          ? List.from(chatData['participants'])
+          : <dynamic>[];
+
+      await chatRef.collection('messages').add({
+        'senderId': user.uid,
+        'timestamp': FieldValue.serverTimestamp(),
+        'isRead': false,
+        'delivered': false,
+        'deliveredAt': null,
+        'type': 'text',
+        'text': text,
+      });
+
+      final updateData = <String, dynamic>{
+        'lastMessage': text,
+        'lastMessageTime': FieldValue.serverTimestamp(),
+      };
+      for (final p in participants) {
+        final pid = p.toString();
+        if (pid.isEmpty) continue;
+        updateData['hiddenFor.$pid'] = FieldValue.delete();
+        if (pid != user.uid) {
+          updateData['unreadCounts.$pid'] = FieldValue.increment(1);
+        }
+      }
+      await chatRef.set(updateData, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('Quick reply error: $e');
+    }
+  }
+
+  static Future<void> scheduleNotification({
+    required int id,
+    required String title,
+    required String body,
+    required DateTime scheduledAt,
+    String? payload,
+  }) async {
+    await initLocalOnly();
+    if (kIsWeb) return;
+
+    final tz.TZDateTime tzTime = tz.TZDateTime.from(scheduledAt, tz.local);
+    if (tzTime.isBefore(tz.TZDateTime.now(tz.local))) return;
+
     final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
       channel.id,
       channel.name,
@@ -209,13 +375,23 @@ class NotificationService {
       iOS: const DarwinNotificationDetails(),
     );
 
-    await _fln.show(
-      id ?? (DateTime.now().millisecondsSinceEpoch ~/ 1000),
+    await _fln.zonedSchedule(
+      id,
       title,
       body,
+      tzTime,
       platform,
+      androidAllowWhileIdle: true,
+      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
       payload: payload,
     );
+  }
+
+  static Future<void> cancelNotification(int id) async {
+    try {
+      await initLocalOnly();
+      await _fln.cancel(id);
+    } catch (_) {}
   }
 
   static Future<void> clearNotificationsForChat(String chatId, {bool clearPush = false}) async {
@@ -316,3 +492,4 @@ class NotificationService {
     }
   }
 }
+

@@ -8,6 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/services.dart';
+import 'package:video_player/video_player.dart';
 
 // Tes imports originaux
 import '../widgets/services/services_tiles/rapid_services_tile.dart';
@@ -18,6 +19,7 @@ import '../../../live/live_page.dart';
 import '../../../marketplace/marketplace_page.dart';
 import 'news_feed_page.dart';
 import 'profile_page_widgets.dart';
+import 'health_profile_page.dart';
 import 'package:lualaba_konnect/features/adult/adult_space_page.dart';
 import 'package:lualaba_konnect/features/admin/presentation/pages/identity_validation_admin_page.dart';
 import 'profile_settings_page.dart';
@@ -28,6 +30,156 @@ import '../widgets/masta_card.dart';
 import '../widgets/copper_card.dart';
 import '../../../../core/notification_service.dart';
 import '../../../../core/theme_controller.dart';
+
+class _DashboardMediaEntry {
+  final String url;
+  final bool isVideo;
+  const _DashboardMediaEntry({
+    required this.url,
+    required this.isVideo,
+  });
+}
+
+List<_DashboardMediaEntry> _extractDashboardMedia(Map<String, dynamic> data) {
+  final out = <_DashboardMediaEntry>[];
+  final rawMedia = data['media'];
+  if (rawMedia is List) {
+    for (final raw in rawMedia) {
+      if (raw is! Map) continue;
+      final map = raw.map((k, v) => MapEntry(k.toString(), v));
+      final url = (map['url'] ?? '').toString().trim();
+      if (url.isEmpty) continue;
+      final type = (map['type'] ?? '').toString().toLowerCase();
+      out.add(_DashboardMediaEntry(url: url, isVideo: type == 'video'));
+    }
+  }
+  if (out.isNotEmpty) return out;
+
+  final images = (data['images'] is List)
+      ? List<String>.from((data['images'] as List).map((e) => e.toString()))
+      : const <String>[];
+  final videos = (data['videos'] is List)
+      ? List<String>.from((data['videos'] as List).map((e) => e.toString()))
+      : const <String>[];
+
+  out.addAll(
+    images
+        .where((u) => u.trim().isNotEmpty)
+        .map((u) => _DashboardMediaEntry(url: u, isVideo: false)),
+  );
+  out.addAll(
+    videos
+        .where((u) => u.trim().isNotEmpty)
+        .map((u) => _DashboardMediaEntry(url: u, isVideo: true)),
+  );
+  return out;
+}
+
+_DashboardMediaEntry? _firstDashboardMedia(
+  Map<String, dynamic> data, {
+  bool preferImage = true,
+}) {
+  final items = _extractDashboardMedia(data);
+  if (items.isEmpty) return null;
+  if (preferImage) {
+    for (final item in items) {
+      if (!item.isVideo) return item;
+    }
+  }
+  return items.first;
+}
+
+class _DashboardVideoThumbnail extends StatefulWidget {
+  final String videoUrl;
+  final BoxFit fit;
+  const _DashboardVideoThumbnail({
+    required this.videoUrl,
+    this.fit = BoxFit.cover,
+  });
+
+  @override
+  State<_DashboardVideoThumbnail> createState() =>
+      _DashboardVideoThumbnailState();
+}
+
+class _DashboardVideoThumbnailState extends State<_DashboardVideoThumbnail> {
+  VideoPlayerController? _controller;
+  bool _ready = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DashboardVideoThumbnail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.videoUrl != widget.videoUrl) {
+      _init();
+    }
+  }
+
+  Future<void> _init() async {
+    _ready = false;
+    final prev = _controller;
+    _controller = null;
+    await prev?.dispose();
+    final raw = widget.videoUrl.trim();
+    if (raw.isEmpty) {
+      if (mounted) setState(() {});
+      return;
+    }
+    try {
+      final c = VideoPlayerController.networkUrl(Uri.parse(raw));
+      await c.setVolume(0);
+      await c.initialize();
+      await c.seekTo(Duration.zero);
+      await c.pause();
+      if (!mounted) {
+        await c.dispose();
+        return;
+      }
+      _controller = c;
+      _ready = true;
+      setState(() {});
+    } catch (_) {
+      if (mounted) setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _controller;
+    if (!_ready || c == null || !c.value.isInitialized) {
+      return Container(color: const Color(0xFF202C33));
+    }
+    final size = c.value.size;
+    if (size.width <= 0 || size.height <= 0) {
+      return Container(color: const Color(0xFF202C33));
+    }
+    return Container(
+      color: const Color(0xFF202C33),
+      child: SizedBox.expand(
+        child: FittedBox(
+          fit: widget.fit,
+          clipBehavior: Clip.hardEdge,
+          child: SizedBox(
+            width: size.width,
+            height: size.height,
+            child: VideoPlayer(c),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class ModernDashboard extends StatefulWidget {
   const ModernDashboard({super.key});
@@ -126,6 +278,56 @@ class _ModernDashboardState extends State<ModernDashboard> {
     try { return double.parse(v.toString()); } catch (_) { return null; }
   }
 
+  double? _pickUsageFrom(Map<String, dynamic> data, List<String> keys) {
+    for (final k in keys) {
+      final v = _parseNum(data[k]);
+      if (v != null) return v;
+    }
+    return null;
+  }
+
+  ({double? used, double? total}) _extractLanUsage(Map<String, dynamic> data) {
+    final usedKeys = <String>[
+      'dataLanUsedGb',
+      'dataLanUsed',
+      'dataUsedGb',
+      'dataUsed',
+      'dataUsageGb',
+      'lanUsedGb',
+    ];
+    final totalKeys = <String>[
+      'dataLanTotalGb',
+      'dataLanTotal',
+      'dataTotalGb',
+      'dataCapGb',
+      'dataLimitGb',
+      'lanTotalGb',
+    ];
+
+    double? used = _pickUsageFrom(data, usedKeys);
+    double? total = _pickUsageFrom(data, totalKeys);
+
+    if (used == null || total == null) {
+      final nested = data['data'];
+      if (nested is Map) {
+        final m = Map<String, dynamic>.from(nested);
+        used ??= _pickUsageFrom(m, usedKeys);
+        total ??= _pickUsageFrom(m, totalKeys);
+      }
+    }
+
+    if (used == null || total == null) {
+      final nested = data['lan'];
+      if (nested is Map) {
+        final m = Map<String, dynamic>.from(nested);
+        used ??= _pickUsageFrom(m, usedKeys);
+        total ??= _pickUsageFrom(m, totalKeys);
+      }
+    }
+
+    return (used: used, total: total);
+  }
+
   @override
   void dispose() {
     _themeCtrl.removeListener(_onThemeChanged);
@@ -160,19 +362,9 @@ class _ModernDashboardState extends State<ModernDashboard> {
       }
       if (data == null) return;
 
-      final used = _parseNum(data['dataLanUsedGb']) ??
-          _parseNum(data['dataLanUsed']) ??
-          _parseNum(data['dataUsedGb']) ??
-          _parseNum(data['dataUsed']) ??
-          _parseNum(data['dataUsageGb']) ??
-          _parseNum(data['lanUsedGb']);
-
-      final total = _parseNum(data['dataLanTotalGb']) ??
-          _parseNum(data['dataLanTotal']) ??
-          _parseNum(data['dataTotalGb']) ??
-          _parseNum(data['dataCapGb']) ??
-          _parseNum(data['dataLimitGb']) ??
-          _parseNum(data['lanTotalGb']);
+      final usage = _extractLanUsage(data);
+      final used = usage.used;
+      final total = usage.total;
 
       if (used != null) {
         await prefs.setDouble('data_lan_used_gb', used);
@@ -1035,8 +1227,9 @@ Widget _buildNewsSection(Color text, bool isDark) {
               final source = (data['category'] ?? data['authorName'] ?? 'Actu').toString();
               final rawTitle = (data['text'] ?? '').toString().trim();
               final title = rawTitle.isEmpty ? 'Publication' : rawTitle;
-              final images = (data['images'] is List) ? List<String>.from(data['images'] ?? const []) : const <String>[];
-              final imageUrl = images.isNotEmpty ? images.first.toString() : '';
+              final media = _firstDashboardMedia(data, preferImage: true);
+              final mediaUrl = media?.url ?? '';
+              final mediaIsVideo = media?.isVideo ?? false;
               final createdAt = data['createdAt'] is Timestamp ? (data['createdAt'] as Timestamp).toDate() : null;
 
               return TweenAnimationBuilder<double>(
@@ -1047,7 +1240,14 @@ Widget _buildNewsSection(Color text, bool isDark) {
                   opacity: v,
                   child: Transform.translate(offset: Offset(16 * (1 - v), 0), child: child),
                 ),
-                child: _newsCard(source, title, isDark, imageUrl, createdAt: createdAt),
+                child: _newsCard(
+                  source,
+                  title,
+                  isDark,
+                  mediaUrl,
+                  isVideo: mediaIsVideo,
+                  createdAt: createdAt,
+                ),
               );
             },
           );
@@ -1057,7 +1257,14 @@ Widget _buildNewsSection(Color text, bool isDark) {
   ]);
 }
 
-  Widget _newsCard(String source, String title, bool isDark, String imageUrl, {DateTime? createdAt}) {
+  Widget _newsCard(
+    String source,
+    String title,
+    bool isDark,
+    String mediaUrl, {
+    required bool isVideo,
+    DateTime? createdAt,
+  }) {
     final cardColor = isDark ? const Color(0xFF111B21) : Colors.white;
     final text = isDark ? Colors.white : Colors.black87;
     final sub = isDark ? Colors.white70 : Colors.black54;
@@ -1080,7 +1287,7 @@ Widget _buildNewsSection(Color text, bool isDark) {
             child: SizedBox(
               height: 130,
               width: double.infinity,
-              child: imageUrl.isEmpty
+              child: mediaUrl.isEmpty
                   ? Container(
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
@@ -1091,18 +1298,38 @@ Widget _buildNewsSection(Color text, bool isDark) {
                       ),
                       child: Center(child: Icon(Icons.article_outlined, color: sub)),
                     )
-                  : CachedNetworkImage(
-                      imageUrl: imageUrl,
-                      fit: BoxFit.cover,
-                      placeholder: (c, s) => Container(
-                        color: isDark ? const Color(0xFF202C33) : Colors.grey.shade200,
-                        child: Center(child: CircularProgressIndicator(color: Theme.of(c).colorScheme.primary)),
-                      ),
-                      errorWidget: (c, s, e) => Container(
-                        color: isDark ? const Color(0xFF202C33) : Colors.grey.shade200,
-                        child: Center(child: Icon(Icons.broken_image, color: sub)),
-                      ),
-                    ),
+                  : isVideo
+                      ? Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            _DashboardVideoThumbnail(
+                              videoUrl: mediaUrl,
+                              fit: BoxFit.cover,
+                            ),
+                            Container(
+                              color: Colors.black26,
+                              child: Center(
+                                child: Icon(
+                                  Icons.play_circle_fill_rounded,
+                                  color: sub,
+                                  size: 40,
+                                ),
+                              ),
+                            ),
+                          ],
+                        )
+                      : CachedNetworkImage(
+                          imageUrl: mediaUrl,
+                          fit: BoxFit.cover,
+                          placeholder: (c, s) => Container(
+                            color: isDark ? const Color(0xFF202C33) : Colors.grey.shade200,
+                            child: Center(child: CircularProgressIndicator(color: Theme.of(c).colorScheme.primary)),
+                          ),
+                          errorWidget: (c, s, e) => Container(
+                            color: isDark ? const Color(0xFF202C33) : Colors.grey.shade200,
+                            child: Center(child: Icon(Icons.broken_image, color: sub)),
+                          ),
+                        ),
             ),
           ),
           Padding(
@@ -1152,7 +1379,16 @@ Widget _buildProfilePage(bool isDark, Color textColor, {Key? key}) {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // 1. TES TUILES D'ACTION
-          ProfilePageWidgets.buildActionTile("Ma Santé", "Dossier médical", Icons.favorite_border, const Color(0xFF00CBA9), isDark),
+          ProfilePageWidgets.buildActionTile(
+            "Ma Santé",
+            "Dossier médical",
+            Icons.favorite_border,
+            const Color(0xFF00CBA9),
+            isDark,
+            onTap: () {
+              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const HealthProfilePage()));
+            },
+          ),
           const SizedBox(height: 12),
           ProfilePageWidgets.buildActionTile(
             "Espace Adultes",
