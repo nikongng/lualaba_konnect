@@ -112,7 +112,7 @@ class _HealthMetricsPageState extends State<HealthMetricsPage> {
                     const Text('Ajouter une mesure', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
-                      value: type,
+                      initialValue: type,
                       items: _typeOptions
                           .map((opt) => DropdownMenuItem(
                                 value: opt['value'],
@@ -202,7 +202,7 @@ class _HealthMetricsPageState extends State<HealthMetricsPage> {
           Padding(
             padding: const EdgeInsets.all(12),
             child: DropdownButtonFormField<String>(
-              value: _selectedType,
+              initialValue: _selectedType,
               items: _typeOptions
                   .map((opt) => DropdownMenuItem(
                         value: opt['value'],

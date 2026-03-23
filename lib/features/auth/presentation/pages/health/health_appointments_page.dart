@@ -125,7 +125,7 @@ class _HealthAppointmentsPageState extends State<HealthAppointmentsPage> {
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      value: status,
+                      initialValue: status,
                       items: const [
                         DropdownMenuItem(value: 'scheduled', child: Text('Planifie')),
                         DropdownMenuItem(value: 'completed', child: Text('Termine')),

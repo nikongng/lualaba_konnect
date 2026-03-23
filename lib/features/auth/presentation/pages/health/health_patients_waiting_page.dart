@@ -68,7 +68,7 @@ class _HealthPatientsWaitingPageState extends State<HealthPatientsWaitingPage> {
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      value: status,
+                      initialValue: status,
                       items: const [
                         DropdownMenuItem(value: 'waiting', child: Text('En attente')),
                         DropdownMenuItem(value: 'in_care', child: Text('En soins')),

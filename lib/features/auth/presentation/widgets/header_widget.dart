@@ -10,6 +10,7 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:lualaba_konnect/features/services/presentation/pages/traffic_management_page.dart';
 import 'package:lualaba_konnect/shared/widgets/account_badge.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -556,7 +557,7 @@ Future<void> _handleImageUpload(ImageSource source) async {
             ],
           ),
         ),
-        _buildSOS(),
+        _buildActionButtons(),
       ],
     );
   }
@@ -614,7 +615,19 @@ Future<void> _handleImageUpload(ImageSource source) async {
     );
   }
 
-Widget _buildSOS() {
+  Widget _buildActionButtons() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        _buildSOS(),
+        const SizedBox(height: 8),
+        _buildTrafficButton(),
+      ],
+    );
+  }
+
+  Widget _buildSOS() {
     return GestureDetector(
       onTap: widget.onSOSPressed,
       child: Container(
@@ -625,6 +638,45 @@ Widget _buildSOS() {
           boxShadow: [BoxShadow(color: Colors.red.withOpacity(0.3), blurRadius: 8, offset: const Offset(0, 4))],
         ),
         child: const Text("SOS", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+      ),
+    );
+  }
+
+  Widget _buildTrafficButton() {
+    return GestureDetector(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const TrafficManagementPage()),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [Color(0xFF0F4C81), Color(0xFF1F8FE5)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF1F8FE5).withOpacity(0.28),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.alt_route_rounded, color: Colors.white, size: 16),
+            SizedBox(width: 6),
+            Text(
+              "Trafic",
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+          ],
+        ),
       ),
     );
   }

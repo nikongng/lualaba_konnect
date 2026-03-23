@@ -1,7 +1,6 @@
 ﻿
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -492,7 +491,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                     ),
                     SwitchListTile(
                       value: enabled,
-                      activeColor: _accent,
+                      activeThumbColor: _accent,
                       contentPadding: EdgeInsets.zero,
                       title: Text(
                         'Alerte retard loyer',
@@ -506,7 +505,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                     ),
                     const SizedBox(height: 6),
                     DropdownButtonFormField<int>(
-                      value: dueDay,
+                      initialValue: dueDay,
                       decoration: InputDecoration(
                         labelText: 'Jour limite de paiement',
                         labelStyle: TextStyle(color: sub),
@@ -621,7 +620,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                     ),
                     const SizedBox(height: 8),
                     DropdownButtonFormField<String>(
-                      value: selected,
+                      initialValue: selected,
                       decoration: InputDecoration(
                         labelText: 'Mois paye',
                         labelStyle: TextStyle(color: sub),
@@ -1770,7 +1769,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                               ),
                               const SizedBox(height: 10),
                               DropdownButtonFormField<_HousingStatus>(
-                                value: status,
+                                initialValue: status,
                                 decoration: InputDecoration(
                                   labelText: 'Etat',
                                   labelStyle: TextStyle(color: sub),
@@ -2469,7 +2468,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       ),
                       const SizedBox(height: 10),
                       DropdownButtonFormField<_HousingStatus>(
-                        value: status,
+                        initialValue: status,
                         decoration: InputDecoration(
                           labelText: 'Statut',
                           labelStyle: TextStyle(color: sub),
@@ -2568,7 +2567,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                         const SizedBox(height: 6),
                         SwitchListTile(
                           value: syncTenantRent,
-                          activeColor: _accent,
+                          activeThumbColor: _accent,
                           contentPadding: EdgeInsets.zero,
                           title: Text(
                             'Mettre a jour le loyer du locataire',
@@ -2938,7 +2937,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       ),
                       const SizedBox(height: 10),
                       DropdownButtonFormField<String>(
-                        value: selectedHouseId,
+                        initialValue: selectedHouseId,
                         decoration: InputDecoration(
                           labelText: 'Maison louee',
                           labelStyle: TextStyle(color: sub),
@@ -2972,7 +2971,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       const SizedBox(height: 10),
                       SwitchListTile(
                         value: rentPaid,
-                        activeColor: _accent,
+                        activeThumbColor: _accent,
                         contentPadding: EdgeInsets.zero,
                         title: Text(
                           'Loyer deja paye',
@@ -2992,7 +2991,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       if (rentPaid) ...[
                         const SizedBox(height: 10),
                         DropdownButtonFormField<String>(
-                          value: _normalizeMonthKey(paidMonthKey),
+                          initialValue: _normalizeMonthKey(paidMonthKey),
                           decoration: InputDecoration(
                             labelText: 'Mois du loyer paye',
                             labelStyle: TextStyle(color: sub),
@@ -4446,7 +4445,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
           ),
           child: SwitchListTile(
             value: _newHouseAlertsEnabled,
-            activeColor: _accent,
+            activeThumbColor: _accent,
             contentPadding: EdgeInsets.zero,
             title: Text(
               "M'informer des nouvelles maisons",
@@ -5427,7 +5426,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
               const SizedBox(height: 10),
               SwitchListTile(
                 value: _newHouseAlertsEnabled,
-                activeColor: _accent,
+                activeThumbColor: _accent,
                 contentPadding: EdgeInsets.zero,
                 title: Text(
                   "M'informer des nouvelles maisons",
@@ -5814,7 +5813,7 @@ class _FilterSelect extends StatelessWidget {
     return SizedBox(
       width: width,
       child: DropdownButtonFormField<String>(
-        value: value,
+        initialValue: value,
         decoration: InputDecoration(
           labelText: label,
           labelStyle: TextStyle(color: sub, fontWeight: FontWeight.w600),
