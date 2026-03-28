@@ -19,15 +19,29 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+enum RealEstateViewMode { all, tenant, owner, commissioner }
+
+class _ImmoTabItem {
+  final String label;
+  final Widget child;
+
+  const _ImmoTabItem({
+    required this.label,
+    required this.child,
+  });
+}
+
 class RealEstateManagementPage extends StatefulWidget {
   const RealEstateManagementPage({
     super.key,
     this.initialTabIndex = 0,
     this.initialHouseId,
+    this.viewMode = RealEstateViewMode.all,
   });
 
   final int initialTabIndex;
   final String? initialHouseId;
+  final RealEstateViewMode viewMode;
 
   @override
   State<RealEstateManagementPage> createState() =>
@@ -4284,12 +4298,55 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     final text = isDark ? const Color(0xFFE9EDF0) : const Color(0xFF111827);
     final sub = isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
     final divider = isDark ? Colors.white12 : Colors.black12;
-    final initialIndex = widget.initialTabIndex < 0
-        ? 0
-        : (widget.initialTabIndex > 2 ? 2 : widget.initialTabIndex);
+    final tabs = <_ImmoTabItem>[
+      if (widget.viewMode == RealEstateViewMode.all ||
+          widget.viewMode == RealEstateViewMode.tenant)
+        _ImmoTabItem(
+          label: 'Locataire',
+          child: _buildTenantTab(
+            isDark: isDark,
+            card: card,
+            text: text,
+            sub: sub,
+            divider: divider,
+          ),
+        ),
+      if (widget.viewMode == RealEstateViewMode.all ||
+          widget.viewMode == RealEstateViewMode.owner)
+        _ImmoTabItem(
+          label: 'Proprietaire',
+          child: _buildOwnerTab(
+            isDark: isDark,
+            card: card,
+            text: text,
+            sub: sub,
+            divider: divider,
+          ),
+        ),
+      if (widget.viewMode == RealEstateViewMode.all ||
+          widget.viewMode == RealEstateViewMode.commissioner)
+        _ImmoTabItem(
+          label: 'Commissionnaire',
+          child: _buildCommissionerTab(
+            isDark: isDark,
+            card: card,
+            text: text,
+            sub: sub,
+            divider: divider,
+          ),
+        ),
+    ];
+    final showTabs = tabs.length > 1;
+    final initialIndex = showTabs
+        ? (widget.initialTabIndex < 0
+            ? 0
+            : (widget.initialTabIndex >= tabs.length
+                ? tabs.length - 1
+                : widget.initialTabIndex))
+        : 0;
 
     return DefaultTabController(
-      length: 3,
+      length: tabs.length,
       initialIndex: initialIndex,
       child: Scaffold(
         backgroundColor: bg,
@@ -4348,34 +4405,34 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
             ),
             const SizedBox(width: 8),
           ],
-          bottom: PreferredSize(
-            preferredSize: const Size.fromHeight(58),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-              child: Container(
-                height: 42,
-                decoration: BoxDecoration(
-                  color: card,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: divider),
-                ),
-                child: TabBar(
-                  labelColor: Colors.white,
-                  unselectedLabelColor: sub,
-                  labelStyle: const TextStyle(fontWeight: FontWeight.w800),
-                  indicator: BoxDecoration(
-                    color: _accent,
-                    borderRadius: BorderRadius.circular(12),
+          bottom: showTabs
+              ? PreferredSize(
+                  preferredSize: const Size.fromHeight(58),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                    child: Container(
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: card,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: divider),
+                      ),
+                      child: TabBar(
+                        labelColor: Colors.white,
+                        unselectedLabelColor: sub,
+                        labelStyle: const TextStyle(fontWeight: FontWeight.w800),
+                        indicator: BoxDecoration(
+                          color: _accent,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        tabs: tabs
+                            .map((tab) => Tab(text: tab.label))
+                            .toList(growable: false),
+                      ),
+                    ),
                   ),
-                  tabs: const [
-                    Tab(text: 'Locataire'),
-                    Tab(text: 'Proprietaire'),
-                    Tab(text: 'Commissionnaire'),
-                  ],
-                ),
-              ),
-            ),
-          ),
+                )
+              : null,
         ),
         body: Column(
           children: [
@@ -4385,31 +4442,13 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                 _generatingReport)
               const LinearProgressIndicator(minHeight: 2),
             Expanded(
-              child: TabBarView(
-                children: [
-                  _buildTenantTab(
-                    isDark: isDark,
-                    card: card,
-                    text: text,
-                    sub: sub,
-                    divider: divider,
-                  ),
-                  _buildOwnerTab(
-                    isDark: isDark,
-                    card: card,
-                    text: text,
-                    sub: sub,
-                    divider: divider,
-                  ),
-                  _buildCommissionerTab(
-                    isDark: isDark,
-                    card: card,
-                    text: text,
-                    sub: sub,
-                    divider: divider,
-                  ),
-                ],
-              ),
+              child: showTabs
+                  ? TabBarView(
+                      children: tabs
+                          .map((tab) => tab.child)
+                          .toList(growable: false),
+                    )
+                  : tabs.first.child,
             ),
           ],
         ),

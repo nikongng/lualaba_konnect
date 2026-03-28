@@ -761,7 +761,7 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
                           child: Column(
                             children: [
                               DropdownButtonFormField<String>(
-                                value: route,
+                                initialValue: route,
                                 decoration: _inputDecoration(label: 'Route', sub: sub, divider: divider, isDark: isDark),
                                 items: _routeConfigs
                                     .map((config) => DropdownMenuItem<String>(value: config.name, child: Text(config.name)))
@@ -777,7 +777,7 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
                               ),
                               const SizedBox(height: 12),
                               DropdownButtonFormField<String>(
-                                value: severity,
+                                initialValue: severity,
                                 decoration: _inputDecoration(label: 'Niveau de trafic', sub: sub, divider: divider, isDark: isDark),
                                 items: const [
                                   DropdownMenuItem(value: 'green', child: Text('Vert - circulation fluide')),
@@ -788,7 +788,7 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
                               ),
                               const SizedBox(height: 12),
                               DropdownButtonFormField<String>(
-                                value: cause,
+                                initialValue: cause,
                                 decoration: _inputDecoration(label: 'Cause probable', sub: sub, divider: divider, isDark: isDark),
                                 items: const [
                                   DropdownMenuItem(value: 'Bouchon dense', child: Text('Bouchon dense')),
@@ -813,7 +813,7 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
                                 onChanged: saving ? null : (value) => setModal(() => routeClosed = value),
                                 title: Text('Route momentanement bloquee', style: TextStyle(color: text, fontWeight: FontWeight.w800)),
                                 subtitle: Text('Activez si la circulation est presque impossible.', style: TextStyle(color: sub)),
-                                activeColor: _red,
+                                activeThumbColor: _red,
                                 contentPadding: EdgeInsets.zero,
                               ),
                               const SizedBox(height: 16),

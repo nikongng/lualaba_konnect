@@ -4,7 +4,7 @@ import 'home_services_page.dart';
 import 'food_services_page.dart';
 import 'freelance_pros_page.dart';
 import 'mobility_services_page.dart';
-import 'real_estate_management_page.dart';
+import 'real_estate_role_picker_page.dart';
 import 'training_services_page.dart';
 
 class RapidServicesPage extends StatefulWidget {
@@ -117,7 +117,7 @@ class _RapidServicesPageState extends State<RapidServicesPage> {
     if (key.contains('gestion immo')) {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const RealEstateManagementPage()),
+        MaterialPageRoute(builder: (_) => const RealEstateRolePickerPage()),
       );
       return;
     }

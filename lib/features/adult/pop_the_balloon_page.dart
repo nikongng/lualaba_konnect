@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:flutter/material.dart';
@@ -24,6 +25,9 @@ class PopTheBalloonPage extends StatefulWidget {
 class _PopTheBalloonPageState extends State<PopTheBalloonPage> with SingleTickerProviderStateMixin {
   static const int _maxVoiceSeconds = 20;
   static const String _adultChatCollection = 'adult_pop_chats';
+  static const String _adultMediaBucket = 'Poptheballon';
+  static const Duration _storageTimeout = Duration(seconds: 18);
+  static const Duration _firestoreTimeout = Duration(seconds: 12);
   final AudioPlayer _popPlayer = AudioPlayer();
   final AudioPlayer _voicePlayer = AudioPlayer();
   final FlutterSoundRecorder _voiceRecorder = FlutterSoundRecorder();
@@ -265,7 +269,11 @@ class _PopTheBalloonPageState extends State<PopTheBalloonPage> with SingleTicker
       final List<_Candidate> candidates = [];
       final Set<String> seen = {};
       for (final col in collections) {
-        final snap = await FirebaseFirestore.instance.collection(col).limit(40).get();
+        final snap = await FirebaseFirestore.instance
+            .collection(col)
+            .limit(40)
+            .get()
+            .timeout(_firestoreTimeout);
         for (final doc in snap.docs) {
           if (uid != null && doc.id == uid) continue;
           if (seen.contains(doc.id)) continue;
@@ -1138,6 +1146,91 @@ class _PopTheBalloonPageState extends State<PopTheBalloonPage> with SingleTicker
     unawaited(_voicePlayer.stop());
   }
 
+  bool _isStorageConfigError(Object error) {
+    final msg = error.toString().toLowerCase();
+    return msg.contains('bucket not found') ||
+        msg.contains('404') ||
+        msg.contains('403') ||
+        msg.contains('401') ||
+        msg.contains('permission') ||
+        msg.contains('policy') ||
+        msg.contains('supabase non initial') ||
+        msg.contains('supabase not initialized');
+  }
+
+  Future<T> _withFriendlyTimeout<T>(
+    Future<T> future, {
+    required Duration timeout,
+    required String step,
+  }) async {
+    try {
+      return await future.timeout(timeout);
+    } on TimeoutException {
+      throw Exception('$step a pris trop de temps. Verifiez la connexion puis reessayez.');
+    }
+  }
+
+  Future<String> _uploadToFirebaseStorage({
+    required Uint8List bytes,
+    required String objectPath,
+    required String contentType,
+  }) async {
+    final ref = FirebaseStorage.instance.ref().child(objectPath);
+    final snapshot = await _withFriendlyTimeout(
+      ref.putData(bytes, SettableMetadata(contentType: contentType)),
+      timeout: _storageTimeout,
+      step: 'Upload Firebase Storage',
+    );
+    return _withFriendlyTimeout(
+      snapshot.ref.getDownloadURL(),
+      timeout: _storageTimeout,
+      step: 'Recuperation URL Firebase Storage',
+    );
+  }
+
+  Future<String> _uploadAdultAsset({
+    required Uint8List bytes,
+    required String objectPath,
+    required String contentType,
+  }) async {
+    Object? supabaseError;
+    if (SupabaseService.isInitialized) {
+      try {
+        await _withFriendlyTimeout(
+          _ensureSupabaseAuthWithFallback(),
+          timeout: _storageTimeout,
+          step: 'Authentification Supabase',
+        );
+        return await _withFriendlyTimeout(
+          SupabaseService.uploadBytesNamed(
+            bytes,
+            objectPath,
+            _adultMediaBucket,
+            contentType: contentType,
+          ),
+          timeout: _storageTimeout,
+          step: 'Upload Supabase',
+        );
+      } catch (e) {
+        supabaseError = e;
+        debugPrint('PopTheBalloon: Supabase upload failed, fallback Firebase Storage. error=$e');
+      }
+    }
+
+    try {
+      return await _uploadToFirebaseStorage(
+        bytes: bytes,
+        objectPath: objectPath,
+        contentType: contentType,
+      );
+    } catch (firebaseError) {
+      if (supabaseError != null) {
+        throw Exception('Supabase: $supabaseError | Firebase Storage: $firebaseError');
+      }
+      throw Exception('Firebase Storage: $firebaseError');
+    }
+  }
+
   Future<String?> _uploadAdultPhoto(String uid) async {
     if (!_adultPhotoChanged || _adultPhotoBytes == null) return _adultPhotoUrl;
     if (!SupabaseService.isInitialized) {
@@ -1221,18 +1314,31 @@ class _PopTheBalloonPageState extends State<PopTheBalloonPage> with SingleTicker
         _profileError = 'Précisez vos préférences.';
         return;
       }
-      if (!SupabaseService.isInitialized) {
+      if (false && !SupabaseService.isInitialized) {
         _profileError = 'Supabase non initialisé. Vérifiez la configuration.';
         return;
       }
-      await _ensureSupabaseAuthWithFallback();
+      final ts = DateTime.now().millisecondsSinceEpoch;
 
-      final photoUrl = await _uploadAdultPhoto(user.uid);
+      final photoUrl = (_adultPhotoChanged && _adultPhotoBytes != null)
+          ? await _uploadAdultAsset(
+              bytes: _adultPhotoBytes!,
+              objectPath: 'adult_profiles/${user.uid}/photo_$ts.jpg',
+              contentType: 'image/jpeg',
+            )
+          : _adultPhotoUrl;
       if (photoUrl == null || photoUrl.trim().isEmpty) {
         _profileError = 'Ajoutez une photo pour l’espace adulte.';
         return;
       }
-      final voiceIntroUrl = await _uploadVoiceIntro(user.uid);
+      final voiceExt = _voiceIntroExt.trim().isEmpty ? 'm4a' : _voiceIntroExt.trim().toLowerCase();
+      final voiceIntroUrl = (_voiceIntroChanged && _voiceIntroBytes != null)
+          ? await _uploadAdultAsset(
+              bytes: _voiceIntroBytes!,
+              objectPath: 'adult_profiles/${user.uid}/voice_$ts.$voiceExt',
+              contentType: _audioContentType(voiceExt),
+            )
+          : _voiceIntroUrl;
       if (voiceIntroUrl == null || voiceIntroUrl.trim().isEmpty) {
         _profileError = 'Ajoutez une note vocale de presentation.';
         return;
@@ -1253,26 +1359,35 @@ class _PopTheBalloonPageState extends State<PopTheBalloonPage> with SingleTicker
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
-      await _userRef!.set({
-        'adultProfile': adultProfile,
-        'popDisplayName': displayName,
-        'adultProfileComplete': true,
-        'adultPhotoUrl': photoUrl,
-        'voiceIntroUrl': voiceIntroUrl,
-        'adultProfileUpdatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      await _withFriendlyTimeout(
+        _userRef!.set({
+          'adultProfile': adultProfile,
+          'popDisplayName': displayName,
+          'adultProfileComplete': true,
+          'adultPhotoUrl': photoUrl,
+          'voiceIntroUrl': voiceIntroUrl,
+          'adultProfileUpdatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true)),
+        timeout: _firestoreTimeout,
+        step: 'Sauvegarde du profil',
+      );
 
-      _adultPhotoUrl = photoUrl;
-      _voiceIntroUrl = voiceIntroUrl;
-      _voiceIntroChanged = false;
-      _adultPhotoChanged = false;
-      _profileGate = false;
-      _editingProfile = false;
-      _profileError = null;
+      if (mounted) {
+        setState(() {
+          _adultPhotoUrl = photoUrl;
+          _voiceIntroUrl = voiceIntroUrl;
+          _voiceIntroChanged = false;
+          _adultPhotoChanged = false;
+          _profileGate = false;
+          _editingProfile = false;
+          _profileError = null;
+          _savingProfile = false;
+          _loading = true;
+        });
+      }
       await _loadCandidates();
     } catch (e) {
-      final msg = e.toString().toLowerCase();
-      if (msg.contains('401') || msg.contains('403') || msg.contains('permission')) {
+      if (_isStorageConfigError(e)) {
         _profileError =
             'Upload refusé par la policy Storage. Autorisez le bucket Poptheballon pour role authenticated ou anon.';
       } else {

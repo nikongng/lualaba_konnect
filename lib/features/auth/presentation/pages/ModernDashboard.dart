@@ -17,9 +17,9 @@ import '../widgets/services/services_tiles/daily_tip_tile.dart';
 import '../../../chat/presentation/pages/chat_list_page.dart'; 
 import '../../../live/live_page.dart';
 import '../../../marketplace/marketplace_page.dart';
+import 'health_space_picker_page.dart';
 import 'news_feed_page.dart';
 import 'profile_page_widgets.dart';
-import 'health_profile_page.dart';
 import 'package:lualaba_konnect/features/adult/adult_space_page.dart';
 import 'package:lualaba_konnect/features/admin/presentation/pages/identity_validation_admin_page.dart';
 import 'profile_settings_page.dart';
@@ -1386,7 +1386,7 @@ Widget _buildProfilePage(bool isDark, Color textColor, {Key? key}) {
             const Color(0xFF00CBA9),
             isDark,
             onTap: () {
-              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const HealthProfilePage()));
+              Navigator.of(context).push(MaterialPageRoute(builder: (_) => const HealthSpacePickerPage()));
             },
           ),
           const SizedBox(height: 12),
