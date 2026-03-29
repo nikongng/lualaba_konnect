@@ -482,6 +482,8 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
       isFalseReport: _boolValue(data['isFalseReport']),
       routeClosed: _boolValue(data['routeClosed']),
       createdAt: _dateValue(data['createdAt'], data['createdAtMs']),
+      latitude: _numValue(data['latitude']) ?? _numValue(data['lat']),
+      longitude: _numValue(data['longitude']) ?? _numValue(data['lng']),
     );
   }
 
@@ -492,16 +494,26 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
       return now.difference(report.createdAt) <= const Duration(hours: 6);
     }).toList();
 
-    return _routeConfigs.map((config) {
+    final routeConfigs = <_TrafficRouteConfig>[
+      ..._routeConfigs,
+      ..._buildDynamicRouteConfigs(active),
+    ];
+
+    return routeConfigs.map((config) {
       final routeReports = active.where((report) => report.route == config.name).toList()
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-      var severity = 'green';
-      for (final report in routeReports) {
-        if (_severityWeight(report.severity) > _severityWeight(severity)) {
-          severity = report.severity;
-        }
-      }
+      final estimatedSeverity = _estimatedSeverityForRoute(config, now);
+      final liveSeverity = _strongestSeverity(routeReports);
+      final latestReport = routeReports.isEmpty ? null : routeReports.first;
+      final liveIsFresh = latestReport != null && now.difference(latestReport.createdAt) <= const Duration(minutes: 90);
+      final shouldTrustLive = routeReports.length >= 2 || liveIsFresh || routeReports.any((report) => report.routeClosed);
+      final usesEstimatedSeverity = routeReports.isEmpty || !shouldTrustLive;
+      final severity = routeReports.isEmpty
+          ? estimatedSeverity
+          : shouldTrustLive
+              ? liveSeverity
+              : _higherSeverity(estimatedSeverity, liveSeverity);
 
       return _TrafficRouteSummary(
         config: config,
@@ -510,9 +522,36 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
         highlightedZone: routeReports.isNotEmpty ? routeReports.first.zone : config.zone,
         hasPending: routeReports.any((report) => report.status == 'pending'),
         hasClosure: routeReports.any((report) => report.routeClosed),
+        usesEstimatedSeverity: usesEstimatedSeverity,
         reports: routeReports,
       );
     }).toList();
+  }
+
+  List<_TrafficRouteConfig> _buildDynamicRouteConfigs(List<_TrafficReport> activeReports) {
+    final knownNames = _routeConfigs.map((route) => route.name).toSet();
+    final dynamicNames = activeReports
+        .map((report) => report.route.trim())
+        .where((route) => route.isNotEmpty && !knownNames.contains(route))
+        .toSet();
+
+    return dynamicNames.map((routeName) {
+      final routeReports = activeReports.where((report) => report.route == routeName).toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final points = routeReports.map(_reportPoint).whereType<LatLng>().toList();
+      if (points.isEmpty) return null;
+      final center = _averagePoint(points);
+      final path = points.length < 2 ? const <LatLng>[] : points.take(4).toList();
+
+      return _TrafficRouteConfig(
+        name: routeName,
+        zone: routeReports.isEmpty ? 'Zone signalee' : routeReports.first.zone,
+        alternative: 'Contournez la zone via les axes voisins les moins charges pour le moment.',
+        icon: Icons.pin_drop_outlined,
+        center: center,
+        path: path,
+      );
+    }).whereType<_TrafficRouteConfig>().toList();
   }
 
   List<_TrafficRouteSummary> _congestedRoutes(List<_TrafficRouteSummary> summaries) {
@@ -527,6 +566,50 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
 
   List<_TrafficReport> _pendingReports(List<_TrafficReport> reports) {
     return reports.where((report) => !report.isFalseReport && report.status == 'pending').take(5).toList();
+  }
+
+  List<_TrafficHotspot> _buildHotspots(List<_TrafficReport> reports) {
+    final now = DateTime.now();
+    final active = reports.where((report) {
+      if (report.isFalseReport || report.status == 'false_report') return false;
+      return now.difference(report.createdAt) <= const Duration(hours: 3);
+    }).toList();
+
+    final grouped = <String, List<_TrafficReport>>{};
+    for (final report in active) {
+      final key = '${report.route}|${report.zone}';
+      grouped.putIfAbsent(key, () => <_TrafficReport>[]).add(report);
+    }
+
+    final hotspots = grouped.values.map((group) {
+      group.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      final latest = group.first;
+      final points = group.map(_reportPoint).whereType<LatLng>().toList();
+      return _TrafficHotspot(
+        route: latest.route,
+        zone: latest.zone,
+        cause: latest.cause,
+        severity: group.any((report) => report.severity == 'red')
+            ? 'red'
+            : group.any((report) => report.severity == 'orange')
+                ? 'orange'
+                : 'green',
+        reportCount: group.length,
+        latestAt: latest.createdAt,
+        hasClosure: group.any((report) => report.routeClosed),
+        position: points.isEmpty ? null : _averagePoint(points),
+      );
+    }).toList();
+
+    hotspots.sort((a, b) {
+      final severityCompare = _severityWeight(b.severity).compareTo(_severityWeight(a.severity));
+      if (severityCompare != 0) return severityCompare;
+      final countCompare = b.reportCount.compareTo(a.reportCount);
+      if (countCompare != 0) return countCompare;
+      return b.latestAt.compareTo(a.latestAt);
+    });
+
+    return hotspots.take(6).toList();
   }
 
   _TrafficStats _buildStats(List<_TrafficReport> reports, List<_TrafficRouteSummary> summaries) {
@@ -587,10 +670,73 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
     return value == true || value == 1 || value == '1' || value == 'true' || value == 'True';
   }
 
+  double? _numValue(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse((value ?? '').toString());
+  }
+
+  LatLng? _reportPoint(_TrafficReport report) {
+    final lat = report.latitude;
+    final lng = report.longitude;
+    if (lat == null || lng == null) return null;
+    return LatLng(lat, lng);
+  }
+
+  LatLng _averagePoint(List<LatLng> points) {
+    var lat = 0.0;
+    var lng = 0.0;
+    for (final point in points) {
+      lat += point.latitude;
+      lng += point.longitude;
+    }
+    return LatLng(lat / points.length, lng / points.length);
+  }
+
   String _normalizeSeverity(dynamic value) {
     final raw = _stringValue(value, 'orange').toLowerCase();
     if (raw == 'green' || raw == 'orange' || raw == 'red') return raw;
     return 'orange';
+  }
+
+  String _strongestSeverity(List<_TrafficReport> reports) {
+    var severity = 'green';
+    for (final report in reports) {
+      if (_severityWeight(report.severity) > _severityWeight(severity)) {
+        severity = report.severity;
+      }
+    }
+    return severity;
+  }
+
+  String _higherSeverity(String left, String right) {
+    return _severityWeight(left) >= _severityWeight(right) ? left : right;
+  }
+
+  String _estimatedSeverityForRoute(_TrafficRouteConfig config, DateTime now) {
+    final isWeekday = now.weekday >= DateTime.monday && now.weekday <= DateTime.friday;
+    final hour = now.hour;
+
+    switch (config.name) {
+      case 'Axe Musompo':
+        if (isWeekday && ((hour >= 6 && hour < 9) || (hour >= 16 && hour < 19))) return 'red';
+        if ((isWeekday && hour >= 9 && hour < 16) || (!isWeekday && hour >= 9 && hour < 13)) return 'orange';
+        return 'green';
+      case 'Boulevard Lumumba':
+        if (isWeekday && hour >= 16 && hour < 19) return 'red';
+        if ((hour >= 7 && hour < 9) || (hour >= 12 && hour < 14) || (isWeekday && hour >= 15 && hour < 16)) {
+          return 'orange';
+        }
+        return 'green';
+      case 'Route Dilala':
+        if (isWeekday && ((hour >= 7 && hour < 9) || (hour >= 17 && hour < 19))) return 'orange';
+        return 'green';
+      case 'Avenue Industrielle':
+        if (isWeekday && hour >= 15 && hour < 18) return 'red';
+        if ((isWeekday && hour >= 6 && hour < 9) || (hour >= 11 && hour < 14)) return 'orange';
+        return 'green';
+      default:
+        return 'green';
+    }
   }
 
   int _severityWeight(String severity) {
@@ -639,14 +785,24 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
 
   String _formatDate(DateTime value) => DateFormat('dd/MM - HH:mm').format(value);
 
+  String _formatRelativeTrafficTime(DateTime value) {
+    final diff = DateTime.now().difference(value);
+    if (diff.inMinutes < 1) return 'a l instant';
+    if (diff.inMinutes < 60) return 'il y a ${diff.inMinutes} min';
+    if (diff.inHours < 24) return 'il y a ${diff.inHours} h';
+    return _formatDate(value);
+  }
+
   Future<void> _openReportSheet() async {
     final formKey = GlobalKey<FormState>();
     final zoneCtrl = TextEditingController();
     final noteCtrl = TextEditingController();
+    final customRouteCtrl = TextEditingController();
     String route = _routeConfigs.first.name;
     String severity = 'orange';
     String cause = 'Bouchon dense';
     bool routeClosed = false;
+    bool attachCurrentLocation = _currentPosition != null;
     bool saving = false;
 
     await showModalBottomSheet<void>(
@@ -663,11 +819,13 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
         Future<void> submit(StateSetter setModal) async {
           if (saving) return;
           if (!(formKey.currentState?.validate() ?? false)) return;
+          final selectedRoute = route == '__custom__' ? customRouteCtrl.text.trim() : route;
+          if (selectedRoute.isEmpty) return;
           setModal(() => saving = true);
           try {
             final user = FirebaseAuth.instance.currentUser;
             await FirebaseFirestore.instance.collection('traffic_reports').add({
-              'route': route,
+              'route': selectedRoute,
               'zone': zoneCtrl.text.trim(),
               'severity': severity,
               'cause': cause,
@@ -679,10 +837,12 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
               'createdAtMs': DateTime.now().millisecondsSinceEpoch,
               'createdByUid': user?.uid,
               'reporterName': user?.displayName ?? user?.email ?? 'Utilisateur',
+              if (attachCurrentLocation && _currentPosition != null) 'latitude': _currentPosition!.latitude,
+              if (attachCurrentLocation && _currentPosition != null) 'longitude': _currentPosition!.longitude,
             });
             if (severity == 'orange' || severity == 'red') {
               await _dispatchTrafficPush(
-                route: route,
+                route: selectedRoute,
                 zone: zoneCtrl.text.trim(),
                 severity: severity,
                 cause: cause,
@@ -763,11 +923,24 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
                               DropdownButtonFormField<String>(
                                 initialValue: route,
                                 decoration: _inputDecoration(label: 'Route', sub: sub, divider: divider, isDark: isDark),
-                                items: _routeConfigs
-                                    .map((config) => DropdownMenuItem<String>(value: config.name, child: Text(config.name)))
-                                    .toList(),
+                                items: [
+                                  ..._routeConfigs.map((config) => DropdownMenuItem<String>(value: config.name, child: Text(config.name))),
+                                  const DropdownMenuItem<String>(value: '__custom__', child: Text('Autre route / avenue')),
+                                ],
                                 onChanged: saving ? null : (value) => setModal(() => route = value ?? route),
                               ),
+                              if (route == '__custom__') ...[
+                                const SizedBox(height: 12),
+                                TextFormField(
+                                  controller: customRouteCtrl,
+                                  style: TextStyle(color: text, fontWeight: FontWeight.w700),
+                                  decoration: _inputDecoration(label: 'Nom de la route / avenue', sub: sub, divider: divider, isDark: isDark),
+                                  validator: (_) {
+                                    if (route != '__custom__') return null;
+                                    return customRouteCtrl.text.trim().isEmpty ? 'Precisez la route' : null;
+                                  },
+                                ),
+                              ],
                               const SizedBox(height: 12),
                               TextFormField(
                                 controller: zoneCtrl,
@@ -806,6 +979,59 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
                                 maxLines: 4,
                                 style: TextStyle(color: text, fontWeight: FontWeight.w700),
                                 decoration: _inputDecoration(label: 'Detail ou contexte', sub: sub, divider: divider, isDark: isDark),
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(color: divider),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            'Position du signalement',
+                                            style: TextStyle(color: text, fontWeight: FontWeight.w800),
+                                          ),
+                                        ),
+                                        TextButton.icon(
+                                          onPressed: saving
+                                              ? null
+                                              : () async {
+                                                  await _refreshLocation();
+                                                  if (!mounted) return;
+                                                  setModal(() => attachCurrentLocation = _currentPosition != null);
+                                                },
+                                          icon: const Icon(Icons.my_location_rounded, size: 18),
+                                          label: const Text('Actualiser'),
+                                        ),
+                                      ],
+                                    ),
+                                    Text(
+                                      _currentPosition == null
+                                          ? 'Position non disponible. Le signalement reste possible sans GPS.'
+                                          : 'Lat ${_currentPosition!.latitude.toStringAsFixed(5)}, Lng ${_currentPosition!.longitude.toStringAsFixed(5)}',
+                                      style: TextStyle(color: sub, fontWeight: FontWeight.w600),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    SwitchListTile(
+                                      value: attachCurrentLocation && _currentPosition != null,
+                                      onChanged: (_currentPosition == null || saving)
+                                          ? null
+                                          : (value) => setModal(() => attachCurrentLocation = value),
+                                      title: Text('Joindre cette position au signalement', style: TextStyle(color: text, fontWeight: FontWeight.w800)),
+                                      subtitle: Text('Permet d afficher un vrai point chaud sur la carte.', style: TextStyle(color: sub)),
+                                      contentPadding: EdgeInsets.zero,
+                                      activeThumbColor: const Color(0xFF2563EB),
+                                    ),
+                                  ],
+                                ),
                               ),
                               const SizedBox(height: 8),
                               SwitchListTile(
@@ -860,6 +1086,7 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
 
     zoneCtrl.dispose();
     noteCtrl.dispose();
+    customRouteCtrl.dispose();
   }
 
   Future<void> _moderateReport(_TrafficReport report, {required bool markFalse}) async {
@@ -909,8 +1136,10 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
         final summaries = _buildSummaries(reports);
         final congestedRoutes = _congestedRoutes(summaries);
         final pendingReports = _pendingReports(reports);
+        final hotspots = _buildHotspots(reports);
         final stats = _buildStats(reports, summaries);
         final highlightedRoute = congestedRoutes.isNotEmpty ? congestedRoutes.first : null;
+        final latestHotspot = hotspots.isEmpty ? null : hotspots.first;
 
         return Scaffold(
           backgroundColor: bg,
@@ -941,9 +1170,26 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 110),
                   children: [
-                    _buildHeroCard(card: card, cardAlt: cardAlt, text: text, sub: sub, stats: stats, pendingCount: pendingReports.length),
+                    _buildHeroCard(
+                      card: card,
+                      cardAlt: cardAlt,
+                      text: text,
+                      sub: sub,
+                      stats: stats,
+                      pendingCount: pendingReports.length,
+                      latestHotspot: latestHotspot,
+                    ),
                     const SizedBox(height: 16),
-                    _buildLiveMapCard(card: card, text: text, sub: sub, summaries: summaries),
+                    _buildLiveMapCard(card: card, text: text, sub: sub, summaries: summaries, hotspots: hotspots),
+                    const SizedBox(height: 16),
+                    _buildSectionTitle(
+                      title: 'Points chauds en direct',
+                      subtitle: 'Les zones les plus signalees dans les dernieres heures, avec recentrage rapide sur la carte.',
+                      text: text,
+                      sub: sub,
+                    ),
+                    const SizedBox(height: 10),
+                    _buildHotspotsCard(card: card, text: text, sub: sub, divider: divider, hotspots: hotspots),
                     const SizedBox(height: 16),
                     _buildSectionTitle(title: 'Routes et niveaux de trafic', subtitle: 'Vert, orange et rouge pour suivre les zones bloquees.', text: text, sub: sub),
                     const SizedBox(height: 10),
@@ -989,6 +1235,7 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
     required Color sub,
     required _TrafficStats stats,
     required int pendingCount,
+    required _TrafficHotspot? latestHotspot,
   }) {
     return Container(
       padding: const EdgeInsets.all(18),
@@ -1011,7 +1258,9 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
                     Text('Centre de gestion trafic', style: TextStyle(color: text, fontSize: 18, fontWeight: FontWeight.w900)),
                     const SizedBox(height: 6),
                     Text(
-                      'Carte en direct, signalements utilisateurs, moderation et statistiques.',
+                      latestHotspot == null
+                          ? 'Carte en direct avec mode hybride pour estimer le trafic meme quand il y a encore peu de signalements.'
+                          : 'Point chaud actuel: ${latestHotspot.route} vers ${latestHotspot.zone}, ${_formatRelativeTrafficTime(latestHotspot.latestAt)}.',
                       style: TextStyle(color: sub, height: 1.4, fontWeight: FontWeight.w600),
                     ),
                   ],
@@ -1096,6 +1345,7 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
     required Color text,
     required Color sub,
     required List<_TrafficRouteSummary> summaries,
+    required List<_TrafficHotspot> hotspots,
   }) {
     final center = _currentPosition == null ? _defaultCenter : LatLng(_currentPosition!.latitude, _currentPosition!.longitude);
 
@@ -1118,7 +1368,10 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
                 TextButton.icon(onPressed: _refreshLocation, icon: const Icon(Icons.my_location_rounded, size: 18), label: const Text('Me localiser')),
             ],
           ),
-          Text('Carte OpenStreetMap dynamique avec position actuelle, marqueurs d alertes et routes colorees.', style: TextStyle(color: sub, fontWeight: FontWeight.w600)),
+          Text(
+            'Routes en rouge si congestionnees, vert si fluides et orange si trafic dense. Avec peu d utilisateurs, une estimation automatique garde la carte utile.',
+            style: TextStyle(color: sub, fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 14),
           ClipRRect(
             borderRadius: BorderRadius.circular(22),
@@ -1137,7 +1390,7 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
                     userAgentPackageName: 'com.lualaba.konnect.app',
                   ),
                   PolylineLayer(polylines: _buildTrafficPolylines(summaries)),
-                  MarkerLayer(markers: _buildTrafficMarkers(summaries)),
+                  MarkerLayer(markers: _buildTrafficMarkers(summaries, hotspots)),
                 ],
               ),
             ),
@@ -1180,6 +1433,12 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
                 description: 'Congestion forte, route a eviter',
                 textColor: text,
               ),
+              _LegendRow(
+                color: const Color(0xFF64748B),
+                label: 'Estimation',
+                description: 'Mode hybride si peu de signalements',
+                textColor: text,
+              ),
             ],
           ),
         ],
@@ -1189,6 +1448,7 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
 
   List<Polyline> _buildTrafficPolylines(List<_TrafficRouteSummary> summaries) {
     return summaries
+        .where((summary) => summary.config.path.length >= 2)
         .map(
           (summary) => Polyline(
             points: summary.config.path,
@@ -1201,7 +1461,7 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
         .toList();
   }
 
-  List<Marker> _buildTrafficMarkers(List<_TrafficRouteSummary> summaries) {
+  List<Marker> _buildTrafficMarkers(List<_TrafficRouteSummary> summaries, List<_TrafficHotspot> hotspots) {
     final markers = <Marker>[
       for (final summary in summaries)
         Marker(
@@ -1249,6 +1509,30 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
             ),
           ),
         ),
+      for (final hotspot in hotspots.where((item) => item.position != null))
+        Marker(
+          point: hotspot.position!,
+          width: 74,
+          height: 74,
+          child: Center(
+            child: Container(
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(
+                color: _severityColor(hotspot.severity),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white, width: 3),
+                boxShadow: [
+                  BoxShadow(
+                    color: _severityColor(hotspot.severity).withOpacity(0.35),
+                    blurRadius: 14,
+                    spreadRadius: 5,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
     ];
 
     if (_currentPosition != null) {
@@ -1270,6 +1554,86 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
     }
 
     return markers;
+  }
+
+  Widget _buildHotspotsCard({
+    required Color card,
+    required Color text,
+    required Color sub,
+    required Color divider,
+    required List<_TrafficHotspot> hotspots,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: card, borderRadius: BorderRadius.circular(24), border: Border.all(color: divider)),
+      child: hotspots.isEmpty
+          ? Text(
+              'Aucun point chaud recent pour le moment. Les nouveaux signalements avec localisation apparaitront ici automatiquement.',
+              style: TextStyle(color: sub, fontWeight: FontWeight.w600),
+            )
+          : Column(
+              children: hotspots
+                  .map(
+                    (hotspot) => Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: _severityColor(hotspot.severity).withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: _severityColor(hotspot.severity).withOpacity(0.14),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Icon(Icons.traffic_rounded, color: _severityColor(hotspot.severity)),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('${hotspot.route} • ${hotspot.zone}', style: TextStyle(color: text, fontWeight: FontWeight.w900)),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${hotspot.cause} • ${hotspot.reportCount} signalement(s) • ${_formatRelativeTrafficTime(hotspot.latestAt)}',
+                                  style: TextStyle(color: sub, fontWeight: FontWeight.w600),
+                                ),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    _TrafficBadge(
+                                      label: _severityLabel(hotspot.severity),
+                                      color: _severityColor(hotspot.severity),
+                                      background: _severityColor(hotspot.severity).withOpacity(0.12),
+                                    ),
+                                    if (hotspot.hasClosure)
+                                      _TrafficBadge(label: 'Blocage fort', color: _red, background: const Color(0xFFFDE8E8)),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (hotspot.position != null)
+                            TextButton.icon(
+                              onPressed: () => _mapController.move(hotspot.position!, 15),
+                              icon: const Icon(Icons.my_location_rounded, size: 18),
+                              label: const Text('Voir'),
+                            ),
+                        ],
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+    );
   }
 
   Widget _buildMapRoad({
@@ -1366,6 +1730,7 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
     required Color divider,
   }) {
     final color = _severityColor(summary.severity);
+    final latestReport = summary.reports.isEmpty ? null : summary.reports.first;
     final progress = summary.severity == 'red'
         ? 1.0
         : summary.severity == 'orange'
@@ -1415,6 +1780,8 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
             runSpacing: 8,
             children: [
               _TrafficBadge(label: '${summary.reportCount} signalement(s)', color: text, background: const Color(0xFFEEF2FF)),
+              if (summary.usesEstimatedSeverity)
+                _TrafficBadge(label: 'Estimation auto', color: const Color(0xFF475569), background: const Color(0xFFE2E8F0)),
               if (summary.hasPending)
                 _TrafficBadge(label: 'A confirmer', color: const Color(0xFF9A6700), background: const Color(0xFFFFF4D6)),
               if (summary.hasClosure)
@@ -1422,6 +1789,13 @@ class _TrafficManagementPageState extends State<TrafficManagementPage> {
             ],
           ),
           const SizedBox(height: 10),
+          if (latestReport != null) ...[
+            Text(
+              'Dernier signalement: ${latestReport.cause} • ${_formatRelativeTrafficTime(latestReport.createdAt)}',
+              style: TextStyle(color: sub, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+          ],
           Text('Itineraire alternatif: ${summary.config.alternative}', style: TextStyle(color: sub, fontWeight: FontWeight.w700)),
         ],
       ),
@@ -1921,6 +2295,8 @@ class _TrafficReport {
   final bool isFalseReport;
   final bool routeClosed;
   final DateTime createdAt;
+  final double? latitude;
+  final double? longitude;
 
   const _TrafficReport({
     required this.id,
@@ -1934,6 +2310,8 @@ class _TrafficReport {
     required this.isFalseReport,
     required this.routeClosed,
     required this.createdAt,
+    required this.latitude,
+    required this.longitude,
   });
 }
 
@@ -1944,6 +2322,7 @@ class _TrafficRouteSummary {
   final String highlightedZone;
   final bool hasPending;
   final bool hasClosure;
+  final bool usesEstimatedSeverity;
   final List<_TrafficReport> reports;
 
   const _TrafficRouteSummary({
@@ -1953,6 +2332,7 @@ class _TrafficRouteSummary {
     required this.highlightedZone,
     required this.hasPending,
     required this.hasClosure,
+    required this.usesEstimatedSeverity,
     required this.reports,
   });
 }
@@ -1970,6 +2350,28 @@ class _TrafficStats {
     required this.peakHours,
     required this.busiestRoute,
     required this.dangerousZone,
+  });
+}
+
+class _TrafficHotspot {
+  final String route;
+  final String zone;
+  final String cause;
+  final String severity;
+  final int reportCount;
+  final DateTime latestAt;
+  final bool hasClosure;
+  final LatLng? position;
+
+  const _TrafficHotspot({
+    required this.route,
+    required this.zone,
+    required this.cause,
+    required this.severity,
+    required this.reportCount,
+    required this.latestAt,
+    required this.hasClosure,
+    required this.position,
   });
 }
 

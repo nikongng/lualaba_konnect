@@ -1,6 +1,8 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -34,11 +36,13 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     return '$url?v=$v';
   }
 
-  Future<String> _uploadCover(Uint8List bytes) async {
-    // Bucket choice: reuse `market` to avoid creating new buckets.
+  Future<String> _uploadFoodImage(
+    Uint8List bytes, {
+    required String folder,
+  }) async {
     final client = Supabase.instance.client;
     final now = DateTime.now().millisecondsSinceEpoch;
-    final path = 'food_places/$now.jpg';
+    final path = '$folder/$now.jpg';
     await client.storage.from('market').uploadBinary(
           path,
           bytes,
@@ -51,6 +55,104 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     return _appendUrlVersion(publicUrl, now);
   }
 
+  Future<String> _uploadCover(Uint8List bytes) async {
+    return _uploadFoodImage(bytes, folder: 'food_places');
+  }
+
+  String _formatCatalogPrice(dynamic raw) {
+    final price = _asDouble(raw, def: 0);
+    if (price <= 0) return 'Prix non renseigne';
+    if (price == price.roundToDouble()) return '${price.toInt()} FC';
+    return '${price.toStringAsFixed(2)} FC';
+  }
+
+  List<_FoodCatalogItem> _catalogFromRaw(dynamic raw) {
+    if (raw is! List) return const <_FoodCatalogItem>[];
+    final out = <_FoodCatalogItem>[];
+    for (final item in raw) {
+      if (item is! Map) continue;
+      final map = item.map((key, value) => MapEntry(key.toString(), value));
+      final name = (map['name'] ?? map['product'] ?? map['label'] ?? '').toString().trim();
+      if (name.isEmpty) continue;
+      final price = _asDouble(map['price'], def: 0);
+      out.add(
+        _FoodCatalogItem(
+          name: name,
+          imageUrl: (map['imageUrl'] ?? map['image'] ?? map['photoUrl'] ?? '').toString().trim(),
+          price: price,
+          priceLabel: (map['priceLabel'] ?? '').toString().trim().isNotEmpty
+              ? (map['priceLabel'] ?? '').toString().trim()
+              : _formatCatalogPrice(price),
+        ),
+      );
+    }
+    return out;
+  }
+
+  String _formatLocationLabelFromPlacemark(Placemark place, Position position) {
+    final parts = <String?>[
+      place.street,
+      place.subLocality,
+      place.locality,
+      place.administrativeArea,
+    ].map((value) => (value ?? '').trim()).where((value) => value.isNotEmpty).toList();
+
+    if (parts.isNotEmpty) return parts.join(', ');
+    return '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
+  }
+
+  Future<_FoodLocationResult?> _resolveCurrentLocation() async {
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Activez la localisation pour continuer.')),
+          );
+        }
+        return null;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Autorisation de localisation refusee.')),
+          );
+        }
+        return null;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+      );
+
+      var label = '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
+      try {
+        final places = await placemarkFromCoordinates(position.latitude, position.longitude);
+        if (places.isNotEmpty) {
+          label = _formatLocationLabelFromPlacemark(places.first, position);
+        }
+      } catch (_) {}
+
+      return _FoodLocationResult(
+        label: label,
+        lat: position.latitude,
+        lng: position.longitude,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Impossible de recuperer la localisation: $e')),
+        );
+      }
+      return null;
+    }
+  }
+
   Future<void> _openAddPlaceSheet({String initialType = 'fast_food'}) async {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? const Color(0xFF111B21) : Colors.white;
@@ -59,7 +161,7 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     final divider = isDark ? Colors.white12 : Colors.black12;
 
     final nameCtrl = TextEditingController();
-    final cityCtrl = TextEditingController(text: 'Kolwezi, Centre');
+    final cityCtrl = TextEditingController();
     final etaCtrl = TextEditingController(text: '30-45 min');
     final phoneCtrl = TextEditingController();
     final emailCtrl = TextEditingController();
@@ -67,10 +169,14 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     final tagsCtrl = TextEditingController();
     final picker = ImagePicker();
     Uint8List? coverBytes;
+    final catalogDrafts = <Map<String, dynamic>>[];
 
     String typeKey = initialType; // restaurants | fast_food | delivery
     bool isOpen = true;
     bool saving = false;
+    bool locating = false;
+    double? selectedLat;
+    double? selectedLng;
     final formKey = GlobalKey<FormState>();
 
     Future<void> submit(StateSetter setModal) async {
@@ -79,6 +185,12 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
       if (coverBytes == null || coverBytes!.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Ajoute une photo de couverture.')),
+        );
+        return;
+      }
+      if (catalogDrafts.isEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Ajoute au moins un produit au catalogue.')),
         );
         return;
       }
@@ -95,18 +207,40 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                 .map((e) => e.trim())
                 .where((e) => e.isNotEmpty)
                 .toList();
+        final catalog = <Map<String, dynamic>>[];
+        for (final item in catalogDrafts) {
+          String imageUrl = (item['imageUrl'] ?? '').toString().trim();
+          final bytes = item['imageBytes'];
+          if (bytes is Uint8List && bytes.isNotEmpty) {
+            imageUrl = await _uploadFoodImage(bytes, folder: 'food_catalog');
+          }
+          final price = _asDouble(item['price'], def: 0);
+          catalog.add(
+            <String, dynamic>{
+              'name': (item['name'] ?? '').toString().trim(),
+              'price': price,
+              'priceLabel': _formatCatalogPrice(price),
+              'imageUrl': imageUrl,
+            },
+          );
+        }
 
         await FirebaseFirestore.instance.collection('food_places').add({
           'name': nameCtrl.text.trim(),
           'type': typeKey,
           'coverUrl': coverUrl,
           'cityLabel': cityCtrl.text.trim(),
+          'location': cityCtrl.text.trim(),
           'etaLabel': etaCtrl.text.trim(),
           'phone': phoneCtrl.text.trim(),
           'email': emailCtrl.text.trim(),
           'rating': _asDouble(ratingCtrl.text.trim(), def: 0),
           'tags': tags,
           'isOpen': isOpen,
+          'catalog': catalog,
+          'products': catalog,
+          if (selectedLat != null) 'lat': selectedLat,
+          if (selectedLng != null) 'lng': selectedLng,
           // Creator info (who added this place from the app).
           'createdByUid': me?.uid,
           'createdByEmail': me?.email,
@@ -209,11 +343,12 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                               children: [
                                 Expanded(
                                   child: _Field(
-                                    label: 'Ville',
+                                    label: 'Localisation',
                                     controller: cityCtrl,
                                     textColor: text,
                                     subColor: sub,
                                     divider: divider,
+                                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Localisation requise' : null,
                                   ),
                                 ),
                                 const SizedBox(width: 10),
@@ -227,6 +362,36 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                                   ),
                                 ),
                               ],
+                            ),
+                            const SizedBox(height: 10),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton.icon(
+                                onPressed: saving || locating
+                                    ? null
+                                    : () async {
+                                        setModal(() => locating = true);
+                                        final result = await _resolveCurrentLocation();
+                                        if (!context.mounted) return;
+                                        if (result != null) {
+                                          cityCtrl.text = result.label;
+                                          selectedLat = result.lat;
+                                          selectedLng = result.lng;
+                                        }
+                                        setModal(() => locating = false);
+                                      },
+                                icon: locating
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      )
+                                    : const Icon(Icons.my_location_outlined),
+                                label: Text(
+                                  locating ? 'Localisation...' : 'Utiliser ma position',
+                                  style: const TextStyle(fontWeight: FontWeight.w800),
+                                ),
+                              ),
                             ),
                             const SizedBox(height: 10),
                             Row(
@@ -359,6 +524,130 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                               subColor: sub,
                               divider: divider,
                             ),
+                            const SizedBox(height: 12),
+                            Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: isDark ? Colors.white10 : const Color(0xFFF3F4F6),
+                                borderRadius: BorderRadius.circular(18),
+                                border: Border.all(color: divider),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Catalogue',
+                                              style: TextStyle(color: text, fontWeight: FontWeight.w900),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              'Ajoutez image, produit et prix.',
+                                              style: TextStyle(color: sub, fontWeight: FontWeight.w600),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      ElevatedButton.icon(
+                                        onPressed: saving
+                                            ? null
+                                            : () async {
+                                                final created = await _openAddCatalogItemDialog();
+                                                if (created == null) return;
+                                                setModal(() => catalogDrafts.add(created));
+                                              },
+                                        icon: const Icon(Icons.add),
+                                        label: const Text('Produit'),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: _orange,
+                                          foregroundColor: Colors.white,
+                                          elevation: 0,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 12),
+                                  if (catalogDrafts.isEmpty)
+                                    Text(
+                                      'Aucun produit ajoute pour le moment.',
+                                      style: TextStyle(color: sub, fontWeight: FontWeight.w700),
+                                    )
+                                  else
+                                    ...List.generate(catalogDrafts.length, (index) {
+                                      final item = catalogDrafts[index];
+                                      final imageBytes = item['imageBytes'] as Uint8List?;
+                                      final imageUrl = (item['imageUrl'] ?? '').toString().trim();
+                                      return Container(
+                                        margin: const EdgeInsets.only(bottom: 10),
+                                        padding: const EdgeInsets.all(10),
+                                        decoration: BoxDecoration(
+                                          color: isDark ? Colors.black.withOpacity(0.12) : Colors.white,
+                                          borderRadius: BorderRadius.circular(16),
+                                          border: Border.all(color: divider),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            ClipRRect(
+                                              borderRadius: BorderRadius.circular(12),
+                                              child: imageBytes != null
+                                                  ? Image.memory(imageBytes, width: 56, height: 56, fit: BoxFit.cover)
+                                                  : imageUrl.isNotEmpty
+                                                      ? CachedNetworkImage(imageUrl: imageUrl, width: 56, height: 56, fit: BoxFit.cover)
+                                                      : Container(
+                                                          width: 56,
+                                                          height: 56,
+                                                          color: isDark ? Colors.white10 : Colors.black12,
+                                                          child: Icon(Icons.fastfood_outlined, color: sub),
+                                                        ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    (item['name'] ?? '').toString(),
+                                                    style: TextStyle(color: text, fontWeight: FontWeight.w900),
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    _formatCatalogPrice(item['price']),
+                                                    style: const TextStyle(color: _orange, fontWeight: FontWeight.w900),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            IconButton(
+                                              tooltip: 'Modifier',
+                                              onPressed: saving
+                                                  ? null
+                                                  : () async {
+                                                      final updated = await _openAddCatalogItemDialog(existing: item);
+                                                      if (updated == null) return;
+                                                      setModal(() => catalogDrafts[index] = updated);
+                                                    },
+                                              icon: Icon(Icons.edit_outlined, color: sub),
+                                            ),
+                                            IconButton(
+                                              tooltip: 'Supprimer',
+                                              onPressed: saving
+                                                  ? null
+                                                  : () => setModal(() => catalogDrafts.removeAt(index)),
+                                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    }),
+                                ],
+                              ),
+                            ),
                             const SizedBox(height: 10),
                             SwitchListTile.adaptive(
                               value: isOpen,
@@ -406,6 +695,329 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     emailCtrl.dispose();
     ratingCtrl.dispose();
     tagsCtrl.dispose();
+  }
+
+  Future<Map<String, dynamic>?> _openAddCatalogItemDialog({
+    Map<String, dynamic>? existing,
+  }) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? const Color(0xFF111B21) : Colors.white;
+    final text = isDark ? const Color(0xFFE9EDF0) : const Color(0xFF111827);
+    final sub = isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
+    final divider = isDark ? Colors.white12 : Colors.black12;
+
+    final nameCtrl = TextEditingController(text: (existing?['name'] ?? '').toString());
+    final priceCtrl = TextEditingController(
+      text: _asDouble(existing?['price'], def: 0) > 0 ? '${_asDouble(existing?['price'], def: 0)}' : '',
+    );
+    final picker = ImagePicker();
+    Uint8List? imageBytes = existing?['imageBytes'] as Uint8List?;
+    String imageUrl = (existing?['imageUrl'] ?? existing?['image'] ?? '').toString().trim();
+    final formKey = GlobalKey<FormState>();
+
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return SafeArea(
+          top: false,
+          child: StatefulBuilder(
+            builder: (context, setModal) {
+              return Padding(
+                padding: EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 12,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                ),
+                child: Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: bg,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: divider),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(isDark ? 0.55 : 0.12),
+                        blurRadius: 26,
+                        offset: const Offset(0, 14),
+                      ),
+                    ],
+                  ),
+                  child: Form(
+                    key: formKey,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          existing == null ? 'Ajouter un produit' : 'Modifier le produit',
+                          style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 17),
+                        ),
+                        const SizedBox(height: 12),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isDark ? Colors.white10 : const Color(0xFFF3F4F6),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: divider),
+                          ),
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 64,
+                                height: 64,
+                                decoration: BoxDecoration(
+                                  color: isDark ? Colors.white10 : Colors.black12,
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: divider),
+                                ),
+                                child: imageBytes != null
+                                    ? ClipRRect(
+                                        borderRadius: BorderRadius.circular(16),
+                                        child: Image.memory(imageBytes!, fit: BoxFit.cover),
+                                      )
+                                    : imageUrl.isNotEmpty
+                                        ? ClipRRect(
+                                            borderRadius: BorderRadius.circular(16),
+                                            child: CachedNetworkImage(imageUrl: imageUrl, fit: BoxFit.cover),
+                                          )
+                                        : Icon(Icons.fastfood_outlined, color: sub),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('Image du produit', style: TextStyle(color: text, fontWeight: FontWeight.w900)),
+                                    const SizedBox(height: 2),
+                                    Text('Ajoutez une photo claire du produit.', style: TextStyle(color: sub, fontWeight: FontWeight.w600)),
+                                  ],
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: 'Galerie',
+                                onPressed: () async {
+                                  final x = await picker.pickImage(source: ImageSource.gallery, imageQuality: 75);
+                                  if (x == null) return;
+                                  final b = await x.readAsBytes();
+                                  setModal(() {
+                                    imageBytes = b;
+                                    imageUrl = '';
+                                  });
+                                },
+                                icon: Icon(Icons.photo_library_outlined, color: sub),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        _Field(
+                          label: 'Produit',
+                          controller: nameCtrl,
+                          textColor: text,
+                          subColor: sub,
+                          divider: divider,
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Produit requis' : null,
+                        ),
+                        const SizedBox(height: 10),
+                        _Field(
+                          label: 'Prix',
+                          controller: priceCtrl,
+                          textColor: text,
+                          subColor: sub,
+                          divider: divider,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          validator: (v) {
+                            final value = (v ?? '').trim();
+                            if (value.isEmpty) return 'Prix requis';
+                            return _asDouble(value, def: -1) < 0 ? 'Prix invalide' : null;
+                          },
+                        ),
+                        const SizedBox(height: 16),
+                        SizedBox(
+                          width: double.infinity,
+                          height: 48,
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              if (!(formKey.currentState?.validate() ?? false)) return;
+                              if (imageBytes == null && imageUrl.isEmpty) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Ajoute une image pour ce produit.')),
+                                );
+                                return;
+                              }
+                              final price = _asDouble(priceCtrl.text.trim(), def: 0);
+                              Navigator.of(ctx).pop(
+                                <String, dynamic>{
+                                  'name': nameCtrl.text.trim(),
+                                  'price': price,
+                                  'priceLabel': _formatCatalogPrice(price),
+                                  'imageUrl': imageUrl,
+                                  'imageBytes': imageBytes,
+                                },
+                              );
+                            },
+                            icon: const Icon(Icons.save_outlined, color: Colors.white),
+                            label: Text(
+                              existing == null ? 'Ajouter au catalogue' : 'Mettre a jour',
+                              style: const TextStyle(fontWeight: FontWeight.w900),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _orange,
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+
+    nameCtrl.dispose();
+    priceCtrl.dispose();
+    return result;
+  }
+
+  void _showCatalogSheet(_FoodPlace p) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = isDark ? const Color(0xFF111B21) : Colors.white;
+    final text = isDark ? const Color(0xFFE9EDF0) : const Color(0xFF111827);
+    final sub = isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
+    final div = isDark ? Colors.white12 : Colors.black12;
+
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return SafeArea(
+          top: false,
+          child: DraggableScrollableSheet(
+            initialChildSize: 0.76,
+            minChildSize: 0.45,
+            maxChildSize: 0.92,
+            expand: false,
+            builder: (context, controller) {
+              return Container(
+                margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                decoration: BoxDecoration(
+                  color: bg,
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(color: div),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(isDark ? 0.55 : 0.12),
+                      blurRadius: 26,
+                      offset: const Offset(0, 14),
+                    ),
+                  ],
+                ),
+                child: ListView(
+                  controller: controller,
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 46,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 10),
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.white24 : Colors.black12,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                      ),
+                    ),
+                    Text(
+                      'Catalogue',
+                      style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 18),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${p.name} • ${p.isOpen ? 'Ouvert' : 'Ferme'}',
+                      style: TextStyle(color: sub, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 16),
+                    if (p.catalog.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 28),
+                        child: Center(
+                          child: Text(
+                            'Aucun produit dans le catalogue pour le moment.',
+                            style: TextStyle(color: sub, fontWeight: FontWeight.w700),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      )
+                    else
+                      ...p.catalog.map((item) {
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: isDark ? Colors.white10 : const Color(0xFFF8FAFC),
+                            borderRadius: BorderRadius.circular(18),
+                            border: Border.all(color: div),
+                          ),
+                          child: Row(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(14),
+                                child: item.imageUrl.isNotEmpty
+                                    ? CachedNetworkImage(
+                                        imageUrl: item.imageUrl,
+                                        width: 72,
+                                        height: 72,
+                                        fit: BoxFit.cover,
+                                      )
+                                    : Container(
+                                        width: 72,
+                                        height: 72,
+                                        color: isDark ? Colors.white10 : Colors.black12,
+                                        child: Icon(Icons.fastfood_outlined, color: sub),
+                                      ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.name,
+                                      style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 15),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      item.priceLabel,
+                                      style: const TextStyle(
+                                        color: _orange,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      }),
+                  ],
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _launchOrSnack(Uri uri) async {
@@ -466,7 +1078,23 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                     child: p.coverUrl.isEmpty ? const Icon(Icons.storefront_outlined) : null,
                   ),
                   title: Text(p.name, style: TextStyle(color: text, fontWeight: FontWeight.w900)),
-                  subtitle: Text('Contacter', style: TextStyle(color: sub, fontWeight: FontWeight.w600)),
+                  subtitle: Text(
+                    'Contacter • ${p.isOpen ? 'Ouvert' : 'Ferme'}',
+                    style: TextStyle(color: sub, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                Divider(height: 1, color: div),
+                ListTile(
+                  leading: const Icon(Icons.menu_book_rounded),
+                  title: Text('Voir catalogue', style: TextStyle(color: text, fontWeight: FontWeight.w800)),
+                  subtitle: Text(
+                    p.catalog.isEmpty ? 'Aucun produit renseigne' : '${p.catalog.length} produit(s) disponible(s)',
+                    style: TextStyle(color: sub),
+                  ),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showCatalogSheet(p);
+                  },
                 ),
                 Divider(height: 1, color: div),
                 ListTile(
@@ -540,6 +1168,7 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
       tags: _asTags(d['tags']),
       phone: (d['phone'] ?? d['phoneNumber'] ?? '').toString(),
       email: (d['email'] ?? '').toString(),
+      catalog: _catalogFromRaw(d['catalog'] ?? d['menu'] ?? d['products']),
     );
   }
 
@@ -562,6 +1191,7 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
       p.name,
       p.cityLabel,
       p.type,
+      ...p.catalog.map((item) => item.name),
       ...p.tags,
     ].join(' ').toLowerCase();
     return hay.contains(q);
@@ -719,6 +1349,7 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                           divider: divider,
                           place: p,
                           typeLabel: _typeLabel(p.type),
+                          onViewCatalog: () => _showCatalogSheet(p),
                           onContact: () => _showContactSheet(p),
                         ),
                       );
@@ -830,6 +1461,7 @@ class _FoodCard extends StatelessWidget {
     required this.divider,
     required this.place,
     required this.typeLabel,
+    required this.onViewCatalog,
     required this.onContact,
   });
 
@@ -840,6 +1472,7 @@ class _FoodCard extends StatelessWidget {
   final Color divider;
   final _FoodPlace place;
   final String typeLabel;
+  final VoidCallback onViewCatalog;
   final VoidCallback onContact;
 
   @override
@@ -974,6 +1607,51 @@ class _FoodCard extends StatelessWidget {
                         ),
                       ],
                     ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: place.isOpen
+                              ? const Color(0x1627AE60)
+                              : (isDark ? Colors.white10 : const Color(0x145C6B78)),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: place.isOpen
+                                ? const Color(0x3327AE60)
+                                : (isDark ? Colors.white12 : const Color(0x225C6B78)),
+                          ),
+                        ),
+                        child: Text(
+                          place.isOpen ? 'Ouvert maintenant' : 'Ferme actuellement',
+                          style: TextStyle(
+                            color: place.isOpen ? const Color(0xFF27AE60) : sub,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0x22FF7A1A) : const Color(0x14FF7A1A),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0x33FF7A1A)),
+                        ),
+                        child: Text(
+                          '${place.catalog.length} produit(s)',
+                          style: const TextStyle(
+                            color: _FoodServicesPageState._orange,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                   if (place.tags.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     Wrap(
@@ -997,6 +1675,21 @@ class _FoodCard extends StatelessWidget {
                     ),
                   ],
                   const SizedBox(height: 14),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: OutlinedButton.icon(
+                      onPressed: onViewCatalog,
+                      icon: const Icon(Icons.menu_book_rounded),
+                      label: const Text('Voir catalogue'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFB84E00),
+                        side: BorderSide(color: const Color(0xFFB84E00).withOpacity(0.28)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   SizedBox(
                     width: double.infinity,
                     height: 48,
@@ -1182,6 +1875,7 @@ class _FoodPlace {
   final List<String> tags;
   final String phone;
   final String email;
+  final List<_FoodCatalogItem> catalog;
 
   const _FoodPlace({
     required this.id,
@@ -1196,5 +1890,32 @@ class _FoodPlace {
     required this.tags,
     required this.phone,
     required this.email,
+    required this.catalog,
+  });
+}
+
+class _FoodCatalogItem {
+  final String name;
+  final String imageUrl;
+  final double price;
+  final String priceLabel;
+
+  const _FoodCatalogItem({
+    required this.name,
+    required this.imageUrl,
+    required this.price,
+    required this.priceLabel,
+  });
+}
+
+class _FoodLocationResult {
+  final String label;
+  final double lat;
+  final double lng;
+
+  const _FoodLocationResult({
+    required this.label,
+    required this.lat,
+    required this.lng,
   });
 }

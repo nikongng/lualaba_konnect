@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:typed_data';
 
 class HomeServicesPage extends StatefulWidget {
@@ -623,6 +624,8 @@ class _HomeServicesPageState extends State<HomeServicesPage> {
     final bg = isDark ? const Color(0xFF111B21) : Colors.white;
     final text = isDark ? const Color(0xFFE9EDF0) : const Color(0xFF111827);
     final sub = isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
+    final phone = p.phone.trim();
+    final email = p.email.trim();
 
     showModalBottomSheet<void>(
       context: context,
@@ -662,15 +665,37 @@ class _HomeServicesPageState extends State<HomeServicesPage> {
                 ListTile(
                   leading: const Icon(Icons.call_outlined),
                   title: Text('Appeler', style: TextStyle(color: text, fontWeight: FontWeight.w800)),
-                  subtitle: Text('Bientot disponible', style: TextStyle(color: sub)),
-                  onTap: () => Navigator.pop(ctx),
+                  subtitle: Text(
+                    phone.isNotEmpty ? phone : 'Numero non renseigne',
+                    style: TextStyle(color: sub),
+                  ),
+                  onTap: phone.isEmpty
+                      ? null
+                      : () {
+                          Navigator.pop(ctx);
+                          _launchContactUri(
+                            Uri(scheme: 'tel', path: phone),
+                            'Impossible de lancer l appel pour le moment.',
+                          );
+                        },
                 ),
                 Divider(height: 1, color: isDark ? Colors.white12 : Colors.black12),
                 ListTile(
-                  leading: const Icon(Icons.message_outlined),
-                  title: Text('Envoyer un message', style: TextStyle(color: text, fontWeight: FontWeight.w800)),
-                  subtitle: Text('Bientot disponible', style: TextStyle(color: sub)),
-                  onTap: () => Navigator.pop(ctx),
+                  leading: const Icon(Icons.email_outlined),
+                  title: Text('Envoyer un email', style: TextStyle(color: text, fontWeight: FontWeight.w800)),
+                  subtitle: Text(
+                    email.isNotEmpty ? email : 'Email non renseigne',
+                    style: TextStyle(color: sub),
+                  ),
+                  onTap: email.isEmpty
+                      ? null
+                      : () {
+                          Navigator.pop(ctx);
+                          _launchContactUri(
+                            Uri(scheme: 'mailto', path: email),
+                            'Impossible d ouvrir l email pour le moment.',
+                          );
+                        },
                 ),
               ],
             ),
@@ -678,6 +703,22 @@ class _HomeServicesPageState extends State<HomeServicesPage> {
         );
       },
     );
+  }
+
+  Future<void> _launchContactUri(Uri uri, String errorMessage) async {
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorMessage)),
+        );
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage)),
+      );
+    }
   }
 }
 

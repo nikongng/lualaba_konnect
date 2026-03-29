@@ -17,6 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:lualaba_konnect/core/supabase_service.dart';
+import 'package:lualaba_konnect/features/auth/presentation/health/health_risk_utils.dart';
 import 'health/health_ai_page.dart';
 import 'health/health_appointments_page.dart';
 import 'health/health_cycle_page.dart';
@@ -8269,86 +8270,22 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     required List<String> aiAlerts,
     required int treatmentsCount,
   }) {
-    var score = 86;
-    final risks = <String>[];
-
-    void addRisk(String label, int penalty) {
-      if (!risks.contains(label)) risks.add(label);
-      score -= penalty;
-    }
-
-    if (bmi != null) {
-      if (bmi >= 30 || bmi < 18.5) {
-        addRisk('IMC hors zone stable', 16);
-      } else if (bmi >= 25) {
-        addRisk('Poids a surveiller', 9);
-      }
-    }
-
-    final tensionValues = _extractMetricNumbers(tension);
-    if (tensionValues.length >= 2) {
-      final systolic = tensionValues[0];
-      final diastolic = tensionValues[1];
-      if (systolic >= 140 || diastolic >= 90) {
-        addRisk('Tension elevee', 18);
-      } else if (systolic >= 130 || diastolic >= 85) {
-        addRisk('Tension a surveiller', 10);
-      }
-    }
-
-    final glycemiaValues = _extractMetricNumbers(glycemie);
-    if (glycemiaValues.isNotEmpty) {
-      final glucose = glycemiaValues.first;
-      if (glucose <= 20) {
-        if (glucose >= 7) {
-          addRisk('Glycemie elevee', 18);
-        } else if (glucose >= 6) {
-          addRisk('Glycemie a surveiller', 10);
-        }
-      } else {
-        if (glucose >= 126) {
-          addRisk('Glycemie elevee', 18);
-        } else if (glucose >= 110) {
-          addRisk('Glycemie a surveiller', 10);
-        }
-      }
-    }
-
-    final heartRateValues = _extractMetricNumbers(heartRate);
-    if (heartRateValues.isNotEmpty) {
-      final pulse = heartRateValues.first;
-      if (pulse > 110 || pulse < 50) {
-        addRisk('Frequence cardiaque hors zone', 12);
-      } else if (pulse > 100 || pulse < 55) {
-        addRisk('Frequence cardiaque a surveiller', 7);
-      }
-    }
-
-    if (conditions.isNotEmpty) addRisk('Maladies chroniques declarees', 14);
-    if (allergies.isNotEmpty) addRisk('Allergies a garder visibles', 5);
-    if (alerts.isNotEmpty || aiAlerts.isNotEmpty) addRisk('Alertes sante actives', 16);
-    if (treatmentsCount >= 3) addRisk('Traitement quotidien a suivre', 6);
-
-    final clampedScore = score.clamp(18, 97).toInt();
-    final label = clampedScore >= 80
-        ? 'bon'
-        : clampedScore >= 60
-            ? 'a surveiller'
-            : 'sensible';
-
-    return _HealthRiskSummary(
-      score: clampedScore,
-      label: label,
-      risks: risks.isEmpty ? const <String>['Aucun risque critique detecte'] : risks.take(3).toList(growable: false),
+    final summary = computeHealthRiskSummary(
+      bmi: bmi,
+      tension: tension,
+      glycemie: glycemie,
+      heartRate: heartRate,
+      allergies: allergies,
+      conditions: conditions,
+      alerts: alerts,
+      aiAlerts: aiAlerts,
+      treatmentsCount: treatmentsCount,
     );
-  }
-
-  List<double> _extractMetricNumbers(String raw) {
-    final matches = RegExp(r'\d+(?:[.,]\d+)?').allMatches(raw);
-    return matches
-        .map((match) => double.tryParse(match.group(0)!.replaceAll(',', '.')))
-        .whereType<double>()
-        .toList(growable: false);
+    return _HealthRiskSummary(
+      score: summary.score,
+      label: summary.label,
+      risks: summary.risks,
+    );
   }
 
   List<String> _medicationBullets(dynamic raw) {

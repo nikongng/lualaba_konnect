@@ -1,12 +1,17 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+
+import 'package:lualaba_konnect/features/auth/presentation/health/health_risk_utils.dart';
 
 class WeatherWidget extends StatefulWidget {
   final bool isDark;
@@ -31,6 +36,7 @@ class _WeatherWidgetState extends State<WeatherWidget>
   static const double _windDustRiskThresholdKmh = 40.0;
   static const double _windAlertThresholdKmh = 65.0;
   static const Duration _alertCooldown = Duration(minutes: 30);
+  static const int _pageCount = 5;
 
   String temperature = "--";
   String condition = "Chargement...";
@@ -53,11 +59,15 @@ class _WeatherWidgetState extends State<WeatherWidget>
   late AnimationController _pulseController;
   Timer? _refreshTimer;
   StreamSubscription<AccelerometerEvent>? _accelSub;
+  StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _healthSubscription;
   final PageController _pageController = PageController();
   final FlutterLocalNotificationsPlugin _notifs =
       FlutterLocalNotificationsPlugin();
   DateTime? _lastWindAlertAt;
   DateTime? _lastAirAlertAt;
+  int? _healthScore;
+  String _healthLabel = 'non disponible';
+  List<String> _healthRisks = const <String>[];
 
   double lat = -10.7148;
   double lon = 25.4746;
@@ -71,9 +81,11 @@ class _WeatherWidgetState extends State<WeatherWidget>
 
     _initNotifications();
     _initSensors();
+    unawaited(_startHealthStateListener());
     fetchAllData();
-    _refreshTimer =
-        Timer.periodic(const Duration(minutes: 10), (_) => fetchAllData());
+    _refreshTimer = Timer.periodic(const Duration(minutes: 10), (_) {
+      fetchAllData();
+    });
   }
 
   void _initSensors() {
@@ -221,6 +233,91 @@ class _WeatherWidgetState extends State<WeatherWidget>
     }
   }
 
+  Future<void> _startHealthStateListener() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        _clearHealthState();
+        return;
+      }
+
+      final collection = await _resolveUserCollection(user.uid);
+      await _healthSubscription?.cancel();
+
+      if (collection == null) {
+        _clearHealthState();
+        return;
+      }
+
+      _healthSubscription = FirebaseFirestore.instance
+          .collection(collection)
+          .doc(user.uid)
+          .snapshots()
+          .listen((snapshot) {
+            if (!snapshot.exists) {
+              _clearHealthState();
+              return;
+            }
+            _applyHealthState(snapshot.data());
+          }, onError: (error) {
+            debugPrint('Erreur stream etat sante: $error');
+            _clearHealthState();
+          });
+    } catch (e) {
+      debugPrint('Erreur chargement etat sante: $e');
+      _clearHealthState();
+    }
+  }
+
+  Future<String?> _resolveUserCollection(String uid) async {
+    final prefs = await SharedPreferences.getInstance();
+    final preferred = prefs.getString('user_collection')?.trim();
+    final candidates = <String>[];
+    if (preferred != null && preferred.isNotEmpty) {
+      candidates.add(preferred);
+    }
+    for (final collection in const ['classic_users', 'pro_users', 'enterprise_users', 'users']) {
+      if (!candidates.contains(collection)) {
+        candidates.add(collection);
+      }
+    }
+
+    for (final collection in candidates) {
+      try {
+        final snap = await FirebaseFirestore.instance.collection(collection).doc(uid).get();
+        if (snap.exists) {
+          return collection;
+        }
+      } catch (_) {
+        // Try the next collection.
+      }
+    }
+    return null;
+  }
+
+  void _applyHealthState(Map<String, dynamic>? userData) {
+    if (!mounted) return;
+    if (userData == null) {
+      _clearHealthState();
+      return;
+    }
+    final healthSummary = computeHealthRiskSummaryFromUserData(userData);
+    setState(() {
+      _healthScore = healthSummary.score;
+      _healthLabel = healthSummary.label;
+      _healthRisks = healthSummary.risks;
+    });
+  }
+
+  void _clearHealthState() {
+    if (!mounted) return;
+    setState(() {
+      _healthScore = null;
+      _healthLabel = 'non disponible';
+      _healthRisks = const <String>[];
+    });
+  }
+
   String _formatTime(int timestamp) {
     if (timestamp <= 0) return "--:--";
     final date = DateTime.fromMillisecondsSinceEpoch(timestamp * 1000);
@@ -301,7 +398,7 @@ class _WeatherWidgetState extends State<WeatherWidget>
 
   void _nextPage() {
     if (!mounted) return;
-    _currentPage = (_currentPage + 1) % 4;
+    _currentPage = (_currentPage + 1) % _pageCount;
     _pageController.animateToPage(
       _currentPage,
       duration: const Duration(milliseconds: 600),
@@ -326,6 +423,7 @@ class _WeatherWidgetState extends State<WeatherWidget>
                     onPageChanged: (index) =>
                         setState(() => _currentPage = index),
                     children: [
+                      _buildHealthPage(),
                       _buildPageOne(),
                       _buildPageTwo(),
                       _buildPageThree(),
@@ -423,6 +521,318 @@ class _WeatherWidgetState extends State<WeatherWidget>
     );
   }
 
+  Widget _buildHealthPage() {
+    final score = (_healthScore ?? 0).clamp(0, 100);
+    final accent = _healthAccentColor;
+    final support = _healthSupportText;
+    final topRisk = _healthRisks.isEmpty ? 'Aucun risque critique détecté' : _healthRisks.first;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compactWidth = constraints.maxWidth < 360;
+          final compactHeight = constraints.maxHeight < 188;
+          final compact = compactWidth || compactHeight;
+          final gaugeSize = compactHeight
+              ? 94.0
+              : compactWidth
+                  ? 104.0
+                  : 118.0;
+
+          return Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(28),
+              gradient: LinearGradient(
+                colors: [
+                  accent.withOpacity(0.32),
+                  Colors.white.withOpacity(0.08),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              border: Border.all(color: Colors.white.withOpacity(0.14)),
+              boxShadow: [
+                BoxShadow(
+                  color: accent.withOpacity(0.24),
+                  blurRadius: 28,
+                  offset: const Offset(0, 16),
+                ),
+              ],
+            ),
+            child: Stack(
+              children: [
+                Positioned(
+                  top: -18,
+                  right: -6,
+                  child: AnimatedBuilder(
+                    animation: _pulseController,
+                    builder: (context, child) => Transform.scale(
+                      scale: 0.92 + (_pulseController.value * 0.14),
+                      child: child,
+                    ),
+                    child: Container(
+                      width: 96,
+                      height: 96,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withOpacity(0.08),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  bottom: -22,
+                  left: -8,
+                  child: Container(
+                    width: 88,
+                    height: 88,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: accent.withOpacity(0.18),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(color: Colors.white.withOpacity(0.16)),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.favorite_rounded, color: Colors.white, size: 14),
+                            SizedBox(width: 8),
+                            Text(
+                              'SANTÉ PERSONNELLE',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 1.0,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(height: compactHeight ? 6 : 10),
+                      Expanded(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            _buildAnimatedHealthGauge(score, accent, size: gaugeSize),
+                            SizedBox(width: compact ? 10 : 14),
+                            Expanded(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _healthScore == null ? 'Votre score santé' : 'Votre santé aujourd’hui',
+                                    maxLines: compactHeight ? 1 : 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: compactHeight
+                                          ? 16
+                                          : compactWidth
+                                              ? 18
+                                              : 20,
+                                      fontWeight: FontWeight.w900,
+                                      letterSpacing: -0.4,
+                                    ),
+                                  ),
+                                  SizedBox(height: compactHeight ? 4 : 6),
+                                  Text(
+                                    _healthScore == null
+                                        ? 'Connectez votre profil santé pour voir une lecture animée ici.'
+                                        : support,
+                                    maxLines: compactHeight
+                                        ? 2
+                                        : compactWidth
+                                            ? 3
+                                            : 4,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.88),
+                                      height: 1.28,
+                                      fontSize: compactHeight
+                                          ? 10.5
+                                          : compactWidth
+                                              ? 11.5
+                                              : 12.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  SizedBox(height: compactHeight ? 6 : 10),
+                                  Container(
+                                    width: double.infinity,
+                                    padding: EdgeInsets.all(compactHeight ? 8 : 10),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withOpacity(0.14),
+                                      borderRadius: BorderRadius.circular(18),
+                                      border: Border.all(color: Colors.white.withOpacity(0.08)),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          'Point clé',
+                                          style: TextStyle(
+                                            color: Colors.white.withOpacity(0.72),
+                                            fontSize: compactHeight ? 9 : 10,
+                                            fontWeight: FontWeight.w800,
+                                            letterSpacing: 0.8,
+                                          ),
+                                        ),
+                                        SizedBox(height: compactHeight ? 2 : 4),
+                                        Text(
+                                          topRisk,
+                                          maxLines: compactHeight ? 1 : 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: Colors.white,
+                                            fontSize: compactHeight
+                                                ? 10
+                                                : compactWidth
+                                                    ? 11
+                                                    : 12,
+                                            fontWeight: FontWeight.w700,
+                                            height: 1.22,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildAnimatedHealthGauge(int score, Color accent, {double size = 118}) {
+    return KeyedSubtree(
+      key: ValueKey<int>(score),
+      child: TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0, end: score.toDouble()),
+        duration: const Duration(milliseconds: 1800),
+        curve: Curves.easeOutCubic,
+        builder: (context, value, _) {
+          final progress = (value / 100).clamp(0.0, 1.0);
+          final display = score <= 0 ? 0 : value.clamp(1, score.toDouble()).round();
+          final innerSize = size - 30;
+          final ringWidth = size < 112 ? 8.0 : 10.0;
+
+          return SizedBox(
+            width: size,
+            height: size,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  width: size,
+                  height: size,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withOpacity(0.06),
+                  ),
+                ),
+                SizedBox(
+                  width: size,
+                  height: size,
+                  child: CircularProgressIndicator(
+                    value: progress,
+                    strokeWidth: ringWidth,
+                    backgroundColor: Colors.white.withOpacity(0.12),
+                    valueColor: AlwaysStoppedAnimation<Color>(accent),
+                  ),
+                ),
+                AnimatedBuilder(
+                  animation: _pulseController,
+                  builder: (context, child) => Transform.scale(
+                    scale: 0.96 + (_pulseController.value * 0.06),
+                    child: child,
+                  ),
+                  child: Container(
+                    width: innerSize,
+                    height: innerSize,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      gradient: RadialGradient(
+                        colors: [
+                          Colors.white.withOpacity(0.22),
+                          Colors.white.withOpacity(0.08),
+                        ],
+                      ),
+                      border: Border.all(color: Colors.white.withOpacity(0.12)),
+                    ),
+                  ),
+                ),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      score <= 0 ? '--' : '$display',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: size < 112 ? 26 : 32,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: -1.1,
+                      ),
+                    ),
+                    Text(
+                      '% Santé',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: size < 112 ? 10 : 11,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.18),
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        _healthLabelDisplay,
+                        style: TextStyle(
+                          color: accent,
+                          fontSize: size < 112 ? 10 : 11,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Widget _buildHourlyTrend() {
     if (hourlyForecast.isEmpty) return const SizedBox(height: 50);
 
@@ -478,7 +888,7 @@ class _WeatherWidgetState extends State<WeatherWidget>
   }
 
   Widget _buildPageTwo() => _buildBasePage(
-        title: "SECURITE VENT",
+        title: "SÉCURITÉ VENT",
         icon: Icons.wind_power,
         content: Column(
           children: [
@@ -509,7 +919,7 @@ class _WeatherWidgetState extends State<WeatherWidget>
               windSpeed >= _windAlertThresholdKmh
                   ? "ALERTE : vent fort"
                   : (windSpeed >= _windDustRiskThresholdKmh
-                      ? "Vigilance poussiere et deplacements"
+                      ? "Vigilance poussière et déplacements"
                       : "Vent stable"),
               textAlign: TextAlign.center,
               style: const TextStyle(
@@ -523,27 +933,27 @@ class _WeatherWidgetState extends State<WeatherWidget>
       );
 
   Widget _buildPageThree() => _buildBasePage(
-        title: "AIR & SANTE",
+        title: "AIR & SANTÉ",
         icon: Icons.health_and_safety,
         content: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _miniStat("Soleil", "$sunExposure%", Icons.wb_sunny),
             _miniStat("Pollution", _getAirQualityText(), Icons.masks),
-            _miniStat("Humidite", "$humidity%", Icons.water_drop),
+            _miniStat("Humidité", "$humidity%", Icons.water_drop),
           ],
         ),
       );
 
   Widget _buildPageFour() => _buildBasePage(
-        title: "ATMOSPHERE & VISIBILITE",
+        title: "ATMOSPHÈRE & VISIBILITÉ",
         icon: Icons.visibility,
         content: Column(
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _miniStat("Visibilite", visibility, Icons.remove_red_eye),
+                _miniStat("Visibilité", visibility, Icons.remove_red_eye),
                 _miniStat("Pression", "$pressure hPa", Icons.speed),
               ],
             ),
@@ -680,7 +1090,7 @@ class _WeatherWidgetState extends State<WeatherWidget>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         children: List.generate(
-          4,
+          _pageCount,
           (index) => AnimatedContainer(
             duration: const Duration(milliseconds: 300),
             margin: const EdgeInsets.symmetric(horizontal: 3),
@@ -763,7 +1173,7 @@ class _WeatherWidgetState extends State<WeatherWidget>
       case 'Clouds':
         return "Nuageux";
       case 'Clear':
-        return "Degage";
+        return "Dégagé";
       case 'Mist':
         return "Brume";
       default:
@@ -779,11 +1189,45 @@ class _WeatherWidgetState extends State<WeatherWidget>
 
   String _getClothingAdvice() {
     final tempValue = int.tryParse(temperature);
-    if (condition == "Pluie") return "Pluie : prenez un impermeable";
+    if (condition == "Pluie") return "Pluie : prenez un imperméable";
     if (tempValue != null && tempValue > 28) {
-      return "Chaleur : pensez a boire de l'eau";
+      return "Chaleur : pensez à boire de l'eau";
     }
     return "Conditions stables";
+  }
+
+  Color get _healthAccentColor {
+    final score = _healthScore ?? 0;
+    if (score >= 80) return const Color(0xFF7CFFB2);
+    if (score >= 60) return const Color(0xFFFFC14D);
+    return const Color(0xFFFF7C7C);
+  }
+
+  String get _healthLabelDisplay {
+    switch (_healthLabel) {
+      case 'bon':
+        return 'Bon';
+      case 'a surveiller':
+        return 'À surveiller';
+      case 'sensible':
+        return 'Sensible';
+      default:
+        return 'En attente';
+    }
+  }
+
+  String get _healthSupportText {
+    final score = _healthScore ?? 0;
+    if (score >= 80) {
+      return 'Belle dynamique aujourd’hui. Votre score monte en ouverture pour mettre en valeur votre forme.';
+    }
+    if (score >= 60) {
+      return 'Votre profil demande un peu d’attention. Suivez les points à surveiller et gardez le rythme.';
+    }
+    if (score > 0) {
+      return 'Votre santé mérite une vigilance renforcée. Ouvrez Ma santé pour voir les facteurs qui tirent le score vers le bas.';
+    }
+    return 'Le score s’animera ici dès que votre profil santé sera disponible.';
   }
 
   TextStyle get _tagStyle => const TextStyle(
@@ -796,6 +1240,7 @@ class _WeatherWidgetState extends State<WeatherWidget>
   @override
   void dispose() {
     _accelSub?.cancel();
+    _healthSubscription?.cancel();
     _pageController.dispose();
     _pulseController.dispose();
     _refreshTimer?.cancel();

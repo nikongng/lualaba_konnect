@@ -124,7 +124,9 @@ class _RapidServicesPageState extends State<RapidServicesPage> {
     if (key.contains('menage')) {
       Navigator.push(
         context,
-        MaterialPageRoute(builder: (_) => const HomeServicesPage()),
+        MaterialPageRoute(
+          builder: (_) => const HomeServicesPage(initialFilterKey: 'menage'),
+        ),
       );
       return;
     }
