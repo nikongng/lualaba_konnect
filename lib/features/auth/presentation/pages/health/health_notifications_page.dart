@@ -22,6 +22,7 @@ class _HealthNotificationsPageState extends State<HealthNotificationsPage> {
   bool _appointments = false;
   bool _cycle = false;
   bool _ai = false;
+  bool _pharmacy = true;
 
   @override
   void initState() {
@@ -37,6 +38,7 @@ class _HealthNotificationsPageState extends State<HealthNotificationsPage> {
     _appointments = health['appointmentNotifications'] == true;
     _cycle = health['cycleNotifications'] == true;
     _ai = (health['aiNotifications'] ?? health['aiAlertsEnabled']) == true;
+    _pharmacy = health['pharmacyNotifications'] != false;
     if (mounted) setState(() => _loading = false);
   }
 
@@ -47,6 +49,7 @@ class _HealthNotificationsPageState extends State<HealthNotificationsPage> {
         'health.appointmentNotifications': _appointments,
         'health.cycleNotifications': _cycle,
         'health.aiNotifications': _ai,
+        'health.pharmacyNotifications': _pharmacy,
         'health.updatedAt': FieldValue.serverTimestamp(),
       },
       SetOptions(merge: true),
@@ -89,6 +92,11 @@ class _HealthNotificationsPageState extends State<HealthNotificationsPage> {
             value: _appointments,
             onChanged: (v) => setState(() => _appointments = v),
             title: const Text('Rendez-vous medicaux'),
+          ),
+          SwitchListTile(
+            value: _pharmacy,
+            onChanged: (v) => setState(() => _pharmacy = v),
+            title: const Text('Pharmacie: perimes et rupture'),
           ),
           SwitchListTile(
             value: _cycle,

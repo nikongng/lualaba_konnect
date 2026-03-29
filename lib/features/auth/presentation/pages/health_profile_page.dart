@@ -98,13 +98,13 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
   double? _personPharmacyRadiusKm;
   bool _addingHospital = false;
   bool _addingPharmacy = false;
-  bool _nearMeOnly = false;
-  double _nearMeRadiusKm = 5;
+  String _pharmacyManagerScope = 'mine';
   bool _locBusy = false;
   Position? _userPosition;
   bool _exportingPharmacies = false;
   bool _importingPharmacies = false;
   bool _healthAiSending = false;
+  bool _showPharmacyHeader = true;
   final List<_HealthAiMessage> _healthAiMessages = <_HealthAiMessage>[
     const _HealthAiMessage(
       role: _HealthAiRole.assistant,
@@ -411,7 +411,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     required bool includeHero,
   }) {
     final style = _styleForLabel(label, isDark);
-    final hero = includeHero
+    final hero = includeHero && label != 'Pharmacies'
         ? _buildModeHero(
             style: style,
             text: text,
@@ -436,7 +436,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
           sub,
           style.accent,
           data,
-          header: hero,
+          showHero: includeHero,
         );
       case 'Personne':
       default:
@@ -555,6 +555,152 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     );
   }
 
+  Widget _buildPharmacyHero({
+    required String displayName,
+    required int totalPharmacies,
+    required int totalProducts,
+    required Color accent,
+  }) {
+    final heroTitle = displayName.isEmpty ? 'Profil pharmacie' : displayName;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(
+          colors: [Color(0xFFFFAE42), Color(0xFFE56B00)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withOpacity(0.16),
+            blurRadius: 28,
+            offset: const Offset(0, 16),
+          ),
+        ],
+      ),
+      child: Stack(
+        children: [
+          Positioned(
+            top: -18,
+            right: -4,
+            child: Container(
+              width: 92,
+              height: 92,
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.12),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.16),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: const Icon(Icons.local_pharmacy_outlined, color: Colors.white),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Espace Pharmacies',
+                          style: TextStyle(
+                            color: Colors.white.withOpacity(0.92),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          heroTitle,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: -0.4,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '$totalPharmacies pharmacie(s) au total et $totalProducts produit(s) reference(s).',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.92),
+                  height: 1.42,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final item in <String>[
+                    heroTitle,
+                    '$totalPharmacies pharmacie(s)',
+                    '$totalProducts produit(s)',
+                  ])
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withOpacity(0.14),
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: Colors.white.withOpacity(0.16)),
+                      ),
+                      child: Text(
+                        item,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _handlePharmacyScrollNotification(
+    ScrollNotification notification, {
+    required bool canToggleHeader,
+  }) {
+    if (!canToggleHeader || !mounted || notification.metrics.axis != Axis.vertical) {
+      return false;
+    }
+    if (notification.metrics.pixels <= 0) {
+      if (!_showPharmacyHeader) {
+        setState(() => _showPharmacyHeader = true);
+      }
+      return false;
+    }
+    if (notification is ScrollUpdateNotification) {
+      final delta = notification.scrollDelta ?? 0;
+      if (delta > 6 && _showPharmacyHeader) {
+        setState(() => _showPharmacyHeader = false);
+      } else if (delta < -6 && !_showPharmacyHeader) {
+        setState(() => _showPharmacyHeader = true);
+      }
+    }
+    return false;
+  }
+
   Widget _revealBlock(int index, Widget child) {
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
@@ -579,6 +725,17 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
         secondary,
       ],
     );
+  }
+
+  HealthUserContext? _currentHealthUserContext() {
+    if (_userId == null || _userCollection == null) return null;
+    return HealthUserContext(userId: _userId!, userCollection: _userCollection!);
+  }
+
+  Future<void> _refreshHealthNotificationsIfAvailable() async {
+    final userContext = _currentHealthUserContext();
+    if (userContext == null) return;
+    await HealthNotificationScheduler.refreshForUser(userContext);
   }
 
   Future<void> _sendHealthAiPrompt(Map<String, dynamic> data) async {
@@ -3369,270 +3526,196 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     Color sub,
     Color accent,
     Map<String, dynamic> data,
-    {Widget? header}
+    {required bool showHero}
   ) {
     final query = _pharmacyQuery;
     final pharmaciesRef = FirebaseFirestore.instance.collection('health_pharmacies');
+    final pharmaciesStream = pharmaciesRef.orderBy('createdAt', descending: true).snapshots();
     final canAdd = _canAddPharmacy(data);
+    final managerMode = canAdd && _userId != null;
+    final displayName = _healthDisplayName(data);
 
-    return Column(
-      children: [
-        if (header != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
-            child: header,
-          ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
-          child: Container(
-            decoration: BoxDecoration(
-              color: cardBg,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: accent.withOpacity(0.12)),
-              boxShadow: [
-                BoxShadow(
-                  color: accent.withOpacity(0.06),
-                  blurRadius: 18,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: TextField(
-              controller: _pharmacySearchCtrl,
-              style: TextStyle(color: text, fontWeight: FontWeight.w600),
-              decoration: InputDecoration(
-                prefixIcon: Icon(Icons.search, color: accent),
-                hintText: 'Rechercher un medicament ou une pharmacie',
-                hintStyle: TextStyle(color: sub),
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              ),
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: BoxDecoration(
-              color: cardBg,
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: accent.withOpacity(0.12)),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    activeThumbColor: accent,
-                    value: _nearMeOnly,
-                    title: Text(
-                      'Pres de moi',
-                      style: TextStyle(color: text, fontWeight: FontWeight.w700),
-                    ),
-                    onChanged: (v) async {
-                      if (v) {
-                        final ok = await _ensureLocation();
-                        if (!ok) return;
-                      }
-                      if (!mounted) return;
-                      setState(() => _nearMeOnly = v);
-                    },
-                  ),
-                ),
-                if (_nearMeOnly)
-                  DropdownButton<double>(
-                    value: _nearMeRadiusKm,
-                    dropdownColor: cardBg,
-                    onChanged: (v) {
-                      if (v == null) return;
-                      setState(() => _nearMeRadiusKm = v);
-                    },
-                    items: _distanceRadiusOptionsKm
-                        .map(
-                          (km) => DropdownMenuItem<double>(
-                            value: km,
-                            child: Text(_radiusLabel(km)),
-                          ),
-                        )
-                        .toList(growable: false),
-                  ),
-                const SizedBox(width: 8),
-                IconButton(
-                  tooltip: 'Exporter Excel',
-                  onPressed: _exportingPharmacies ? null : _exportPharmaciesExcel,
-                  icon: _exportingPharmacies
-                      ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                      : Icon(Icons.file_download_outlined, color: accent),
-                ),
-                IconButton(
-                  tooltip: 'Importer Excel',
-                  onPressed: (!_importingPharmacies && canAdd) ? _importPharmaciesExcel : null,
-                  icon: _importingPharmacies
-                      ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                      : Icon(Icons.file_upload_outlined, color: accent),
-                ),
-                if (canAdd)
-                  ElevatedButton.icon(
-                    onPressed: _addingPharmacy ? null : () => _openAddPharmacy(accent),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: accent,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    ),
-                    icon: const Icon(Icons.add_business_outlined),
-                    label: const Text('Ajouter'),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        Expanded(
-          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-            stream: pharmaciesRef.orderBy('createdAt', descending: true).snapshots(),
-            builder: (context, snap) {
-              if (!snap.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final docs = snap.data!.docs;
-              final filtered = docs.where((d) {
-                if (query.isEmpty) return true;
-                final data = d.data();
-                final name = _safeStr(data['name']).toLowerCase();
-                final address = _safeStr(data['address'] ?? data['adresse']).toLowerCase();
-                final location = _safeStr(data['location'] ?? data['localisation']).toLowerCase();
-                final meds = _stringList(data['medicines'] ?? data['medications'] ?? data['medicaments'])
-                    .map((m) => m.toLowerCase())
-                    .toList();
-                return name.contains(query) ||
-                    address.contains(query) ||
-                    location.contains(query) ||
-                    meds.any((m) => m.contains(query));
-              }).where((d) {
-                if (!_nearMeOnly) return true;
-                final pos = _userPosition;
-                if (pos == null) return false;
-                final data = d.data();
-                final lat = _toDouble(data['lat'] ?? data['latitude']);
-                final lng = _toDouble(data['lng'] ?? data['longitude']);
-                if (lat == null || lng == null) return false;
-                final meters = Geolocator.distanceBetween(
-                  pos.latitude,
-                  pos.longitude,
-                  lat,
-                  lng,
-                );
-                return meters <= _nearMeRadiusKm * 1000;
-              }).toList();
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: pharmaciesStream,
+      builder: (context, snap) {
+        if (!snap.hasData) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final docs = snap.data!.docs;
+        final totalPharmacies = docs.length;
+        final totalProducts = docs.fold<int>(
+          0,
+          (sum, doc) => sum + _pharmacyCatalogFromData(doc.data()).length,
+        );
+        final filtered = docs.where((d) {
+          if (query.isEmpty) return true;
+          final data = d.data();
+          final name = _safeStr(data['name']).toLowerCase();
+          final address = _safeStr(data['address'] ?? data['adresse']).toLowerCase();
+          final location = _safeStr(data['location'] ?? data['localisation']).toLowerCase();
+          final meds = _pharmacyCatalogMedicineNames(_pharmacyCatalogFromData(data))
+              .map((m) => m.toLowerCase())
+              .toList();
+          return name.contains(query) ||
+              address.contains(query) ||
+              location.contains(query) ||
+              meds.any((m) => m.contains(query));
+        }).where((d) {
+          if (!managerMode) return true;
+          switch (_pharmacyManagerScope) {
+            case 'mine':
+              return _canDeletePharmacy(d.data());
+            case 'attention':
+              return _canDeletePharmacy(d.data()) && _pharmacyAttentionScore(d.data()) > 0;
+            case 'all':
+            default:
+              return true;
+          }
+        }).toList();
+        filtered.sort(_comparePharmacyDashboardPriority);
 
-              if (filtered.isEmpty) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.local_pharmacy_outlined, color: accent),
-                        const SizedBox(height: 8),
-                        Text('Aucune pharmacie', style: TextStyle(color: text, fontWeight: FontWeight.w700)),
-                        const SizedBox(height: 6),
-                        Text(
-                          _nearMeOnly
-                              ? 'Aucune pharmacie trouvee dans un rayon de ${_radiusLabel(_nearMeRadiusKm)}.'
-                              : 'Ajoutez la premiere pharmacie pour commencer.',
-                          style: TextStyle(color: sub),
-                        ),
-                        if (canAdd) ...[
-                          const SizedBox(height: 12),
-                          ElevatedButton(
-                            onPressed: _addingPharmacy ? null : () => _openAddPharmacy(accent),
-                            child: const Text('Ajouter une pharmacie'),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                );
-              }
-
-              return ListView.separated(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                itemCount: filtered.length,
-                separatorBuilder: (_, __) => Divider(color: sub.withOpacity(0.2)),
-                itemBuilder: (ctx, i) {
-                  final data = filtered[i].data();
-                  final name = _safeStr(data['name']);
-                  final address = _safeStr(data['address'] ?? data['adresse']);
-                  final location = _safeStr(data['location'] ?? data['localisation']);
-                  final image = _safeStr(data['photo'] ?? data['image'] ?? data['photoUrl']);
-                  final meds = _stringList(data['medicines'] ?? data['medications'] ?? data['medicaments']);
-                  final medLabel = meds.isNotEmpty ? meds.take(5).join(', ') : 'Non renseigne';
-                  final place = _joinParts([address, location]);
-                  final distanceLabel = _distanceLabel(data);
-                  final canDelete = canAdd && _canDeletePharmacy(data);
-                  return Card(
-                    color: cardBg,
-                    elevation: 0.6,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            child: image.isNotEmpty
-                                ? Image.network(image, width: 64, height: 64, fit: BoxFit.cover)
-                                : Container(
-                                    width: 64,
-                                    height: 64,
-                                    color: accent.withOpacity(0.12),
-                                    child: Icon(Icons.local_pharmacy, color: accent),
-                                  ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  name.isNotEmpty ? name : 'Pharmacie',
-                                  style: TextStyle(color: text, fontWeight: FontWeight.w800),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  place.isNotEmpty ? place : 'Adresse non renseignee',
-                                  style: TextStyle(color: sub),
-                                ),
-                                if (distanceLabel.isNotEmpty) ...[
-                                  const SizedBox(height: 4),
-                                  Text(distanceLabel, style: TextStyle(color: sub)),
-                                ],
-                                const SizedBox(height: 6),
-                                Text(
-                                  'Medicaments: $medLabel',
-                                  style: TextStyle(color: sub),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (canDelete)
-                            IconButton(
-                              onPressed: () => _confirmDeletePharmacy(filtered[i].reference),
-                              icon: const Icon(Icons.delete_outline),
-                              color: Colors.redAccent,
-                              tooltip: 'Supprimer',
-                            ),
-                        ],
+        return Column(
+          children: [
+            if (showHero)
+              AnimatedSwitcher(
+                duration: const Duration(milliseconds: 240),
+                switchInCurve: Curves.easeOutCubic,
+                switchOutCurve: Curves.easeInCubic,
+                transitionBuilder: (child, animation) {
+                  final curved = CurvedAnimation(
+                    parent: animation,
+                    curve: Curves.easeInOutCubic,
+                  );
+                  return ClipRect(
+                    child: SizeTransition(
+                      sizeFactor: curved,
+                      axisAlignment: -1,
+                      child: FadeTransition(
+                        opacity: curved,
+                        child: child,
                       ),
                     ),
                   );
                 },
-              );
-            },
-          ),
-        ),
-      ],
+                child: _showPharmacyHeader
+                    ? Padding(
+                        key: const ValueKey<String>('pharmacy-header-visible'),
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+                        child: _buildPharmacyHero(
+                          displayName: displayName,
+                          totalPharmacies: totalPharmacies,
+                          totalProducts: totalProducts,
+                          accent: accent,
+                        ),
+                      )
+                    : const SizedBox.shrink(
+                        key: ValueKey<String>('pharmacy-header-hidden'),
+                      ),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: cardBg,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: accent.withOpacity(0.12)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: accent.withOpacity(0.06),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: TextField(
+                  controller: _pharmacySearchCtrl,
+                  style: TextStyle(color: text, fontWeight: FontWeight.w600),
+                  decoration: InputDecoration(
+                    prefixIcon: Icon(Icons.search, color: accent),
+                    hintText: 'Rechercher un medicament ou une pharmacie',
+                    hintStyle: TextStyle(color: sub),
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: cardBg,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: accent.withOpacity(0.12)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: _exportingPharmacies ? null : _exportPharmaciesExcel,
+                          icon: _exportingPharmacies
+                              ? const SizedBox(
+                                  height: 16,
+                                  width: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.file_download_outlined),
+                          label: const Text('Exporter'),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: (!_importingPharmacies && canAdd) ? _importPharmaciesExcel : null,
+                          icon: _importingPharmacies
+                              ? const SizedBox(
+                                  height: 16,
+                                  width: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.file_upload_outlined),
+                          label: const Text('Importer'),
+                        ),
+                        if (canAdd)
+                          ElevatedButton.icon(
+                            onPressed: _addingPharmacy ? null : () => _openAddPharmacy(accent),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: accent,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                            ),
+                            icon: const Icon(Icons.add_business_outlined),
+                            label: const Text('Ajouter'),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            Expanded(
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (notification) => _handlePharmacyScrollNotification(
+                  notification,
+                  canToggleHeader: showHero,
+                ),
+                child: _buildPharmacyDashboardContent(
+                  docs: filtered,
+                  allDocs: docs,
+                  cardBg: cardBg,
+                  text: text,
+                  sub: sub,
+                  accent: accent,
+                  canAdd: canAdd,
+                  managerMode: managerMode,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -3649,6 +3732,22 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
   }
 
   String _safeStr(dynamic v) => (v ?? '').toString().trim();
+
+  String _healthDisplayName(Map<String, dynamic> data) {
+    final explicitName = _safeStr(data['name'] ?? data['displayName'] ?? data['fullName']);
+    if (explicitName.isNotEmpty) return explicitName;
+
+    final firstName = _safeStr(data['firstName'] ?? data['prenom']);
+    final lastName = _safeStr(data['lastName'] ?? data['nom']);
+    final joined = [firstName, lastName].where((value) => value.isNotEmpty).join(' ').trim();
+    if (joined.isNotEmpty) return joined;
+
+    final email = _safeStr(data['email']);
+    if (email.contains('@')) {
+      return email.split('@').first.trim();
+    }
+    return email;
+  }
 
   int? _ageFromDate(DateTime? birth) {
     if (birth == null) return null;
@@ -3916,6 +4015,998 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     return ownerId == _userId;
   }
 
+  List<Map<String, dynamic>> _pharmacyCatalogFromData(Map<String, dynamic> pharmacy) {
+    return _pharmacyCatalogFromRaw(
+      pharmacy['medicineCatalog'] ??
+          pharmacy['catalog'] ??
+          pharmacy['inventory'] ??
+          pharmacy['stock'] ??
+          pharmacy['products'] ??
+          pharmacy['medicines'] ??
+          pharmacy['medications'] ??
+          pharmacy['medicaments'],
+    );
+  }
+
+  List<Map<String, dynamic>> _pharmacyCatalogFromRaw(dynamic raw) {
+    if (raw == null) return const <Map<String, dynamic>>[];
+    if (raw is List) {
+      final out = <Map<String, dynamic>>[];
+      for (final item in raw) {
+        if (item is Map) {
+          final map = item.map((k, v) => MapEntry(k.toString(), v));
+          final name = _safeStr(map['name'] ?? map['medicament'] ?? map['label']);
+          if (name.isEmpty) continue;
+          out.add(
+            <String, dynamic>{
+              'name': name,
+              'price': _toDouble(map['price']) ?? 0,
+              'quantity': _toInt(map['quantity']) ?? _toInt(map['packQuantity']) ?? 0,
+              'stock': _toInt(map['stock']) ?? 0,
+              'form': _safeStr(map['form'] ?? map['forme']),
+              'dosage': _safeStr(map['dosage'] ?? map['dose']),
+              'therapeuticFamily': _safeStr(
+                map['therapeuticFamily'] ?? map['family'] ?? map['familleTherapeutique'],
+              ),
+              'expiryDate': _safeStr(
+                map['expiryDate'] ?? map['expiry'] ?? map['expiration'] ?? map['peremption'],
+              ),
+              'image': _safeStr(
+                map['image'] ?? map['photo'] ?? map['photoUrl'] ?? map['imageUrl'],
+              ),
+            },
+          );
+        } else {
+          final name = _safeStr(item);
+          if (name.isEmpty) continue;
+          out.add(
+            <String, dynamic>{
+              'name': name,
+              'price': 0,
+              'quantity': 0,
+              'stock': 0,
+              'form': '',
+              'dosage': '',
+              'therapeuticFamily': '',
+              'expiryDate': '',
+              'image': '',
+            },
+          );
+        }
+      }
+      return out;
+    }
+    if (raw is Map) {
+      return _pharmacyCatalogFromRaw(<dynamic>[raw]);
+    }
+    final s = _safeStr(raw);
+    if (s.isEmpty) return const <Map<String, dynamic>>[];
+    if (s.contains(',')) {
+      return s
+          .split(',')
+          .map((item) => _safeStr(item))
+          .where((item) => item.isNotEmpty)
+          .map(
+            (item) => <String, dynamic>{
+              'name': item,
+              'price': 0,
+              'quantity': 0,
+              'stock': 0,
+              'form': '',
+              'dosage': '',
+              'therapeuticFamily': '',
+              'expiryDate': '',
+              'image': '',
+            },
+          )
+          .toList(growable: false);
+    }
+    return <Map<String, dynamic>>[
+      <String, dynamic>{
+        'name': s,
+        'price': 0,
+        'quantity': 0,
+        'stock': 0,
+        'form': '',
+        'dosage': '',
+        'therapeuticFamily': '',
+        'expiryDate': '',
+        'image': '',
+      },
+    ];
+  }
+
+  List<Map<String, dynamic>> _normalizePharmacyCatalog(List<Map<String, dynamic>> catalog) {
+    final out = <Map<String, dynamic>>[];
+    final seen = <String>{};
+    for (final medicine in catalog) {
+      final name = _safeStr(medicine['name']);
+      if (name.isEmpty) continue;
+      final normalized = <String, dynamic>{
+        'name': name,
+        'price': _toDouble(medicine['price']) ?? 0,
+        'quantity': _toInt(medicine['quantity']) ?? 0,
+        'stock': _toInt(medicine['stock']) ?? 0,
+        'form': _safeStr(medicine['form']),
+        'dosage': _safeStr(medicine['dosage']),
+        'therapeuticFamily': _safeStr(medicine['therapeuticFamily']),
+        'expiryDate': _safeStr(medicine['expiryDate']),
+        'image': _safeStr(medicine['image']),
+      };
+      final key = '${name.toLowerCase()}|${_safeStr(normalized['dosage']).toLowerCase()}|'
+          '${_safeStr(normalized['form']).toLowerCase()}';
+      if (seen.add(key)) out.add(normalized);
+    }
+    return out;
+  }
+
+  List<String> _pharmacyCatalogMedicineNames(List<Map<String, dynamic>> catalog) {
+    final out = <String>[];
+    final seen = <String>{};
+    for (final medicine in catalog) {
+      final name = _safeStr(medicine['name']);
+      final key = name.toLowerCase();
+      if (name.isEmpty || !seen.add(key)) continue;
+      out.add(name);
+    }
+    return out;
+  }
+
+  int _pharmacyTotalStock(List<Map<String, dynamic>> catalog) {
+    var total = 0;
+    for (final medicine in catalog) {
+      total += _toInt(medicine['stock']) ?? 0;
+    }
+    return total;
+  }
+
+  int _pharmacyLowStockCount(List<Map<String, dynamic>> catalog) {
+    var total = 0;
+    for (final medicine in catalog) {
+      final stock = _toInt(medicine['stock']) ?? 0;
+      if (stock <= 5) total += 1;
+    }
+    return total;
+  }
+
+  DateTime? _pharmacyMedicineExpiryDate(Map<String, dynamic> medicine) {
+    final raw = _safeStr(medicine['expiryDate']);
+    if (raw.isEmpty) return null;
+    final parsed = DateTime.tryParse(raw);
+    if (parsed != null) return parsed;
+    for (final pattern in const <String>[
+      'dd/MM/yyyy',
+      'd/M/yyyy',
+      'dd-MM-yyyy',
+      'd-M-yyyy',
+      'dd.MM.yyyy',
+      'd.MM.yyyy',
+    ]) {
+      try {
+        return DateFormat(pattern).parseStrict(raw);
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  int _pharmacyExpiringCount(List<Map<String, dynamic>> catalog) {
+    var total = 0;
+    final now = DateTime.now();
+    for (final medicine in catalog) {
+      final expiry = _pharmacyMedicineExpiryDate(medicine);
+      if (expiry == null) continue;
+      if (!expiry.isBefore(now) && expiry.difference(now).inDays <= 45) {
+        total += 1;
+      }
+    }
+    return total;
+  }
+
+  bool _pharmacyHasContact(Map<String, dynamic> pharmacy) {
+    return _safeStr(pharmacy['phone'] ?? pharmacy['telephone']).isNotEmpty ||
+        _safeStr(pharmacy['email']).isNotEmpty;
+  }
+
+  bool _pharmacyHasCoordinates(Map<String, dynamic> pharmacy) {
+    return _toDouble(pharmacy['lat'] ?? pharmacy['latitude']) != null &&
+        _toDouble(pharmacy['lng'] ?? pharmacy['longitude']) != null;
+  }
+
+  int _pharmacyProfileGapCount(Map<String, dynamic> pharmacy) {
+    final catalog = _pharmacyCatalogFromData(pharmacy);
+    var gaps = 0;
+    if (!_pharmacyHasContact(pharmacy)) gaps += 1;
+    if (!_pharmacyHasCoordinates(pharmacy)) gaps += 1;
+    if (catalog.isEmpty) gaps += 1;
+    if (_safeStr(pharmacy['photo'] ?? pharmacy['image'] ?? pharmacy['photoUrl']).isEmpty) gaps += 1;
+    return gaps;
+  }
+
+  String _pharmacyProfileGapSummary(Map<String, dynamic> pharmacy) {
+    final parts = <String>[];
+    final catalog = _pharmacyCatalogFromData(pharmacy);
+    if (!_pharmacyHasContact(pharmacy)) parts.add('ajouter un contact');
+    if (!_pharmacyHasCoordinates(pharmacy)) parts.add('ajouter la position GPS');
+    if (catalog.isEmpty) parts.add('renseigner le stock');
+    if (_safeStr(pharmacy['photo'] ?? pharmacy['image'] ?? pharmacy['photoUrl']).isEmpty) {
+      parts.add('ajouter une photo');
+    }
+    if (parts.isEmpty) return 'fiche complete';
+    return parts.join(' / ');
+  }
+
+  int _pharmacyAttentionScore(Map<String, dynamic> pharmacy) {
+    final catalog = _pharmacyCatalogFromData(pharmacy);
+    final lowStock = _pharmacyLowStockCount(catalog);
+    final expiring = _pharmacyExpiringCount(catalog);
+    final profileGaps = _pharmacyProfileGapCount(pharmacy);
+    var score = 0;
+    if (catalog.isEmpty) score += 4;
+    score += lowStock > 0 ? lowStock * 2 : 0;
+    score += expiring > 0 ? expiring * 2 : 0;
+    score += profileGaps;
+    if (!_isPharmacyOpen(pharmacy)) score += 1;
+    return score;
+  }
+
+  Color _pharmacyAttentionTone(Map<String, dynamic> pharmacy, Color accent) {
+    final score = _pharmacyAttentionScore(pharmacy);
+    if (score >= 6) return Colors.redAccent;
+    if (score >= 3) return const Color(0xFFFF8A1F);
+    return accent;
+  }
+
+  String _pharmacyManagementMessage(Map<String, dynamic> pharmacy) {
+    final catalog = _pharmacyCatalogFromData(pharmacy);
+    final lowStock = _pharmacyLowStockCount(catalog);
+    final expiring = _pharmacyExpiringCount(catalog);
+    final gapCount = _pharmacyProfileGapCount(pharmacy);
+    final parts = <String>[];
+    if (lowStock > 0) parts.add('$lowStock produit(s) en stock bas');
+    if (expiring > 0) parts.add('$expiring produit(s) a verifier avant peremption');
+    if (gapCount > 0) parts.add(_pharmacyProfileGapSummary(pharmacy));
+    if (!_isPharmacyOpen(pharmacy)) parts.add('pharmacie fermee');
+    if (parts.isEmpty) return 'Stock stable et fiche complete.';
+    return parts.join(' / ');
+  }
+
+  int _comparePharmacyDashboardPriority(
+    QueryDocumentSnapshot<Map<String, dynamic>> a,
+    QueryDocumentSnapshot<Map<String, dynamic>> b,
+  ) {
+    final aData = a.data();
+    final bData = b.data();
+    final aScore = _pharmacyAttentionScore(aData);
+    final bScore = _pharmacyAttentionScore(bData);
+    if (aScore != bScore) return bScore.compareTo(aScore);
+    final aOpen = _isPharmacyOpen(aData);
+    final bOpen = _isPharmacyOpen(bData);
+    if (aOpen != bOpen) return aOpen ? -1 : 1;
+    return _safeStr(aData['name']).compareTo(_safeStr(bData['name']));
+  }
+
+  String _pharmacyDashboardEmptyMessage({
+    required bool managerMode,
+    required bool canAdd,
+    String query = '',
+  }) {
+    if (query.isNotEmpty) return 'Aucune pharmacie ne correspond a votre recherche.';
+    if (managerMode && _pharmacyManagerScope == 'mine') {
+      return 'Aucune pharmacie ne vous est rattachee pour le moment.';
+    }
+    if (managerMode && _pharmacyManagerScope == 'attention') {
+      return 'Aucune pharmacie ne demande une action urgente pour le moment.';
+    }
+    return canAdd
+        ? 'Ajoutez la premiere pharmacie pour commencer.'
+        : 'Aucune pharmacie disponible pour le moment.';
+  }
+
+  Widget _buildPharmacyMetricTile({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color accent,
+    required Color text,
+    required Color sub,
+  }) {
+    return SizedBox(
+      width: 152,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: accent.withOpacity(0.06),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: accent.withOpacity(0.10)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: accent, size: 20),
+            const SizedBox(height: 10),
+            Text(
+              value,
+              style: TextStyle(
+                color: text,
+                fontWeight: FontWeight.w900,
+                fontSize: 20,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(color: sub, fontWeight: FontWeight.w700, height: 1.35),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Color _pharmacyMedicineStockColor(int stock, Color accent) {
+    if (stock <= 0) return Colors.redAccent;
+    if (stock <= 5) return const Color(0xFFFF8A1F);
+    return accent;
+  }
+
+  Color _pharmacyMedicineExpiryColor(Map<String, dynamic> medicine, Color accent) {
+    final expiry = _pharmacyMedicineExpiryDate(medicine);
+    if (expiry == null) return accent;
+    final now = DateTime.now();
+    if (expiry.isBefore(now)) return Colors.redAccent;
+    if (expiry.difference(now).inDays <= 45) return const Color(0xFFFF8A1F);
+    return accent;
+  }
+
+  Widget _buildPharmacyDashboardContent({
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    required List<QueryDocumentSnapshot<Map<String, dynamic>>> allDocs,
+    required Color cardBg,
+    required Color text,
+    required Color sub,
+    required Color accent,
+    required bool canAdd,
+    required bool managerMode,
+  }) {
+    final managerDocs = allDocs.where((doc) => _canDeletePharmacy(doc.data())).toList(growable: false);
+    final attentionDocs = managerDocs
+        .where((doc) => _pharmacyAttentionScore(doc.data()) > 0)
+        .toList(growable: false)
+      ..sort(_comparePharmacyDashboardPriority);
+
+    final visibleProducts = docs.fold<int>(
+      0,
+      (sum, doc) => sum + _pharmacyCatalogFromData(doc.data()).length,
+    );
+    final visibleStock = docs.fold<int>(
+      0,
+      (sum, doc) => sum + _pharmacyTotalStock(_pharmacyCatalogFromData(doc.data())),
+    );
+    final visibleOpen = docs.where((doc) => _isPharmacyOpen(doc.data())).length;
+    final managedIncomplete = managerDocs.where((doc) => _pharmacyProfileGapCount(doc.data()) > 0).length;
+    final managedClosed = managerDocs.where((doc) => !_isPharmacyOpen(doc.data())).length;
+    final emptyMessage = _pharmacyDashboardEmptyMessage(
+      managerMode: managerMode,
+      canAdd: canAdd,
+      query: _pharmacyQuery,
+    );
+
+    if (docs.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.local_pharmacy_outlined, color: accent),
+              const SizedBox(height: 8),
+              Text(
+                'Aucune pharmacie',
+                style: TextStyle(color: text, fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                emptyMessage,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: sub, height: 1.4),
+              ),
+              if (canAdd) ...[
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  onPressed: _addingPharmacy ? null : () => _openAddPharmacy(accent),
+                  icon: const Icon(Icons.add_business_outlined),
+                  label: const Text('Ajouter une pharmacie'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 18),
+      children: [
+        if (managerMode) ...[
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Color.lerp(cardBg, accent, 0.05)!,
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: accent.withOpacity(0.10)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: accent.withOpacity(0.12),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(Icons.dashboard_customize_outlined, color: accent),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Vue de gestion',
+                            style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 18),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Pilotez vos officines, vos stocks critiques et les fiches a completer.',
+                            style: TextStyle(color: sub, height: 1.4, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: const <MapEntry<String, String>>[
+                    MapEntry<String, String>('mine', 'Mes pharmacies'),
+                    MapEntry<String, String>('attention', 'A traiter'),
+                    MapEntry<String, String>('all', 'Toutes'),
+                  ].map((item) {
+                    final selected = _pharmacyManagerScope == item.key;
+                    return ChoiceChip(
+                      label: Text(item.value),
+                      selected: selected,
+                      showCheckmark: false,
+                      backgroundColor: accent.withOpacity(0.06),
+                      selectedColor: accent.withOpacity(0.18),
+                      labelStyle: TextStyle(
+                        color: selected ? accent : text,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      onSelected: (_) => setState(() => _pharmacyManagerScope = item.key),
+                    );
+                  }).toList(growable: false),
+                ),
+              ],
+            ),
+          ),
+          if (attentionDocs.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: cardBg,
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: accent.withOpacity(0.10)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Priorites du jour',
+                    style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 17),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Les pharmacies qui demandent le plus rapidement une action.',
+                    style: TextStyle(color: sub, height: 1.4, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 14),
+                  ...attentionDocs.take(3).map((doc) {
+                    final pharmacy = doc.data();
+                    final tone = _pharmacyAttentionTone(pharmacy, accent);
+                    final lowStock = _pharmacyLowStockCount(_pharmacyCatalogFromData(pharmacy));
+                    final expiring = _pharmacyExpiringCount(_pharmacyCatalogFromData(pharmacy));
+                    final gaps = _pharmacyProfileGapCount(pharmacy);
+                    return Container(
+                      width: double.infinity,
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: tone.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: tone.withOpacity(0.14)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _safeStr(pharmacy['name']).isNotEmpty
+                                      ? _safeStr(pharmacy['name'])
+                                      : 'Pharmacie',
+                                  style: TextStyle(color: text, fontWeight: FontWeight.w900),
+                                ),
+                              ),
+                              _buildHospitalInfoChip(
+                                label: '${_pharmacyAttentionScore(pharmacy)} pts',
+                                color: tone,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _pharmacyManagementMessage(pharmacy),
+                            style: TextStyle(color: sub, height: 1.4, fontWeight: FontWeight.w600),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              if (lowStock > 0)
+                                _buildHospitalInfoChip(
+                                  label: '$lowStock stock bas',
+                                  color: const Color(0xFFFF8A1F),
+                                ),
+                              if (expiring > 0)
+                                _buildHospitalInfoChip(
+                                  label: '$expiring peremption',
+                                  color: Colors.redAccent,
+                                ),
+                              if (gaps > 0)
+                                _buildHospitalInfoChip(
+                                  label: '$gaps point(s) a completer',
+                                  color: accent,
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: () => _openPharmacyInventoryManager(
+                                  accent: accent,
+                                  reference: doc.reference,
+                                  pharmacy: pharmacy,
+                                ),
+                                icon: const Icon(Icons.inventory_2_outlined),
+                                label: const Text('Gerer'),
+                              ),
+                              OutlinedButton.icon(
+                                onPressed: () => _openAddPharmacy(
+                                  accent,
+                                  reference: doc.reference,
+                                  existing: pharmacy,
+                                ),
+                                icon: const Icon(Icons.edit_outlined),
+                                label: const Text('Modifier'),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 14),
+        ],
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [
+                accent.withOpacity(0.14),
+                accent.withOpacity(0.04),
+              ],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: accent.withOpacity(0.12)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                managerMode ? 'Console pharmacien' : 'Pilotage du stock pharmacie',
+                style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 18),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                managerMode
+                    ? 'Suivi des sites, des produits, des urgences et des fiches a completer.'
+                    : 'Vue rapide des pharmacies disponibles et des stocks publies.',
+                style: TextStyle(color: sub, height: 1.4, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: managerMode
+                    ? [
+                        _buildPharmacyMetricTile(
+                          icon: Icons.storefront_outlined,
+                          label: 'Mes sites',
+                          value: '${managerDocs.length}',
+                          accent: accent,
+                          text: text,
+                          sub: sub,
+                        ),
+                        _buildPharmacyMetricTile(
+                          icon: Icons.medication_outlined,
+                          label: 'Produits',
+                          value: '$visibleProducts',
+                          accent: accent,
+                          text: text,
+                          sub: sub,
+                        ),
+                        _buildPharmacyMetricTile(
+                          icon: Icons.inventory_outlined,
+                          label: 'Stock total',
+                          value: '$visibleStock',
+                          accent: accent,
+                          text: text,
+                          sub: sub,
+                        ),
+                        _buildPharmacyMetricTile(
+                          icon: Icons.warning_amber_rounded,
+                          label: 'Urgences',
+                          value: '${attentionDocs.length}',
+                          accent: const Color(0xFFFF8A1F),
+                          text: text,
+                          sub: sub,
+                        ),
+                        _buildPharmacyMetricTile(
+                          icon: Icons.fact_check_outlined,
+                          label: 'Fiches a completer',
+                          value: '$managedIncomplete',
+                          accent: accent,
+                          text: text,
+                          sub: sub,
+                        ),
+                        _buildPharmacyMetricTile(
+                          icon: Icons.pause_circle_outline,
+                          label: 'Fermees',
+                          value: '$managedClosed',
+                          accent: Colors.redAccent,
+                          text: text,
+                          sub: sub,
+                        ),
+                      ]
+                    : [
+                        _buildPharmacyMetricTile(
+                          icon: Icons.storefront_outlined,
+                          label: 'Pharmacies visibles',
+                          value: '${docs.length}',
+                          accent: accent,
+                          text: text,
+                          sub: sub,
+                        ),
+                        _buildPharmacyMetricTile(
+                          icon: Icons.medication_outlined,
+                          label: 'Produits',
+                          value: '$visibleProducts',
+                          accent: accent,
+                          text: text,
+                          sub: sub,
+                        ),
+                        _buildPharmacyMetricTile(
+                          icon: Icons.inventory_outlined,
+                          label: 'Stock total',
+                          value: '$visibleStock',
+                          accent: accent,
+                          text: text,
+                          sub: sub,
+                        ),
+                        _buildPharmacyMetricTile(
+                          icon: Icons.check_circle_outline,
+                          label: 'Ouvertes',
+                          value: '$visibleOpen',
+                          accent: Colors.green,
+                          text: text,
+                          sub: sub,
+                        ),
+                      ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          managerMode
+              ? '${docs.length} pharmacie(s) visible(s) / ${attentionDocs.length} a traiter / $visibleOpen ouverte(s)'
+              : '${docs.length} pharmacie(s) visible(s) / $visibleProducts produit(s) / $visibleOpen ouverte(s)',
+          style: TextStyle(color: sub, fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 12),
+        ...docs.map(
+          (doc) => Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _buildPharmacyDashboardCard(
+              doc: doc,
+              cardBg: cardBg,
+              text: text,
+              sub: sub,
+              accent: accent,
+              canManage: managerMode,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPharmacyDashboardCard({
+    required QueryDocumentSnapshot<Map<String, dynamic>> doc,
+    required Color cardBg,
+    required Color text,
+    required Color sub,
+    required Color accent,
+    required bool canManage,
+  }) {
+    final pharmacy = doc.data();
+    final name = _safeStr(pharmacy['name']).isNotEmpty ? _safeStr(pharmacy['name']) : 'Pharmacie';
+    final address = _safeStr(pharmacy['address'] ?? pharmacy['adresse']);
+    final location = _safeStr(pharmacy['location'] ?? pharmacy['localisation']);
+    final place = _joinParts([address, location]);
+    final image = _safeStr(pharmacy['photo'] ?? pharmacy['image'] ?? pharmacy['photoUrl']);
+    final phone = _safeStr(pharmacy['phone'] ?? pharmacy['telephone']);
+    final email = _safeStr(pharmacy['email']);
+    final lat = _toDouble(pharmacy['lat'] ?? pharmacy['latitude']);
+    final lng = _toDouble(pharmacy['lng'] ?? pharmacy['longitude']);
+    final catalog = _pharmacyCatalogFromData(pharmacy);
+    final totalStock = _pharmacyTotalStock(catalog);
+    final lowStock = _pharmacyLowStockCount(catalog);
+    final expiring = _pharmacyExpiringCount(catalog);
+    final profileGapCount = _pharmacyProfileGapCount(pharmacy);
+    final isOpen = _isPharmacyOpen(pharmacy);
+    final statusLabel = _pharmacyStatusLabel(pharmacy);
+    final distanceLabel = _distanceLabel(pharmacy);
+    final allowManage = canManage && _canDeletePharmacy(pharmacy);
+    final managementTone = _pharmacyAttentionTone(pharmacy, accent);
+    final managementMessage = _pharmacyManagementMessage(pharmacy);
+    final open24h = _boolValue(pharmacy['open24h'] ?? pharmacy['alwaysOpen']) == true;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            accent.withOpacity(0.10),
+            cardBg,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: accent.withOpacity(0.12)),
+        boxShadow: [
+          BoxShadow(
+            color: accent.withOpacity(0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: image.isNotEmpty
+                    ? Image.network(image, width: 72, height: 72, fit: BoxFit.cover)
+                    : Container(
+                        width: 72,
+                        height: 72,
+                        color: accent.withOpacity(0.12),
+                        child: Icon(Icons.local_pharmacy_outlined, color: accent),
+                      ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            name,
+                            style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 17),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                          decoration: BoxDecoration(
+                            color: (isOpen ? Colors.green : Colors.redAccent).withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            statusLabel,
+                            style: TextStyle(
+                              color: isOpen ? Colors.green.shade700 : Colors.redAccent,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      place.isNotEmpty ? place : 'Adresse non renseignee',
+                      style: TextStyle(color: sub, height: 1.4, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        if (allowManage)
+                          _buildHospitalInfoChip(label: 'Gestion', color: accent),
+                        _buildHospitalInfoChip(
+                          label: '${catalog.length} produit(s)',
+                          color: accent,
+                        ),
+                        _buildHospitalInfoChip(
+                          label: 'Stock total $totalStock',
+                          color: _pharmacyMedicineStockColor(totalStock, accent),
+                        ),
+                        if (distanceLabel.isNotEmpty)
+                          _buildHospitalInfoChip(label: distanceLabel, color: accent),
+                        if (lowStock > 0)
+                          _buildHospitalInfoChip(
+                            label: '$lowStock stock bas',
+                            color: const Color(0xFFFF8A1F),
+                          ),
+                        if (expiring > 0)
+                          _buildHospitalInfoChip(
+                            label: '$expiring peremption',
+                            color: Colors.redAccent,
+                          ),
+                        if (profileGapCount > 0)
+                          _buildHospitalInfoChip(
+                            label: '$profileGapCount element(s) a completer',
+                            color: accent,
+                          ),
+                        if (open24h)
+                          _buildHospitalInfoChip(label: '24/7', color: Colors.green),
+                        if (!_pharmacyHasContact(pharmacy))
+                          _buildHospitalInfoChip(label: 'Sans contact', color: Colors.blueGrey),
+                        if (!_pharmacyHasCoordinates(pharmacy))
+                          _buildHospitalInfoChip(label: 'Sans GPS', color: Colors.blueGrey),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: managementTone.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: managementTone.withOpacity(0.12)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.tips_and_updates_outlined, color: managementTone),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    managementMessage,
+                    style: TextStyle(
+                      color: text,
+                      height: 1.4,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              if (allowManage)
+                OutlinedButton.icon(
+                  onPressed: () => _openPharmacyInventoryManager(
+                    accent: accent,
+                    reference: doc.reference,
+                    pharmacy: pharmacy,
+                  ),
+                  icon: const Icon(Icons.inventory_2_outlined),
+                  label: const Text('Produits'),
+                ),
+              if (allowManage)
+                OutlinedButton.icon(
+                  onPressed: () => _openAddPharmacy(
+                    accent,
+                    reference: doc.reference,
+                    existing: pharmacy,
+                  ),
+                  icon: const Icon(Icons.edit_outlined),
+                  label: const Text('Modifier'),
+                ),
+              if (allowManage)
+                OutlinedButton.icon(
+                  onPressed: () => _updatePharmacyOpenStatus(
+                    doc.reference,
+                    pharmacy,
+                    open: !isOpen,
+                  ),
+                  icon: Icon(
+                    isOpen ? Icons.pause_circle_outline : Icons.play_circle_outline,
+                  ),
+                  label: Text(isOpen ? 'Fermer' : 'Ouvrir'),
+                ),
+              if (phone.isNotEmpty)
+                OutlinedButton.icon(
+                  onPressed: () => _launchOrSnack(Uri.parse('tel:${phone.trim()}')),
+                  icon: const Icon(Icons.call_outlined),
+                  label: const Text('Appeler'),
+                ),
+              if (email.isNotEmpty)
+                OutlinedButton.icon(
+                  onPressed: () => _launchOrSnack(Uri.parse('mailto:${email.trim()}')),
+                  icon: const Icon(Icons.mail_outline),
+                  label: const Text('Email'),
+                ),
+              OutlinedButton.icon(
+                onPressed: () => _openMapLocation(
+                  lat: lat,
+                  lng: lng,
+                  label: _joinParts([name, address, location]),
+                ),
+                icon: const Icon(Icons.map_outlined),
+                label: const Text('Carte'),
+              ),
+              if (allowManage)
+                OutlinedButton.icon(
+                  onPressed: () => _confirmDeletePharmacy(doc.reference),
+                  style: OutlinedButton.styleFrom(foregroundColor: Colors.redAccent),
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Supprimer'),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _confirmDeletePharmacy(DocumentReference<Map<String, dynamic>> ref) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -3933,9 +5024,33 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     if (ok != true) return;
     try {
       await ref.delete();
+      await _refreshHealthNotificationsIfAvailable();
       _snack('Pharmacie supprimee');
     } catch (e) {
       _snack('Erreur suppression: $e', error: true);
+    }
+  }
+
+  Future<void> _updatePharmacyOpenStatus(
+    DocumentReference<Map<String, dynamic>> ref,
+    Map<String, dynamic> pharmacy, {
+    required bool open,
+  }) async {
+    try {
+      await ref.set(
+        {
+          'isOpen': open,
+          'status': open
+              ? (_boolValue(pharmacy['open24h'] ?? pharmacy['alwaysOpen']) == true ? 'Ouvert 24/7' : 'Ouvert')
+              : 'Ferme',
+          'open24h': open ? (_boolValue(pharmacy['open24h'] ?? pharmacy['alwaysOpen']) == true) : false,
+          'updatedAt': FieldValue.serverTimestamp(),
+        },
+        SetOptions(merge: true),
+      );
+      _snack(open ? 'Pharmacie marquee ouverte' : 'Pharmacie marquee fermee');
+    } catch (e) {
+      _snack('Erreur changement statut pharmacie: $e', error: true);
     }
   }
 
@@ -3993,7 +5108,6 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     return _distanceLabelFromCoordinates(
       _toDouble(data['lat'] ?? data['latitude']),
       _toDouble(data['lng'] ?? data['longitude']),
-      enabled: _nearMeOnly,
     );
   }
 
@@ -6094,20 +7208,628 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     if (mounted) setState(() => _addingHospital = false);
   }
 
-  Future<void> _openAddPharmacy(Color accent) async {
+  Future<Map<String, dynamic>?> _openAddPharmacyMedicineDialog(
+    Color accent, {
+    Map<String, dynamic>? existing,
+  }) async {
+    final nameCtrl = TextEditingController(text: _safeStr(existing?['name']));
+    final priceCtrl = TextEditingController(
+      text: _toDouble(existing?['price'])?.toString() ?? '',
+    );
+    final quantityCtrl = TextEditingController(
+      text: (_toInt(existing?['quantity']) ?? 0) > 0 ? '${_toInt(existing?['quantity'])}' : '',
+    );
+    final stockCtrl = TextEditingController(
+      text: (_toInt(existing?['stock']) ?? 0) > 0 ? '${_toInt(existing?['stock'])}' : '',
+    );
+    final dosageCtrl = TextEditingController(text: _safeStr(existing?['dosage']));
+    final familyCtrl = TextEditingController(text: _safeStr(existing?['therapeuticFamily']));
+    final expiryCtrl = TextEditingController(text: _safeStr(existing?['expiryDate']));
+    final photoCtrl = TextEditingController(text: _safeStr(existing?['image']));
+    String form = _safeStr(existing?['form']).isNotEmpty ? _safeStr(existing?['form']) : 'Comprime';
+    bool uploadingPhoto = false;
+    Uint8List? photoPreview;
+
+    final result = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final isDark = theme.brightness == Brightness.dark;
+        final cardBg = isDark ? const Color(0xFF16120B) : Colors.white;
+        final text = isDark ? Colors.white : const Color(0xFF23160A);
+        final sub = isDark ? Colors.white70 : const Color(0xFF6F5843);
+
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 12,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+              ),
+              child: Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: cardBg,
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(color: accent.withOpacity(0.16)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: accent.withOpacity(0.10),
+                      blurRadius: 28,
+                      offset: const Offset(0, 16),
+                    ),
+                  ],
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        existing == null ? 'Ajouter un produit' : 'Modifier le produit',
+                        style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 18),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: nameCtrl,
+                        style: TextStyle(color: text, fontWeight: FontWeight.w700),
+                        decoration: const InputDecoration(labelText: 'Nom du produit'),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: priceCtrl,
+                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              decoration: const InputDecoration(labelText: 'Prix'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: quantityCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(labelText: 'Quantite'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: stockCtrl,
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(labelText: 'Stock'),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: dosageCtrl,
+                              decoration: const InputDecoration(labelText: 'Dosage'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<String>(
+                        initialValue: form,
+                        decoration: const InputDecoration(labelText: 'Forme'),
+                        items: const [
+                          DropdownMenuItem(value: 'Comprime', child: Text('Comprime')),
+                          DropdownMenuItem(value: 'Gelule', child: Text('Gelule')),
+                          DropdownMenuItem(value: 'Sirop', child: Text('Sirop')),
+                          DropdownMenuItem(value: 'Injection', child: Text('Injection')),
+                          DropdownMenuItem(value: 'Pommade', child: Text('Pommade')),
+                          DropdownMenuItem(value: 'Autre', child: Text('Autre')),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setModalState(() => form = value);
+                        },
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: familyCtrl,
+                        decoration: const InputDecoration(labelText: 'Famille therapeutique'),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: expiryCtrl,
+                        decoration: const InputDecoration(labelText: 'Date de peremption'),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: uploadingPhoto
+                                ? null
+                                : () async {
+                                    setModalState(() {
+                                      uploadingPhoto = true;
+                                      photoPreview = null;
+                                    });
+                                    final photo = await _pickAndUploadPharmacyPhoto();
+                                    if (photo.url.isNotEmpty) {
+                                      photoCtrl.text = photo.url;
+                                      photoPreview = photo.bytes;
+                                    }
+                                    if (!ctx.mounted) return;
+                                    setModalState(() => uploadingPhoto = false);
+                                  },
+                            icon: uploadingPhoto
+                                ? const SizedBox(
+                                    height: 16,
+                                    width: 16,
+                                    child: CircularProgressIndicator(strokeWidth: 2),
+                                  )
+                                : const Icon(Icons.photo_library_outlined),
+                            label: const Text('Photo produit'),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: TextField(
+                              controller: photoCtrl,
+                              onChanged: (_) => setModalState(() {}),
+                              decoration: const InputDecoration(labelText: 'Photo URL'),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (photoPreview != null || photoCtrl.text.trim().isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: photoPreview != null
+                              ? Image.memory(photoPreview!, width: 88, height: 88, fit: BoxFit.cover)
+                              : Image.network(photoCtrl.text.trim(), width: 88, height: 88, fit: BoxFit.cover),
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: accent,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          ),
+                          onPressed: () {
+                            final name = nameCtrl.text.trim();
+                            if (name.isEmpty) {
+                              _snack('Le nom du produit est obligatoire', error: true);
+                              return;
+                            }
+                            Navigator.of(ctx).pop(
+                              <String, dynamic>{
+                                'name': name,
+                                'price': _toDouble(priceCtrl.text.trim()) ?? 0,
+                                'quantity': _toInt(quantityCtrl.text.trim()) ?? 0,
+                                'stock': _toInt(stockCtrl.text.trim()) ?? 0,
+                                'form': form,
+                                'dosage': dosageCtrl.text.trim(),
+                                'therapeuticFamily': familyCtrl.text.trim(),
+                                'expiryDate': expiryCtrl.text.trim(),
+                                'image': photoCtrl.text.trim(),
+                              },
+                            );
+                          },
+                          icon: const Icon(Icons.save_outlined),
+                          label: Text(existing == null ? 'Ajouter le produit' : 'Enregistrer le produit'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    nameCtrl.dispose();
+    priceCtrl.dispose();
+    quantityCtrl.dispose();
+    stockCtrl.dispose();
+    dosageCtrl.dispose();
+    familyCtrl.dispose();
+    expiryCtrl.dispose();
+    photoCtrl.dispose();
+    return result;
+  }
+
+  Future<void> _openPharmacyInventoryManager({
+    required Color accent,
+    required DocumentReference<Map<String, dynamic>> reference,
+    required Map<String, dynamic> pharmacy,
+  }) async {
+    final catalog = _normalizePharmacyCatalog(_pharmacyCatalogFromData(pharmacy))
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+    String query = '';
+    String sortMode = 'priority';
+    bool saving = false;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final theme = Theme.of(ctx);
+        final isDark = theme.brightness == Brightness.dark;
+        final cardBg = isDark ? const Color(0xFF16120B) : Colors.white;
+        final text = isDark ? Colors.white : const Color(0xFF23160A);
+        final sub = isDark ? Colors.white70 : const Color(0xFF6F5843);
+        final place = _joinParts([
+          _safeStr(pharmacy['address'] ?? pharmacy['adresse']),
+          _safeStr(pharmacy['location'] ?? pharmacy['localisation']),
+        ]);
+
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            final filtered = catalog.where((medicine) {
+              if (query.isEmpty) return true;
+              final haystack = [
+                _safeStr(medicine['name']),
+                _safeStr(medicine['form']),
+                _safeStr(medicine['dosage']),
+                _safeStr(medicine['therapeuticFamily']),
+              ].join(' ').toLowerCase();
+              return haystack.contains(query);
+            }).toList();
+
+            switch (sortMode) {
+              case 'name':
+                filtered.sort(
+                  (a, b) => _safeStr(a['name']).toLowerCase().compareTo(_safeStr(b['name']).toLowerCase()),
+                );
+                break;
+              case 'stock':
+                filtered.sort((a, b) => (_toInt(a['stock']) ?? 0).compareTo(_toInt(b['stock']) ?? 0));
+                break;
+              case 'priority':
+              default:
+                filtered.sort((a, b) {
+                  final aDays = _pharmacyMedicineExpiryDate(a)?.difference(DateTime.now()).inDays;
+                  final bDays = _pharmacyMedicineExpiryDate(b)?.difference(DateTime.now()).inDays;
+                  final aScore = ((_toInt(a['stock']) ?? 0) <= 5 ? 2 : 0) + (((aDays ?? 9999) <= 45) ? 1 : 0);
+                  final bScore = ((_toInt(b['stock']) ?? 0) <= 5 ? 2 : 0) + (((bDays ?? 9999) <= 45) ? 1 : 0);
+                  if (aScore != bScore) return bScore.compareTo(aScore);
+                  return _safeStr(a['name']).compareTo(_safeStr(b['name']));
+                });
+            }
+
+            return Padding(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 12,
+                bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
+              ),
+              child: FractionallySizedBox(
+                heightFactor: 0.92,
+                child: Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: cardBg,
+                    borderRadius: BorderRadius.circular(28),
+                    border: Border.all(color: accent.withOpacity(0.16)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: accent.withOpacity(0.10),
+                        blurRadius: 28,
+                        offset: const Offset(0, 16),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        _safeStr(pharmacy['name']).isNotEmpty ? _safeStr(pharmacy['name']) : 'Pharmacie',
+                        style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 18),
+                      ),
+                      if (place.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          place,
+                          style: TextStyle(color: sub, fontWeight: FontWeight.w600),
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _buildHospitalInfoChip(label: '${catalog.length} produit(s)', color: accent),
+                          _buildHospitalInfoChip(
+                            label: 'Stock ${_pharmacyTotalStock(catalog)}',
+                            color: accent,
+                          ),
+                          if (_pharmacyLowStockCount(catalog) > 0)
+                            _buildHospitalInfoChip(
+                              label: '${_pharmacyLowStockCount(catalog)} stock bas',
+                              color: const Color(0xFFFF8A1F),
+                            ),
+                          if (_pharmacyExpiringCount(catalog) > 0)
+                            _buildHospitalInfoChip(
+                              label: '${_pharmacyExpiringCount(catalog)} peremption',
+                              color: Colors.redAccent,
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              onChanged: (value) => setModalState(() => query = value.trim().toLowerCase()),
+                              style: TextStyle(color: text, fontWeight: FontWeight.w700),
+                              decoration: InputDecoration(
+                                prefixIcon: Icon(Icons.search, color: accent),
+                                hintText: 'Rechercher un produit',
+                                hintStyle: TextStyle(color: sub),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton.icon(
+                            onPressed: () async {
+                              final created = await _openAddPharmacyMedicineDialog(accent);
+                              if (created == null || !ctx.mounted) return;
+                              setModalState(() => catalog.add(created));
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: accent,
+                              foregroundColor: Colors.white,
+                            ),
+                            icon: const Icon(Icons.add),
+                            label: const Text('Produit'),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: const <MapEntry<String, String>>[
+                          MapEntry<String, String>('priority', 'Priorite'),
+                          MapEntry<String, String>('stock', 'Stock'),
+                          MapEntry<String, String>('name', 'Nom'),
+                        ].map((item) {
+                          final selected = sortMode == item.key;
+                          return ChoiceChip(
+                            label: Text(item.value),
+                            selected: selected,
+                            showCheckmark: false,
+                            backgroundColor: accent.withOpacity(0.06),
+                            selectedColor: accent.withOpacity(0.18),
+                            labelStyle: TextStyle(
+                              color: selected ? accent : text,
+                              fontWeight: FontWeight.w700,
+                            ),
+                            onSelected: (_) => setModalState(() => sortMode = item.key),
+                          );
+                        }).toList(growable: false),
+                      ),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: filtered.isEmpty
+                            ? Center(
+                                child: Text(
+                                  catalog.isEmpty
+                                      ? 'Aucun produit n est encore renseigne pour cette pharmacie.'
+                                      : 'Aucun produit ne correspond a votre recherche.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: sub, height: 1.4, fontWeight: FontWeight.w600),
+                                ),
+                              )
+                            : ListView.separated(
+                                itemCount: filtered.length,
+                                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                                itemBuilder: (ctx, index) {
+                                  final medicine = filtered[index];
+                                  final rawIndex = catalog.indexOf(medicine);
+                                  final stock = _toInt(medicine['stock']) ?? 0;
+                                  final quantity = _toInt(medicine['quantity']);
+                                  final price = _toDouble(medicine['price']);
+                                  final stockColor = _pharmacyMedicineStockColor(stock, accent);
+                                  final expiryColor = _pharmacyMedicineExpiryColor(medicine, accent);
+                                  final image = _safeStr(medicine['image']);
+                                  final details = _joinParts([
+                                    _safeStr(medicine['form']),
+                                    _safeStr(medicine['dosage']),
+                                    _safeStr(medicine['therapeuticFamily']),
+                                  ]);
+                                  final expiry = _safeStr(medicine['expiryDate']);
+                                  return Container(
+                                    padding: const EdgeInsets.all(14),
+                                    decoration: BoxDecoration(
+                                      color: accent.withOpacity(0.05),
+                                      borderRadius: BorderRadius.circular(18),
+                                      border: Border.all(color: accent.withOpacity(0.10)),
+                                    ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            ClipRRect(
+                                              borderRadius: BorderRadius.circular(14),
+                                              child: image.isNotEmpty
+                                                  ? Image.network(image, width: 54, height: 54, fit: BoxFit.cover)
+                                                  : Container(
+                                                      width: 54,
+                                                      height: 54,
+                                                      color: accent.withOpacity(0.12),
+                                                      child: Icon(Icons.medication_outlined, color: accent),
+                                                    ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    _safeStr(medicine['name']).isNotEmpty
+                                                        ? _safeStr(medicine['name'])
+                                                        : 'Produit',
+                                                    style: TextStyle(
+                                                      color: text,
+                                                      fontWeight: FontWeight.w900,
+                                                    ),
+                                                  ),
+                                                  if (details.isNotEmpty) ...[
+                                                    const SizedBox(height: 4),
+                                                    Text(
+                                                      details,
+                                                      style: TextStyle(color: sub, fontWeight: FontWeight.w600),
+                                                    ),
+                                                  ],
+                                                ],
+                                              ),
+                                            ),
+                                            Column(
+                                              children: [
+                                                IconButton(
+                                                  onPressed: rawIndex < 0
+                                                      ? null
+                                                      : () async {
+                                                          final updated = await _openAddPharmacyMedicineDialog(
+                                                            accent,
+                                                            existing: medicine,
+                                                          );
+                                                          if (updated == null || !ctx.mounted) return;
+                                                          setModalState(() => catalog[rawIndex] = updated);
+                                                        },
+                                                  icon: const Icon(Icons.edit_outlined),
+                                                ),
+                                                IconButton(
+                                                  onPressed: rawIndex < 0
+                                                      ? null
+                                                      : () => setModalState(() => catalog.removeAt(rawIndex)),
+                                                  color: Colors.redAccent,
+                                                  icon: const Icon(Icons.delete_outline),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                        const SizedBox(height: 10),
+                                        Wrap(
+                                          spacing: 8,
+                                          runSpacing: 8,
+                                          children: [
+                                            _buildHospitalInfoChip(label: 'Stock $stock', color: stockColor),
+                                            if (quantity != null && quantity > 0)
+                                              _buildHospitalInfoChip(label: 'Qt $quantity', color: accent),
+                                            if (price != null && price > 0)
+                                              _buildHospitalInfoChip(
+                                                label: 'Prix ${price.toStringAsFixed(2)}',
+                                                color: accent,
+                                              ),
+                                            if (expiry.isNotEmpty)
+                                              _buildHospitalInfoChip(
+                                                label: expiry,
+                                                color: expiryColor,
+                                              ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: accent,
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          ),
+                          onPressed: saving
+                              ? null
+                              : () async {
+                                  setModalState(() => saving = true);
+                                  try {
+                                    final normalized = _normalizePharmacyCatalog(catalog);
+                                    await reference.set(
+                                      {
+                                        'medicineCatalog': normalized,
+                                        'medicines': _pharmacyCatalogMedicineNames(normalized),
+                                        'updatedAt': FieldValue.serverTimestamp(),
+                                      },
+                                      SetOptions(merge: true),
+                                    );
+                                    await _refreshHealthNotificationsIfAvailable();
+                                    if (ctx.mounted) Navigator.of(ctx).pop();
+                                    _snack('Stock pharmacie mis a jour');
+                                  } catch (e) {
+                                    if (ctx.mounted) setModalState(() => saving = false);
+                                    _snack('Erreur mise a jour stock: $e', error: true);
+                                  }
+                                },
+                          icon: saving
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Icon(Icons.save_outlined),
+                          label: Text(saving ? 'Enregistrement...' : 'Enregistrer le stock'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _openAddPharmacy(
+    Color accent, {
+    DocumentReference<Map<String, dynamic>>? reference,
+    Map<String, dynamic>? existing,
+  }) async {
     if (_addingPharmacy) return;
     setState(() => _addingPharmacy = true);
-    final nameCtrl = TextEditingController();
-    final addressCtrl = TextEditingController();
-    final locationCtrl = TextEditingController();
-    final photoCtrl = TextEditingController();
-    final latCtrl = TextEditingController();
-    final lngCtrl = TextEditingController();
-    final medCtrl = TextEditingController();
-    final meds = <String>[];
-    bool open24h = false;
-    String status = 'Ouvert';
+    final isEditing = existing != null;
+    final nameCtrl = TextEditingController(text: _safeStr(existing?['name']));
+    final addressCtrl = TextEditingController(text: _safeStr(existing?['address'] ?? existing?['adresse']));
+    final locationCtrl = TextEditingController(text: _safeStr(existing?['location'] ?? existing?['localisation']));
+    final phoneCtrl = TextEditingController(text: _safeStr(existing?['phone'] ?? existing?['telephone']));
+    final emailCtrl = TextEditingController(text: _safeStr(existing?['email']));
+    final photoCtrl = TextEditingController(text: _safeStr(existing?['photo'] ?? existing?['image'] ?? existing?['photoUrl']));
+    final latCtrl = TextEditingController(
+      text: _toDouble(existing?['lat'] ?? existing?['latitude'])?.toString() ?? '',
+    );
+    final lngCtrl = TextEditingController(
+      text: _toDouble(existing?['lng'] ?? existing?['longitude'])?.toString() ?? '',
+    );
+    final catalog = _normalizePharmacyCatalog(_pharmacyCatalogFromData(existing ?? const <String, dynamic>{}))
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
+    bool open24h = _boolValue(existing?['open24h'] ?? existing?['alwaysOpen']) == true;
+    String status = _safeStr(existing?['status']).isNotEmpty
+        ? _safeStr(existing?['status'])
+        : (open24h ? 'Ouvert 24/7' : 'Ouvert');
     bool uploadingPhoto = false;
+    bool saving = false;
     Uint8List? photoPreview;
 
     await showModalBottomSheet(
@@ -6127,11 +7849,33 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text('Ajouter une pharmacie', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                    Text(
+                      isEditing ? 'Modifier la pharmacie' : 'Ajouter une pharmacie',
+                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                    ),
                     const SizedBox(height: 12),
                     TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Nom')),
                     TextField(controller: addressCtrl, decoration: const InputDecoration(labelText: 'Adresse')),
                     TextField(controller: locationCtrl, decoration: const InputDecoration(labelText: 'Localisation')),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: phoneCtrl,
+                            keyboardType: TextInputType.phone,
+                            decoration: const InputDecoration(labelText: 'Telephone'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextField(
+                            controller: emailCtrl,
+                            keyboardType: TextInputType.emailAddress,
+                            decoration: const InputDecoration(labelText: 'Email'),
+                          ),
+                        ),
+                      ],
+                    ),
                     Row(
                       children: [
                         Expanded(
@@ -6179,6 +7923,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                                     photoCtrl.text = result.url;
                                     photoPreview = result.bytes;
                                   }
+                                  if (!ctx.mounted) return;
                                   setModalState(() => uploadingPhoto = false);
                                 },
                           icon: uploadingPhoto
@@ -6195,11 +7940,13 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                         ),
                       ],
                     ),
-                    if (photoPreview != null) ...[
+                    if (photoPreview != null || photoCtrl.text.trim().isNotEmpty) ...[
                       const SizedBox(height: 8),
                       ClipRRect(
                         borderRadius: BorderRadius.circular(10),
-                        child: Image.memory(photoPreview!, width: 96, height: 96, fit: BoxFit.cover),
+                        child: photoPreview != null
+                            ? Image.memory(photoPreview!, width: 96, height: 96, fit: BoxFit.cover)
+                            : Image.network(photoCtrl.text.trim(), width: 96, height: 96, fit: BoxFit.cover),
                       ),
                     ],
                     const SizedBox(height: 12),
@@ -6234,66 +7981,195 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        Expanded(
-                          child: TextField(
-                            controller: medCtrl,
-                            decoration: const InputDecoration(labelText: 'Medicament'),
+                        const Expanded(
+                          child: Text(
+                            'Catalogue pharmacie',
+                            style: TextStyle(fontWeight: FontWeight.w800),
                           ),
                         ),
-                        const SizedBox(width: 8),
-                        ElevatedButton(
-                          onPressed: () {
-                            final v = medCtrl.text.trim();
-                            if (v.isEmpty) return;
-                            meds.add(v);
-                            medCtrl.clear();
-                            setModalState(() {});
+                        ElevatedButton.icon(
+                          onPressed: () async {
+                            final created = await _openAddPharmacyMedicineDialog(accent);
+                            if (created == null || !ctx.mounted) return;
+                            setModalState(() => catalog.add(created));
                           },
-                          child: const Text('Ajouter'),
+                          icon: const Icon(Icons.add),
+                          label: const Text('Produit'),
                         ),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: meds
-                          .map(
-                            (m) => Chip(
-                              label: Text(m),
-                              onDeleted: () {
-                                meds.remove(m);
-                                setModalState(() {});
-                              },
+                    if (catalog.isEmpty)
+                      const Text('Aucun produit renseigne pour le moment.')
+                    else
+                      Column(
+                        children: List.generate(catalog.length, (index) {
+                          final medicine = catalog[index];
+                          final stock = _toInt(medicine['stock']) ?? 0;
+                          final details = _joinParts([
+                            _safeStr(medicine['form']),
+                            _safeStr(medicine['dosage']),
+                            _safeStr(medicine['therapeuticFamily']),
+                          ]);
+                          return Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: accent.withOpacity(0.05),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: accent.withOpacity(0.10)),
                             ),
-                          )
-                          .toList(),
-                    ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        _safeStr(medicine['name']).isNotEmpty
+                                            ? _safeStr(medicine['name'])
+                                            : 'Produit',
+                                        style: const TextStyle(fontWeight: FontWeight.w800),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      onPressed: () async {
+                                        final updated = await _openAddPharmacyMedicineDialog(
+                                          accent,
+                                          existing: medicine,
+                                        );
+                                        if (updated == null || !ctx.mounted) return;
+                                        setModalState(() => catalog[index] = updated);
+                                      },
+                                      icon: const Icon(Icons.edit_outlined),
+                                    ),
+                                    IconButton(
+                                      onPressed: () => setModalState(() => catalog.removeAt(index)),
+                                      color: Colors.redAccent,
+                                      icon: const Icon(Icons.delete_outline),
+                                    ),
+                                  ],
+                                ),
+                                if (details.isNotEmpty) Text(details),
+                                const SizedBox(height: 6),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    _buildHospitalInfoChip(
+                                      label: 'Stock $stock',
+                                      color: _pharmacyMedicineStockColor(stock, accent),
+                                    ),
+                                    if ((_toDouble(medicine['price']) ?? 0) > 0)
+                                      _buildHospitalInfoChip(
+                                        label:
+                                            'Prix ${(_toDouble(medicine['price']) ?? 0).toStringAsFixed(2)}',
+                                        color: accent,
+                                      ),
+                                    if ((_toInt(medicine['quantity']) ?? 0) > 0)
+                                      _buildHospitalInfoChip(
+                                        label: 'Qt ${_toInt(medicine['quantity'])}',
+                                        color: accent,
+                                      ),
+                                    if (_safeStr(medicine['expiryDate']).isNotEmpty)
+                                      _buildHospitalInfoChip(
+                                        label: _safeStr(medicine['expiryDate']),
+                                        color: _pharmacyMedicineExpiryColor(medicine, accent),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          );
+                        }),
+                      ),
                     const SizedBox(height: 12),
-                    ElevatedButton.icon(
-                      onPressed: () async {
-                        final name = nameCtrl.text.trim();
-                        if (name.isEmpty) return;
-                        final lat = double.tryParse(latCtrl.text.replaceAll(',', '.'));
-                        final lng = double.tryParse(lngCtrl.text.replaceAll(',', '.'));
-                        await FirebaseFirestore.instance.collection('health_pharmacies').add({
-                          'name': name,
-                          'address': addressCtrl.text.trim(),
-                          'location': locationCtrl.text.trim(),
-                          'photo': photoCtrl.text.trim(),
-                          'status': status,
-                          'isOpen': status != 'Ferme',
-                          'open24h': open24h,
-                          if (meds.isNotEmpty) 'medicines': meds,
-                          if (lat != null) 'lat': lat,
-                          if (lng != null) 'lng': lng,
-                          if (_userId != null) 'ownerId': _userId,
-                          'createdAt': FieldValue.serverTimestamp(),
-                        });
-                        if (mounted) Navigator.of(ctx).pop();
-                      },
-                      icon: const Icon(Icons.check_circle_outline),
-                      label: const Text('Enregistrer'),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: accent,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        ),
+                        onPressed: saving
+                            ? null
+                            : () async {
+                                final name = nameCtrl.text.trim();
+                                final address = addressCtrl.text.trim();
+                                final location = locationCtrl.text.trim();
+                                if (name.isEmpty) {
+                                  _snack('Le nom de la pharmacie est obligatoire', error: true);
+                                  return;
+                                }
+                                if (address.isEmpty && location.isEmpty) {
+                                  _snack('Renseignez au moins une adresse ou une localisation', error: true);
+                                  return;
+                                }
+                                final normalizedStatus = status == 'Ferme'
+                                    ? 'Ferme'
+                                    : open24h
+                                        ? 'Ouvert 24/7'
+                                        : 'Ouvert';
+                                final normalizedCatalog = _normalizePharmacyCatalog(catalog);
+                                setModalState(() => saving = true);
+                                try {
+                                  final payload = <String, dynamic>{
+                                    'name': name,
+                                    'address': address,
+                                    'location': location,
+                                    'phone': phoneCtrl.text.trim(),
+                                    'email': emailCtrl.text.trim(),
+                                    'photo': photoCtrl.text.trim(),
+                                    'status': normalizedStatus,
+                                    'isOpen': normalizedStatus != 'Ferme',
+                                    'open24h': normalizedStatus == 'Ouvert 24/7',
+                                    'lat': _toDouble(latCtrl.text.trim()),
+                                    'lng': _toDouble(lngCtrl.text.trim()),
+                                    'medicineCatalog': normalizedCatalog,
+                                    'medicines': _pharmacyCatalogMedicineNames(normalizedCatalog),
+                                    'ownerId': _safeStr(existing?['ownerId']).isNotEmpty
+                                        ? _safeStr(existing?['ownerId'])
+                                        : (_userId ?? ''),
+                                    'updatedAt': FieldValue.serverTimestamp(),
+                                  };
+                                  if (reference != null) {
+                                    await reference.set(payload, SetOptions(merge: true));
+                                  } else {
+                                    await FirebaseFirestore.instance.collection('health_pharmacies').add({
+                                      ...payload,
+                                      'createdAt': FieldValue.serverTimestamp(),
+                                    });
+                                  }
+                                  await _refreshHealthNotificationsIfAvailable();
+                                  if (ctx.mounted) Navigator.of(ctx).pop();
+                                  _snack(isEditing ? 'Pharmacie mise a jour' : 'Pharmacie enregistree');
+                                } catch (e) {
+                                  if (ctx.mounted) setModalState(() => saving = false);
+                                  _snack(
+                                    isEditing
+                                        ? 'Erreur modification pharmacie: $e'
+                                        : 'Erreur ajout pharmacie: $e',
+                                    error: true,
+                                  );
+                                }
+                              },
+                        icon: saving
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Icon(Icons.save_outlined),
+                        label: Text(
+                          saving
+                              ? 'Enregistrement...'
+                              : isEditing
+                                  ? 'Enregistrer les modifications'
+                                  : 'Enregistrer',
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -6303,6 +8179,14 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
         );
       },
     );
+    nameCtrl.dispose();
+    addressCtrl.dispose();
+    locationCtrl.dispose();
+    phoneCtrl.dispose();
+    emailCtrl.dispose();
+    photoCtrl.dispose();
+    latCtrl.dispose();
+    lngCtrl.dispose();
     if (mounted) {
       setState(() => _addingPharmacy = false);
     }

@@ -1,9 +1,70 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'health_profile_page.dart';
 
-class HealthSpacePickerPage extends StatelessWidget {
+class HealthSpacePickerPage extends StatefulWidget {
   const HealthSpacePickerPage({super.key});
+
+  @override
+  State<HealthSpacePickerPage> createState() => _HealthSpacePickerPageState();
+}
+
+class _HealthSpacePickerPageState extends State<HealthSpacePickerPage> {
+  String? _userCollection;
+  bool _loadingAccount = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveUserCollection();
+  }
+
+  Future<void> _resolveUserCollection() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        if (!mounted) return;
+        setState(() => _loadingAccount = false);
+        return;
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      final preferred = prefs.getString('user_collection')?.trim();
+      final candidates = <String>[];
+      if (preferred != null && preferred.isNotEmpty) {
+        candidates.add(preferred);
+      }
+      for (final c in const ['classic_users', 'pro_users', 'enterprise_users', 'users']) {
+        if (!candidates.contains(c)) candidates.add(c);
+      }
+
+      var found = candidates.first;
+      for (final col in candidates) {
+        try {
+          final snap = await FirebaseFirestore.instance.collection(col).doc(user.uid).get();
+          if (snap.exists) {
+            found = col;
+            break;
+          }
+        } catch (_) {}
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _userCollection = found;
+        _loadingAccount = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingAccount = false);
+    }
+  }
+
+  bool get _hideOrganizationSpaces =>
+      _userCollection == 'classic_users' || _userCollection == 'users';
 
   @override
   Widget build(BuildContext context) {
@@ -13,7 +74,7 @@ class HealthSpacePickerPage extends StatelessWidget {
     final sub = isDark ? const Color(0xFF9FC0BE) : const Color(0xFF5F7278);
     final outline = isDark ? Colors.white10 : const Color(0xFFD9E6E8);
 
-    const items = <_HealthChoiceConfig>[
+    final items = <_HealthChoiceConfig>[
       _HealthChoiceConfig(
         title: 'Personne',
         subtitle: 'Suivi personnel, dossier medical, rendez-vous et documents.',
@@ -24,26 +85,28 @@ class HealthSpacePickerPage extends StatelessWidget {
         gradientEnd: Color(0xFF00796B),
         bullets: ['Dossier medical', 'Rappels intelligents', 'QR sante'],
       ),
-      _HealthChoiceConfig(
-        title: 'Hopital',
-        subtitle: 'Patients, teleconsultation, alertes critiques et pilotage medical.',
-        eyebrow: 'Structure',
-        icon: Icons.local_hospital_outlined,
-        accent: Color(0xFF2D6BFF),
-        gradientStart: Color(0xFF4E86FF),
-        gradientEnd: Color(0xFF2146C7),
-        bullets: ['Patients', 'Alertes critiques', 'Exports PDF'],
-      ),
-      _HealthChoiceConfig(
-        title: 'Pharmacies',
-        subtitle: 'Stocks visibles, recherche rapide et pharmacies proches.',
-        eyebrow: 'Reseau local',
-        icon: Icons.local_pharmacy_outlined,
-        accent: Color(0xFFFF8A1F),
-        gradientStart: Color(0xFFFFAA3B),
-        gradientEnd: Color(0xFFE46A00),
-        bullets: ['Recherche medicaments', 'Import/Export', 'Geolocalisation'],
-      ),
+      if (!_hideOrganizationSpaces) ...[
+        _HealthChoiceConfig(
+          title: 'Hopital',
+          subtitle: 'Patients, teleconsultation, alertes critiques et pilotage medical.',
+          eyebrow: 'Structure',
+          icon: Icons.local_hospital_outlined,
+          accent: Color(0xFF2D6BFF),
+          gradientStart: Color(0xFF4E86FF),
+          gradientEnd: Color(0xFF2146C7),
+          bullets: ['Patients', 'Alertes critiques', 'Exports PDF'],
+        ),
+        _HealthChoiceConfig(
+          title: 'Pharmacies',
+          subtitle: 'Stocks visibles, recherche rapide et pharmacies proches.',
+          eyebrow: 'Reseau local',
+          icon: Icons.local_pharmacy_outlined,
+          accent: Color(0xFFFF8A1F),
+          gradientStart: Color(0xFFFFAA3B),
+          gradientEnd: Color(0xFFE46A00),
+          bullets: ['Recherche medicaments', 'Import/Export', 'Geolocalisation'],
+        ),
+      ],
     ];
 
     return Scaffold(
@@ -96,48 +159,54 @@ class HealthSpacePickerPage extends StatelessWidget {
                 const SizedBox(height: 18),
                 _HealthHeroCard(text: text, sub: sub, isDark: isDark),
                 const SizedBox(height: 20),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final wide = constraints.maxWidth >= 860;
-                    final medium = constraints.maxWidth >= 620;
-                    final cardWidth = wide
-                        ? (constraints.maxWidth - 12) / 2
-                        : medium
-                            ? (constraints.maxWidth - 12) / 2
-                            : constraints.maxWidth;
+                if (_loadingAccount)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final wide = constraints.maxWidth >= 860;
+                      final medium = constraints.maxWidth >= 620;
+                      final cardWidth = wide
+                          ? (constraints.maxWidth - 12) / 2
+                          : medium
+                              ? (constraints.maxWidth - 12) / 2
+                              : constraints.maxWidth;
 
-                    return Wrap(
-                      spacing: 12,
-                      runSpacing: 12,
-                      children: items.asMap().entries.map((entry) {
-                        final index = entry.key;
-                        final item = entry.value;
-                        return SizedBox(
-                          width: cardWidth,
-                          child: TweenAnimationBuilder<double>(
-                            tween: Tween(begin: 0, end: 1),
-                            duration: Duration(milliseconds: 280 + (index * 120)),
-                            curve: Curves.easeOutCubic,
-                            builder: (context, t, child) {
-                              return Transform.translate(
-                                offset: Offset(0, (1 - t) * 18),
-                                child: Opacity(opacity: t, child: child),
-                              );
-                            },
-                            child: _HealthChoiceCard(
-                              item: item,
-                              text: text,
-                              sub: sub,
-                              outline: outline,
-                              isDark: isDark,
-                              onTap: () => _openView(context, item.mode),
+                      return Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: items.asMap().entries.map((entry) {
+                          final index = entry.key;
+                          final item = entry.value;
+                          return SizedBox(
+                            width: cardWidth,
+                            child: TweenAnimationBuilder<double>(
+                              tween: Tween(begin: 0, end: 1),
+                              duration: Duration(milliseconds: 280 + (index * 120)),
+                              curve: Curves.easeOutCubic,
+                              builder: (context, t, child) {
+                                return Transform.translate(
+                                  offset: Offset(0, (1 - t) * 18),
+                                  child: Opacity(opacity: t, child: child),
+                                );
+                              },
+                              child: _HealthChoiceCard(
+                                item: item,
+                                text: text,
+                                sub: sub,
+                                outline: outline,
+                                isDark: isDark,
+                                onTap: () => _openView(context, item.mode),
+                              ),
                             ),
-                          ),
-                        );
-                      }).toList(growable: false),
-                    );
-                  },
-                ),
+                          );
+                        }).toList(growable: false),
+                      );
+                    },
+                  ),
               ],
             ),
           ),
@@ -147,10 +216,15 @@ class HealthSpacePickerPage extends StatelessWidget {
   }
 
   void _openView(BuildContext context, HealthProfileViewMode viewMode) {
+    final effectiveViewMode = _hideOrganizationSpaces &&
+            (viewMode == HealthProfileViewMode.hospital ||
+                viewMode == HealthProfileViewMode.pharmacy)
+        ? HealthProfileViewMode.person
+        : viewMode;
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => HealthProfilePage(viewMode: viewMode),
+        builder: (_) => HealthProfilePage(viewMode: effectiveViewMode),
       ),
     );
   }

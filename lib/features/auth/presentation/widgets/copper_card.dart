@@ -70,7 +70,7 @@ class _CopperCardState extends State<CopperCard> {
           color: Colors.orange.shade800,
           history: const <double>[10, 12, 9, 15, 14, 18, 20],
           imageUrl: copperUrl,
-          summary: 'Minerai cle pour cables, energie et transformation metallurgique.',
+          summary: 'Minerai clé.',
           locations: const <String>['Kolwezi', 'Fungurume', 'Kambove', 'Tenke'],
           identifiers: const <String>[
             'Couleur rouge brun a saumon',
@@ -429,7 +429,7 @@ class _CopperCardState extends State<CopperCard> {
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 18, 8),
+            padding: const EdgeInsets.fromLTRB(16, 14, 12, 4),
             child: Row(
               children: [
                 Expanded(
@@ -438,23 +438,20 @@ class _CopperCardState extends State<CopperCard> {
                     children: [
                       Text(
                         'OBSERVATOIRE MINIER',
-                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: subText),
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: subText),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Minerais, localisation et identification visuelle',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: scheme.onSurface),
-                      ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 3),
+                      const SizedBox(height: 2),
                       Text(
                         'Mise a jour marche: $lastUpdate',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: subText),
+                        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: subText),
                       ),
                     ],
                   ),
                 ),
                 IconButton(
                   onPressed: isLoading ? null : fetchPrices,
+                  visualDensity: VisualDensity.compact,
                   icon: isLoading
                       ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                       : Icon(Icons.refresh_rounded, color: scheme.primary),
@@ -463,25 +460,12 @@ class _CopperCardState extends State<CopperCard> {
             ),
           ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
+            padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
             child: _buildIdentificationPanel(context, subText),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(18, 14, 18, 0),
-            child: TextField(
-              onChanged: (value) => setState(() {
-                _catalogQuery = value;
-              }),
-              decoration: InputDecoration(
-                prefixIcon: Icon(Icons.search, color: scheme.primary),
-                hintText: 'Rechercher un minerai, une zone ou un indice visuel',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(18)),
-              ),
-            ),
           ),
           if (_filteredMinerals.isNotEmpty)
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 10, 18, 0),
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
               child: Row(
                 children: [
                   Expanded(
@@ -512,7 +496,7 @@ class _CopperCardState extends State<CopperCard> {
                 ],
               ),
             ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           ..._visibleMinerals.asMap().entries.map((entry) {
             final index = entry.key;
             final mineral = entry.value;
@@ -540,7 +524,7 @@ class _CopperCardState extends State<CopperCard> {
                 ),
               ),
             ),
-          if (_filteredMinerals.isNotEmpty) const SizedBox(height: 10),
+          if (_filteredMinerals.isNotEmpty) const SizedBox(height: 6),
         ],
       ),
     );
@@ -548,9 +532,12 @@ class _CopperCardState extends State<CopperCard> {
 
   Widget _buildIdentificationPanel(BuildContext context, Color subText) {
     final scheme = Theme.of(context).colorScheme;
+    final hasPhoto = _pickedMineralBytes != null;
+    final statusText = _identifiedMineral?.label ??
+        (_identificationText.isNotEmpty ? 'Analyse disponible' : 'Photo ajoutee');
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
@@ -566,99 +553,100 @@ class _CopperCardState extends State<CopperCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFB74D).withOpacity(0.16),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(Icons.camera_alt_outlined, color: Color(0xFFC77700)),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Identifier un minerai par photo',
-                      style: TextStyle(color: scheme.onSurface, fontWeight: FontWeight.w900),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Prenez une photo ou importez-en une pour une analyse visuelle assistee.',
-                      style: TextStyle(color: subText, height: 1.35, fontWeight: FontWeight.w600),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              ElevatedButton.icon(
-                onPressed: () => _pickMineralPhoto(ImageSource.camera),
-                icon: const Icon(Icons.photo_camera_outlined),
-                label: const Text('Prendre photo'),
+              _buildIdentificationAction(
+                tooltip: 'Prendre photo',
+                background: const Color(0xFFFFB74D).withOpacity(0.16),
+                onTap: () => _pickMineralPhoto(ImageSource.camera),
+                child: const Icon(Icons.photo_camera_outlined, color: Color(0xFFC77700), size: 18),
               ),
-              OutlinedButton.icon(
-                onPressed: () => _pickMineralPhoto(ImageSource.gallery),
-                icon: const Icon(Icons.photo_library_outlined),
-                label: const Text('Importer'),
+              _buildIdentificationAction(
+                tooltip: 'Importer',
+                background: scheme.primary.withOpacity(0.10),
+                onTap: () => _pickMineralPhoto(ImageSource.gallery),
+                child: Icon(Icons.photo_library_outlined, color: scheme.primary, size: 18),
               ),
-              if (_pickedMineralBytes != null)
-                FilledButton.icon(
-                  onPressed: _identifying ? null : _identifyMineralFromPhoto,
-                  icon: _identifying
+              if (hasPhoto)
+                _buildIdentificationAction(
+                  tooltip: _identifying ? 'Analyse en cours' : 'Lancer l analyse',
+                  background: scheme.primary.withOpacity(0.16),
+                  onTap: _identifying ? null : _identifyMineralFromPhoto,
+                  child: _identifying
                       ? const SizedBox(
                           width: 16,
                           height: 16,
-                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.auto_awesome_outlined),
-                  label: Text(_identifying ? 'Analyse...' : 'Identifier'),
+                      : Icon(Icons.auto_awesome_outlined, color: scheme.primary, size: 18),
                 ),
             ],
           ),
-          if (_pickedMineralBytes != null) ...[
-            const SizedBox(height: 14),
+          if (hasPhoto) ...[
+            const SizedBox(height: 8),
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Image.memory(_pickedMineralBytes!, width: 92, height: 92, fit: BoxFit.cover),
+                  borderRadius: BorderRadius.circular(12),
+                  child: Image.memory(_pickedMineralBytes!, width: 56, height: 56, fit: BoxFit.cover),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 8),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _identifiedMineral?.label ?? 'Photo prete pour analyse',
-                        style: TextStyle(color: scheme.onSurface, fontWeight: FontWeight.w900),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                      decoration: BoxDecoration(
+                        color: scheme.primary.withOpacity(0.08),
+                        borderRadius: BorderRadius.circular(999),
                       ),
-                      const SizedBox(height: 6),
-                      Text(
-                        _identificationText.isEmpty
-                            ? 'Lancez l identification pour obtenir un minerai probable, ses indices visuels et ses zones associees.'
-                            : _identificationText,
-                        maxLines: 7,
+                      child: Text(
+                        statusText,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: subText, height: 1.4, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          color: scheme.onSurface,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 12,
+                        ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
               ],
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildIdentificationAction({
+    required String tooltip,
+    required Color background,
+    required VoidCallback? onTap,
+    required Widget child,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Ink(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: background,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Center(child: child),
+          ),
+        ),
       ),
     );
   }
@@ -693,13 +681,13 @@ class _CopperCardState extends State<CopperCard> {
       },
       borderRadius: BorderRadius.circular(30),
       child: Padding(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(14),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              height: 54,
-              width: 54,
+              height: 44,
+              width: 44,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
                 color: mineral.color.withOpacity(0.10),
@@ -713,7 +701,7 @@ class _CopperCardState extends State<CopperCard> {
                 ),
               ),
             ),
-            const SizedBox(width: 15),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -723,14 +711,14 @@ class _CopperCardState extends State<CopperCard> {
                       Expanded(
                         child: Text(
                           mineral.label.toUpperCase(),
-                          style: TextStyle(fontSize: 11, fontWeight: FontWeight.w900, color: labelText),
+                          style: TextStyle(fontSize: 10, fontWeight: FontWeight.w900, color: labelText),
                         ),
                       ),
                       InkWell(
                         onTap: () => _openMapForMineral(mineral),
                         borderRadius: BorderRadius.circular(999),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                           decoration: BoxDecoration(
                             color: mineral.color.withOpacity(0.10),
                             borderRadius: BorderRadius.circular(999),
@@ -739,10 +727,10 @@ class _CopperCardState extends State<CopperCard> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(Icons.place_outlined, size: 14, color: mineral.color),
-                              const SizedBox(width: 4),
+                              const SizedBox(width: 3),
                               Text(
-                                'Voir zones',
-                                style: TextStyle(color: mineral.color, fontWeight: FontWeight.w800, fontSize: 11),
+                                'Zones',
+                                style: TextStyle(color: mineral.color, fontWeight: FontWeight.w800, fontSize: 10),
                               ),
                             ],
                           ),
@@ -750,53 +738,28 @@ class _CopperCardState extends State<CopperCard> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 4),
+                  const SizedBox(height: 2),
                   Text(
                     mineral.marketLabel,
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: priceText),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    mineral.summary,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: labelText, fontWeight: FontWeight.w600, height: 1.35),
-                  ),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: mineral.locations.take(3).map((location) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: mineral.color.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(
-                          location,
-                          style: TextStyle(color: mineral.color, fontWeight: FontWeight.w700, fontSize: 11),
-                        ),
-                      );
-                    }).toList(growable: false),
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: priceText),
                   ),
                 ],
               ),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 SizedBox(
-                  width: 60,
-                  height: 30,
+                  width: 48,
+                  height: 24,
                   child: CustomPaint(
                     painter: SparklinePainter(mineral.history, mineral.isUp ? Colors.green : Colors.red),
                   ),
                 ),
-                const SizedBox(height: 10),
+                const SizedBox(height: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                   decoration: BoxDecoration(
                     color: (mineral.isUp ? Colors.green : Colors.red).withOpacity(0.1),
                     borderRadius: BorderRadius.circular(10),
@@ -806,7 +769,7 @@ class _CopperCardState extends State<CopperCard> {
                     style: TextStyle(
                       color: mineral.isUp ? Colors.green : Colors.red,
                       fontWeight: FontWeight.bold,
-                      fontSize: 12,
+                      fontSize: 11,
                     ),
                   ),
                 ),

@@ -1109,11 +1109,15 @@ class _ModernDashboardState extends State<ModernDashboard> {
                   valueListenable: ModernDashboardGlobals.navBarVisible,
                   builder: (context, globalVisible, _) {
                     final visible = isNavBarVisible && globalVisible;
+                    final bottomInset = MediaQuery.of(context).padding.bottom;
+                    final horizontalInset = 16.0;
+                    final floatingBottom = bottomInset > 0 ? bottomInset + 12 : 20.0;
                     return AnimatedPositioned(
                       duration: const Duration(milliseconds: 500),
                       curve: Curves.fastOutSlowIn,
-                      left: 0, right: 0,
-                      bottom: visible ? 40 : -120,
+                      left: horizontalInset,
+                      right: horizontalInset,
+                      bottom: visible ? floatingBottom : -120,
                       child: AnimatedOpacity(
                         duration: const Duration(milliseconds: 300),
                         opacity: visible ? 1.0 : 0.0,

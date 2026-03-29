@@ -66,9 +66,9 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
             final double totalWidth = constraints.maxWidth;
             final double itemWidth = totalWidth / 5;
             // Less-rounded corners (requested): keep it "floating", but not too pill-shaped.
-            const double barHeight = 65;
-            const double barRadius = 22;
-            const double focusRadius = 14;
+            const double barHeight = 58;
+            const double barRadius = 20;
+            const double focusRadius = 12;
 
             return AnimatedContainer(
               duration: const Duration(milliseconds: 500),
@@ -80,8 +80,8 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
                     color: widget.isDark 
                         ? Colors.black.withOpacity(0.5) 
                         : const Color(0xFF00CBA9).withOpacity(0.15),
-                    blurRadius: 30,
-                    offset: const Offset(0, 15),
+                    blurRadius: 24,
+                    offset: const Offset(0, 12),
                   ),
                 ],
               ),
@@ -110,8 +110,8 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
                           duration: const Duration(milliseconds: 400),
                           curve: Curves.easeOutExpo,
                           left: (itemWidth * widget.selectedIndex) + (itemWidth * 0.15),
-                          top: 12,
-                          bottom: 12,
+                          top: 10,
+                          bottom: 10,
                           child: Container(
                             width: itemWidth * 0.7,
                             decoration: BoxDecoration(
@@ -126,7 +126,7 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
                           duration: const Duration(milliseconds: 600),
                           curve: Curves.elasticOut,
                           left: (itemWidth * widget.selectedIndex) + (itemWidth / 2) - 3,
-                          bottom: 10,
+                          bottom: 8,
                           child: Container(
                             width: 6,
                             height: 6,
@@ -172,7 +172,7 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
           child: AnimatedScale(
             duration: const Duration(milliseconds: 400),
             curve: Curves.easeOutBack,
-            scale: isSelected ? 1.25 : 1.0,
+            scale: isSelected ? 1.18 : 1.0,
             child: Builder(builder: (context) {
               final uid = FirebaseAuth.instance.currentUser?.uid;
               // For the market button (index 3), show unread market messages count
@@ -190,7 +190,7 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
                       children: [
                         Icon(
                           icons[index],
-                          size: 24,
+                          size: 22,
                           color: isSelected
                               ? const Color(0xFF00CBA9)
                               : (widget.isDark ? Colors.white38 : Colors.black38),
@@ -227,7 +227,7 @@ class _FloatingNavBarState extends State<FloatingNavBar> with SingleTickerProvid
                 children: [
                   Icon(
                     icons[index],
-                    size: 24, // Taille légèrement réduite pour plus d'élégance
+                    size: 22, // Taille légèrement réduite pour plus d'élégance
                     color: isSelected 
                         ? const Color(0xFF00CBA9) 
                         : (widget.isDark ? Colors.white38 : Colors.black38),
