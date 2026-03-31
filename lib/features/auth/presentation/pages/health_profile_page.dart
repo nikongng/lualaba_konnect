@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:excel/excel.dart' as xl;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show debugPrint, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -23,18 +23,127 @@ import 'health/health_appointments_page.dart';
 import 'health/health_cycle_page.dart';
 import 'health/health_documents_page.dart';
 import 'health/health_medications_page.dart';
-import 'health/health_metrics_page.dart';
 import 'health/health_notifications_page.dart';
 import 'health/health_patients_waiting_page.dart';
-import 'health/health_pharmacy_page.dart';
-import 'health/health_prevention_page.dart';
 import 'health/health_profile_edit_page.dart';
+import 'health/health_stress_lab_page.dart';
 import 'health/health_qr_page.dart';
 import 'health/health_teleconsultation_page.dart';
 import 'health/health_notification_scheduler.dart';
 import 'health/health_user_context.dart';
 
 enum HealthProfileViewMode { all, person, hospital, pharmacy }
+
+const String _healthStorageRefScheme = 'sb://';
+
+class _HealthSignedUrlCacheEntry {
+  const _HealthSignedUrlCacheEntry({
+    required this.url,
+    required this.expiresAt,
+  });
+
+  final String url;
+  final DateTime expiresAt;
+}
+
+final Map<String, _HealthSignedUrlCacheEntry> _healthSignedUrlCache =
+    <String, _HealthSignedUrlCacheEntry>{};
+
+String _healthStorageRef(String bucket, String objectPath) {
+  return '$_healthStorageRefScheme$bucket/$objectPath';
+}
+
+({String bucket, String objectPath})? _parseHealthStorageRef(String value) {
+  final normalized = value.trim();
+  if (!normalized.startsWith(_healthStorageRefScheme)) return null;
+  final raw = normalized.substring(_healthStorageRefScheme.length);
+  final slashIndex = raw.indexOf('/');
+  if (slashIndex <= 0 || slashIndex >= raw.length - 1) return null;
+  return (
+    bucket: raw.substring(0, slashIndex),
+    objectPath: raw.substring(slashIndex + 1),
+  );
+}
+
+Future<String?> _resolveHealthImageUrl(String value) async {
+  final normalized = value.trim();
+  if (normalized.isEmpty) return null;
+
+  final ref = _parseHealthStorageRef(normalized);
+  if (ref == null) return normalized;
+
+  final cached = _healthSignedUrlCache[normalized];
+  final now = DateTime.now();
+  if (cached != null && cached.expiresAt.isAfter(now.add(const Duration(minutes: 2)))) {
+    return cached.url;
+  }
+
+  if (!SupabaseService.isInitialized) return null;
+
+  try {
+    await SupabaseService.ensureAuthenticated();
+    final signedUrl = await SupabaseService.client.storage
+        .from(ref.bucket)
+        .createSignedUrl(ref.objectPath, 60 * 60);
+    _healthSignedUrlCache[normalized] = _HealthSignedUrlCacheEntry(
+      url: signedUrl,
+      expiresAt: now.add(const Duration(hours: 1)),
+    );
+    return signedUrl;
+  } catch (e) {
+    debugPrint('Health signed URL error: $e');
+    return null;
+  }
+}
+
+Widget _healthNetworkImage(
+  String url, {
+  required double width,
+  required double height,
+  required IconData fallbackIcon,
+  required Color accent,
+  BoxFit fit = BoxFit.cover,
+}) {
+  final fallback = Container(
+    width: width,
+    height: height,
+    decoration: BoxDecoration(
+      color: accent.withOpacity(0.12),
+      borderRadius: BorderRadius.circular(14),
+    ),
+    alignment: Alignment.center,
+    child: Icon(fallbackIcon, color: accent),
+  );
+
+  final normalized = url.trim();
+  if (normalized.isEmpty) return fallback;
+
+  final privateRef = _parseHealthStorageRef(normalized);
+  if (privateRef != null) {
+    return FutureBuilder<String?>(
+      future: _resolveHealthImageUrl(normalized),
+      builder: (context, snapshot) {
+        final resolvedUrl = (snapshot.data ?? '').trim();
+        if (resolvedUrl.isEmpty) return fallback;
+        return Image.network(
+          resolvedUrl,
+          width: width,
+          height: height,
+          fit: fit,
+          errorBuilder: (_, __, ___) => fallback,
+        );
+      },
+    );
+  }
+
+  return Image.network(
+    normalized,
+    width: width,
+    height: height,
+    fit: fit,
+    errorBuilder: (_, __, ___) => fallback,
+  );
+}
 
 class _HealthTabItem {
   final String label;
@@ -68,9 +177,13 @@ class HealthProfilePage extends StatefulWidget {
   const HealthProfilePage({
     super.key,
     this.viewMode = HealthProfileViewMode.all,
+    this.hospitalDirectoryOnly = false,
+    this.pharmacyDirectoryOnly = false,
   });
 
   final HealthProfileViewMode viewMode;
+  final bool hospitalDirectoryOnly;
+  final bool pharmacyDirectoryOnly;
 
   @override
   State<HealthProfilePage> createState() => _HealthProfilePageState();
@@ -110,7 +223,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     const _HealthAiMessage(
       role: _HealthAiRole.assistant,
       text:
-          'Bonjour. Je peux vous aider a comprendre vos mesures, vos traitements et votre routine sante du jour.',
+          'Bonjour. je suis ton assistant santé.',
     ),
   ];
 
@@ -355,52 +468,47 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
   }
 
   _HealthModeStyle _styleForMode(HealthProfileViewMode mode, bool isDark) {
-    switch (mode) {
-      case HealthProfileViewMode.hospital:
-        return const _HealthModeStyle(
-          navTitle: 'Espace Hopital',
-          headline: 'Pilotage medical centralise',
-          subtitle: 'Patients, priorites, teleconsultations et suivi critique dans une interface plus nette.',
-          icon: Icons.local_hospital_outlined,
-          accent: Color(0xFF2D6BFF),
-          gradient: [Color(0xFF4E86FF), Color(0xFF233CC7)],
-          highlights: ['Patients actifs', 'Alertes critiques', 'Exports PDF'],
-        );
-      case HealthProfileViewMode.pharmacy:
-        return const _HealthModeStyle(
-          navTitle: 'Espace Pharmacies',
-          headline: 'Recherche, stocks et proximite',
-          subtitle: 'Une vue plus directe pour trouver, gerer et publier les pharmacies et les medicaments.',
-          icon: Icons.local_pharmacy_outlined,
-          accent: Color(0xFFFF8A1F),
-          gradient: [Color(0xFFFFAE42), Color(0xFFE56B00)],
-          highlights: ['Medicaments', 'Import / Export', 'Pharmacies proches'],
-        );
-      case HealthProfileViewMode.person:
-      case HealthProfileViewMode.all:
-        return const _HealthModeStyle(
-          navTitle: 'Espace Personne',
-          headline: 'Votre tableau de bord sante',
-          subtitle: 'Mesures, documents, rendez-vous et rappels dans une presentation plus vivante.',
-          icon: Icons.favorite_outline,
-          accent: Color(0xFF00BFA5),
-          gradient: [Color(0xFF0BCDB2), Color(0xFF00796B)],
-          highlights: ['Dossier medical', 'Suivi personnel', 'Rappels intelligents'],
-        );
+    if (mode == HealthProfileViewMode.hospital) {
+      return const _HealthModeStyle(
+        navTitle: 'Espace Hopital',
+        headline: 'Pilotage medical centralise',
+        subtitle:
+            'Patients, priorites, teleconsultations et suivi critique dans une interface plus nette.',
+        icon: Icons.local_hospital_outlined,
+        accent: Color(0xFF2D6BFF),
+        gradient: [Color(0xFF4E86FF), Color(0xFF233CC7)],
+        highlights: ['Patients actifs', 'Alertes critiques', 'Exports PDF'],
+      );
     }
+    if (mode == HealthProfileViewMode.pharmacy) {
+      return const _HealthModeStyle(
+        navTitle: 'Espace Pharmacies',
+        headline: 'Recherche, stocks et proximite',
+        subtitle:
+            'Une vue plus directe pour trouver, gerer et publier les pharmacies et les medicaments.',
+        icon: Icons.local_pharmacy_outlined,
+        accent: Color(0xFFFF8A1F),
+        gradient: [Color(0xFFFFAE42), Color(0xFFE56B00)],
+        highlights: ['Medicaments', 'Import / Export', 'Pharmacies proches'],
+      );
+    }
+    return const _HealthModeStyle(
+      navTitle: 'Espace Personne',
+      headline: 'Votre tableau de bord sante',
+      subtitle:
+          'Mesures, documents, rendez-vous et rappels dans une presentation plus vivante.',
+      icon: Icons.favorite_outline,
+      accent: Color(0xFF00BFA5),
+      gradient: [Color(0xFF0BCDB2), Color(0xFF00796B)],
+      highlights: ['Dossier medical', 'Suivi personnel', 'Rappels intelligents'],
+    );
   }
 
-  _HealthModeStyle _styleForLabel(String label, bool isDark) {
-    switch (label) {
-      case 'Hopital':
-        return _styleForMode(HealthProfileViewMode.hospital, isDark);
-      case 'Pharmacies':
-        return _styleForMode(HealthProfileViewMode.pharmacy, isDark);
-      case 'Personne':
-      default:
-        return _styleForMode(HealthProfileViewMode.person, isDark);
-    }
-  }
+  _HealthModeStyle _styleForLabel(String label, bool isDark) => switch (label) {
+        'Hopital' => _styleForMode(HealthProfileViewMode.hospital, isDark),
+        'Pharmacies' => _styleForMode(HealthProfileViewMode.pharmacy, isDark),
+        _ => _styleForMode(HealthProfileViewMode.person, isDark),
+      };
 
   Widget _buildTabContent({
     required String label,
@@ -412,7 +520,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     required bool includeHero,
   }) {
     final style = _styleForLabel(label, isDark);
-    final hero = includeHero && label != 'Pharmacies'
+    final hero = includeHero && label == 'Hopital'
         ? _buildModeHero(
             style: style,
             text: text,
@@ -429,6 +537,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
           style.accent,
           data,
           header: hero,
+          publicDirectoryOnly: widget.hospitalDirectoryOnly,
         );
       case 'Pharmacies':
         return _buildPharmacyTab(
@@ -438,6 +547,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
           style.accent,
           data,
           showHero: includeHero,
+          publicDirectoryOnly: widget.pharmacyDirectoryOnly,
         );
       case 'Personne':
       default:
@@ -736,7 +846,11 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
   Future<void> _refreshHealthNotificationsIfAvailable() async {
     final userContext = _currentHealthUserContext();
     if (userContext == null) return;
-    await HealthNotificationScheduler.refreshForUser(userContext);
+    try {
+      await HealthNotificationScheduler.refreshForUser(userContext);
+    } catch (e) {
+      debugPrint('Health notifications refresh skipped: $e');
+    }
   }
 
   Future<void> _sendHealthAiPrompt(Map<String, dynamic> data) async {
@@ -807,7 +921,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     final bmi = _bmi(weight, height);
     final tension = _safeStr(health['bloodPressure'] ?? health['tension']);
     final glycemie = _safeStr(health['glucose'] ?? health['glycemie']);
-    final heartRate = _safeStr(health['heartRate'] ?? health['frequenceCardiaque']);
+    final heartRate = _displayHeartRate(health);
     final medsToday = _medicationBullets(health['medicationsToday'] ?? health['todayMedications']);
     final appointments = _appointmentBullets(health['appointments']);
     final allergies = _stringList(health['allergies']);
@@ -1072,6 +1186,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     required int? age,
     required String bloodType,
     required double? bmi,
+    required double? height,
     required String tension,
     required String glycemie,
     required String heartRate,
@@ -1083,23 +1198,17 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     required VoidCallback onScanPrescription,
     required VoidCallback onOpenAppointments,
     required VoidCallback onOpenProfile,
+    required VoidCallback onOpenStressLab,
+    required VoidCallback onOpenHospitalDirectory,
+    required VoidCallback onOpenPharmacyDirectory,
   }) {
-    final hospitals = _hospitalDirectory(data);
     final fullName = displayName.isEmpty ? 'Profil sante' : displayName;
     final health = (data['health'] is Map) ? Map<String, dynamic>.from(data['health'] as Map) : <String, dynamic>{};
     final profileImage = _safeStr(
       data['photo'] ?? data['image'] ?? data['photoUrl'] ?? data['avatar'] ?? data['avatarUrl'],
     );
     final healthRisk = _buildHealthRiskSummary(
-      bmi: bmi,
-      tension: tension,
-      glycemie: glycemie,
-      heartRate: heartRate,
-      allergies: _stringList(health['allergies']),
-      conditions: _stringList(health['chronicConditions'] ?? health['conditions'] ?? health['medicalConditions']),
-      alerts: _stringList(health['alerts'] ?? health['importantAlerts'] ?? health['notifications']),
-      aiAlerts: _stringList(health['aiAlerts'] ?? health['alertsAi']),
-      treatmentsCount: medsToday.length,
+      data: data,
     );
 
     return Column(
@@ -1131,6 +1240,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
             accent: accent,
             cardBg: cardBg,
             bmi: bmi,
+            height: height,
             tension: tension,
             glycemie: glycemie,
             heartRate: heartRate,
@@ -1139,6 +1249,15 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
         const SizedBox(height: 12),
         _revealBlock(
           2,
+          _buildPersonStressLabHighlight(
+            accent: accent,
+            enabled: ctx != null,
+            onOpenStressLab: onOpenStressLab,
+          ),
+        ),
+        const SizedBox(height: 12),
+        _revealBlock(
+          3,
           _buildPersonQuickActions(
             text: text,
             sub: sub,
@@ -1149,19 +1268,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
             onOpenDocuments: onScanPrescription,
             onOpenAppointments: onOpenAppointments,
             onOpenProfile: onOpenProfile,
-          ),
-        ),
-        const SizedBox(height: 12),
-        _revealBlock(
-          3,
-          _buildPrescriptionScanPanel(
-            isDark: isDark,
-            text: text,
-            sub: sub,
-            cardBg: cardBg,
-            accent: accent,
-            enabled: ctx != null,
-            onTap: onScanPrescription,
+            onOpenStressLab: onOpenStressLab,
           ),
         ),
         const SizedBox(height: 12),
@@ -1181,218 +1288,15 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
         const SizedBox(height: 12),
         _revealBlock(
           5,
-          _buildHospitalShowcase(
+          _buildPersonDirectoryNavigator(
             text: text,
             sub: sub,
             cardBg: cardBg,
-            accent: accent,
-            items: hospitals,
-            userContext: ctx,
-          ),
-        ),
-        const SizedBox(height: 12),
-        _revealBlock(
-          6,
-          _buildPersonPharmacyShowcase(
-            text: text,
-            sub: sub,
-            cardBg: cardBg,
-            accent: accent,
+            onOpenHospitalDirectory: onOpenHospitalDirectory,
+            onOpenPharmacyDirectory: onOpenPharmacyDirectory,
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildPrescriptionScanPanel({
-    required bool isDark,
-    required Color text,
-    required Color sub,
-    required Color cardBg,
-    required Color accent,
-    required bool enabled,
-    required VoidCallback onTap,
-  }) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final compact = constraints.maxWidth < 460;
-
-        return Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                Color.lerp(cardBg, accent, isDark ? 0.14 : 0.18)!,
-                Color.lerp(cardBg, Colors.blue, isDark ? 0.04 : 0.08)!,
-              ],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(color: accent.withOpacity(0.14)),
-            boxShadow: [
-              BoxShadow(
-                color: accent.withOpacity(isDark ? 0.12 : 0.08),
-                blurRadius: 26,
-                offset: const Offset(0, 14),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 52,
-                    height: 52,
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [accent, Color.lerp(accent, Colors.blue, 0.45)!],
-                      ),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: const Icon(Icons.document_scanner_outlined, color: Colors.white),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Scan intelligent d ordonnance',
-                          style: TextStyle(
-                            color: text,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w900,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Prenez une photo ou importez un PDF pour centraliser vos prescriptions et relire les details plus vite.',
-                          style: TextStyle(
-                            color: sub,
-                            height: 1.4,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  _scanFeaturePill(accent: accent, text: text, label: 'Photo mobile'),
-                  _scanFeaturePill(accent: accent, text: text, label: 'Import PDF'),
-                  _scanFeaturePill(accent: accent, text: text, label: 'Lecture rapide'),
-                ],
-              ),
-              const SizedBox(height: 16),
-              if (compact) ...[
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: enabled ? onTap : null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: accent,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                    ),
-                    icon: const Icon(Icons.center_focus_strong_outlined),
-                    label: const Text(
-                      'Scanner maintenant',
-                      style: TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                _scanSecurityBadge(accent: accent, text: text),
-              ] else
-                Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: enabled ? onTap : null,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: accent,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
-                        ),
-                        icon: const Icon(Icons.center_focus_strong_outlined),
-                        label: const Text(
-                          'Scanner maintenant',
-                          style: TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    _scanSecurityBadge(accent: accent, text: text),
-                  ],
-                ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _scanSecurityBadge({
-    required Color accent,
-    required Color text,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: accent.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.lock_outline, size: 16, color: accent),
-          const SizedBox(width: 6),
-          Text(
-            'Espace securise',
-            style: TextStyle(
-              color: text,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _scanFeaturePill({
-    required Color accent,
-    required Color text,
-    required String label,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: accent.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: accent.withOpacity(0.12)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: text,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
     );
   }
 
@@ -1411,6 +1315,10 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     required _HealthRiskSummary healthRisk,
     required List<_HealthDashboardShortcut> dashboardShortcuts,
   }) {
+    final healthSupport = healthRiskSupportText(healthRisk.score);
+    final topRisk = healthRiskTopPoint(healthRisk.risks);
+    final healthLabelDisplay = healthRiskDisplayLabel(healthRisk.label);
+
     return AnimatedContainer(
       duration: const Duration(milliseconds: 260),
       padding: const EdgeInsets.all(20),
@@ -1495,14 +1403,6 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      'Votre espace personnel est organise pour aller vite, rester lisible et agir au bon moment.',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.90),
-                        height: 1.4,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
                   ],
                 ),
               ),
@@ -1530,21 +1430,23 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
             ),
             child: LayoutBuilder(
               builder: (context, constraints) {
+                final compactMetrics = constraints.maxWidth < 360;
+                final scoreGaugeSize = compactMetrics ? 72.0 : 84.0;
                 final scorePanel = Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     SizedBox(
-                      width: 84,
-                      height: 84,
+                      width: scoreGaugeSize,
+                      height: scoreGaugeSize,
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
                           SizedBox(
-                            width: 84,
-                            height: 84,
+                            width: scoreGaugeSize,
+                            height: scoreGaugeSize,
                             child: CircularProgressIndicator(
                               value: healthRisk.score / 100,
-                              strokeWidth: 8,
+                              strokeWidth: compactMetrics ? 7 : 8,
                               backgroundColor: Colors.white.withOpacity(0.18),
                               valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
                             ),
@@ -1554,9 +1456,9 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                             children: [
                               Text(
                                 '${healthRisk.score}%',
-                                style: const TextStyle(
+                                style: TextStyle(
                                   color: Colors.white,
-                                  fontSize: 20,
+                                  fontSize: compactMetrics ? 17 : 20,
                                   fontWeight: FontWeight.w900,
                                 ),
                               ),
@@ -1564,7 +1466,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                                 'Sante',
                                 style: TextStyle(
                                   color: Colors.white.withOpacity(0.86),
-                                  fontSize: 11,
+                                  fontSize: compactMetrics ? 10 : 11,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
@@ -1573,55 +1475,79 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                         ],
                       ),
                     ),
-                    const SizedBox(width: 16),
+                    SizedBox(width: compactMetrics ? 10 : 16),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Niveau de sante ${healthRisk.label}',
-                            style: const TextStyle(
+                            'Votre sante aujourd hui',
+                            style: TextStyle(
                               color: Colors.white,
-                              fontSize: 16,
+                              fontSize: compactMetrics ? 15 : 16,
                               fontWeight: FontWeight.w900,
                             ),
                           ),
                           const SizedBox(height: 6),
                           Text(
-                            'Risques principaux',
+                            healthSupport,
                             style: TextStyle(
-                              color: Colors.white.withOpacity(0.82),
-                              fontWeight: FontWeight.w700,
+                              color: Colors.white.withOpacity(0.88),
+                              height: 1.28,
+                              fontWeight: FontWeight.w600,
+                              fontSize: compactMetrics ? 12 : 13,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.14),
+                              borderRadius: BorderRadius.circular(18),
+                              border: Border.all(color: Colors.white.withOpacity(0.08)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  'Point cle',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.72),
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0.8,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  topRisk,
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    height: 1.22,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                           const SizedBox(height: 8),
-                          ...healthRisk.risks.take(3).map(
-                            (risk) => Padding(
-                              padding: const EdgeInsets.only(bottom: 6),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Container(
-                                    width: 8,
-                                    height: 8,
-                                    margin: const EdgeInsets.only(top: 5),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withOpacity(0.92),
-                                      shape: BoxShape.circle,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      risk,
-                                      style: TextStyle(
-                                        color: Colors.white.withOpacity(0.92),
-                                        height: 1.35,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.14),
+                              borderRadius: BorderRadius.circular(999),
+                              border: Border.all(color: Colors.white.withOpacity(0.16)),
+                            ),
+                            child: Text(
+                              healthLabelDisplay,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
                           ),
@@ -1684,6 +1610,20 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                     ),
                   ),
                 );
+
+                if (constraints.maxWidth < 430) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: menuPanel,
+                      ),
+                      const SizedBox(height: 12),
+                      scorePanel,
+                    ],
+                  );
+                }
 
                 return Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1836,6 +1776,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     required Color accent,
     required Color cardBg,
     required double? bmi,
+    required double? height,
     required String tension,
     required String glycemie,
     required String heartRate,
@@ -1860,6 +1801,11 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
         label: 'FC',
         value: heartRate.isEmpty ? '--' : heartRate,
         icon: Icons.monitor_heart_outlined,
+      ),
+      _MiniStatData(
+        label: 'Taille',
+        value: height != null ? '${height.toStringAsFixed(1)} cm' : '--',
+        icon: Icons.height_outlined,
       ),
     ];
 
@@ -1930,6 +1876,164 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     );
   }
 
+  Widget _buildPersonStressLabHighlight({
+    required Color accent,
+    required bool enabled,
+    required VoidCallback onOpenStressLab,
+  }) {
+    const labStart = Color(0xFF0F766E);
+    const labEnd = Color(0xFF2D6BFF);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: enabled ? onOpenStressLab : null,
+        borderRadius: BorderRadius.circular(24),
+        child: Ink(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: <Color>[labStart, labEnd],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withOpacity(0.10)),
+            boxShadow: [
+              BoxShadow(
+                color: Color.lerp(accent, labStart, 0.60)!.withOpacity(0.18),
+                blurRadius: 24,
+                offset: const Offset(0, 14),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.14),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: Colors.white.withOpacity(0.18)),
+                    ),
+                    child: const Text(
+                      'Stress & lab',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.14),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: const Text(
+                      '4 modules',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Anticipez stress, fatigue et surcharge physique avant qu ils ne s installent.',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: -0.4,
+                  height: 1.15,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Un parcours plus ergonomique pour suivre le stress lie au climat, les expressions faciales, la frequence cardiaque, la tension et la taille depuis un seul point d entree.',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.86),
+                  height: 1.45,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _heroChip('Stress climat'),
+                  _heroChip('Expression faciale'),
+                  _heroChip('Frequence cardiaque'),
+                  _heroChip('Taille'),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: enabled ? onOpenStressLab : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.white,
+                      foregroundColor: labStart,
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    icon: const Icon(Icons.bolt_outlined),
+                    label: const Text(
+                      'Ouvrir Stress & lab',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.14),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: Colors.white.withOpacity(0.18)),
+                    ),
+                    child: const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Nouveau',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Parcours guide',
+                          style: TextStyle(
+                            color: Colors.white70,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildPersonQuickActions({
     required Color text,
     required Color sub,
@@ -1940,17 +2044,27 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     required VoidCallback onOpenDocuments,
     required VoidCallback onOpenAppointments,
     required VoidCallback onOpenProfile,
+    required VoidCallback onOpenStressLab,
   }) {
     final actions = <_QuickHealthActionData>[
       _QuickHealthActionData(
-        title: 'Parler a l IA',
-        subtitle: 'Question rapide, reponse directe',
+        title: 'Stress & lab',
+        subtitle: 'Climat, expressions faciales, frequence cardiaque, tension et taille',
+        icon: Icons.monitor_heart_outlined,
+        onTap: onOpenStressLab,
+        featured: true,
+        badge: 'A la une',
+        accentOverride: const Color(0xFF0F766E),
+      ),
+      _QuickHealthActionData(
+        title: 'Analyse santé',
+        subtitle: 'Faites un bilan santé',
         icon: Icons.auto_awesome_outlined,
         onTap: onOpenAi,
       ),
       _QuickHealthActionData(
-        title: 'Scanner ordonnance',
-        subtitle: 'Photo ou PDF avec analyse',
+        title: 'Scanner docs',
+        subtitle: 'Analysez un document',
         icon: Icons.document_scanner_outlined,
         onTap: onOpenDocuments,
       ),
@@ -1977,8 +2091,9 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
           spacing: 12,
           runSpacing: 12,
           children: actions.map((action) {
+            final actionWidth = action.featured ? width : itemWidth;
             return SizedBox(
-              width: itemWidth,
+              width: actionWidth,
               child: _HealthQuickActionCard(
                 title: action.title,
                 subtitle: action.subtitle,
@@ -1988,7 +2103,126 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                 sub: sub,
                 accent: accent,
                 enabled: enabled,
+                featured: action.featured,
+                badge: action.badge,
+                accentOverride: action.accentOverride,
                 onTap: enabled ? action.onTap : null,
+              ),
+            );
+          }).toList(growable: false),
+        );
+      },
+    );
+  }
+
+  Widget _buildPersonDirectoryNavigator({
+    required Color text,
+    required Color sub,
+    required Color cardBg,
+    required VoidCallback onOpenHospitalDirectory,
+    required VoidCallback onOpenPharmacyDirectory,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 520;
+        final itemWidth = compact ? constraints.maxWidth : (constraints.maxWidth - 12) / 2;
+        final items = <({
+          String title,
+          String subtitle,
+          IconData icon,
+          Color accent,
+          VoidCallback onTap,
+        })>[
+          (
+            title: 'Vue hopitaux',
+            subtitle: 'Voir la liste d hopitaux disponibles.',
+            icon: Icons.local_hospital_outlined,
+            accent: const Color(0xFF2D6BFF),
+            onTap: onOpenHospitalDirectory,
+          ),
+          (
+            title: 'Vue pharmacies',
+            subtitle: 'Voir la liste des pharmacies disponibles.',
+            icon: Icons.local_pharmacy_outlined,
+            accent: const Color(0xFFFF8A1F),
+            onTap: onOpenPharmacyDirectory,
+          ),
+        ];
+
+        return Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: items.map((item) {
+            return SizedBox(
+              width: itemWidth,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(22),
+                onTap: item.onTap,
+                child: Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: cardBg,
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(color: item.accent.withOpacity(0.14)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: item.accent.withOpacity(0.08),
+                        blurRadius: 18,
+                        offset: const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 42,
+                        height: 42,
+                        decoration: BoxDecoration(
+                          color: item.accent.withOpacity(0.10),
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(item.icon, color: item.accent),
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        item.title,
+                        style: TextStyle(
+                          color: text,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        item.subtitle,
+                        style: TextStyle(
+                          color: sub,
+                          height: 1.4,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Text(
+                            'Ouvrir',
+                            style: TextStyle(
+                              color: item.accent,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Icon(
+                            Icons.arrow_forward_rounded,
+                            color: item.accent,
+                            size: 18,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
               ),
             );
           }).toList(growable: false),
@@ -2010,7 +2244,6 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     final prompts = <String>[
       'Explique mes mesures',
       'Resume ma journee sante',
-      'Que verifier aujourd hui ?',
     ];
     final visibleMessages = _healthAiMessages.length <= 4
         ? _healthAiMessages
@@ -2052,7 +2285,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Assistant IA sante',
+                      'Assistant santé',
                       style: TextStyle(
                         color: text,
                         fontSize: 18,
@@ -2060,18 +2293,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      'Posez une question et obtenez une reponse rapide a partir de vos donnees sante.',
-                      style: TextStyle(color: sub, height: 1.4, fontWeight: FontWeight.w600),
-                    ),
                   ],
-                ),
-              ),
-              TextButton(
-                onPressed: enabled ? onOpenAi : null,
-                child: Text(
-                  'Vue complete',
-                  style: TextStyle(color: accent, fontWeight: FontWeight.w800),
                 ),
               ),
             ],
@@ -2411,6 +2633,8 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     required Color sub,
     required Color cardBg,
     required Color accent,
+    required String displayName,
+    required String profileImage,
     required List<_HospitalDirectoryItem> fallbackItems,
     required HealthUserContext? userContext,
     required bool canAdd,
@@ -2462,6 +2686,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
         final openCount = directoryItems.where((item) => item.isOpen || item.isOpen24h).length;
         final mappedCount = directoryItems.where((item) => item.lat != null && item.lng != null).length;
         final contactCount = directoryItems.where((item) => item.phone.isNotEmpty || item.email.isNotEmpty).length;
+        final heroTitle = displayName.trim().isEmpty ? 'Profil hopital' : displayName.trim();
 
         final metrics = <Map<String, dynamic>>[
           {'label': 'Hopitaux', 'value': '$totalHospitals', 'icon': Icons.local_hospital_outlined},
@@ -2502,34 +2727,63 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Pilotage hopital dynamique',
-                          style: TextStyle(
-                            color: text,
-                            fontSize: 20,
-                            fontWeight: FontWeight.w900,
-                          ),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Container(
+                              width: 62,
+                              height: 62,
+                              decoration: BoxDecoration(
+                                color: accent.withOpacity(0.10),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: accent.withOpacity(0.18)),
+                              ),
+                              padding: const EdgeInsets.all(3),
+                              child: ClipOval(
+                                child: profileImage.trim().isNotEmpty
+                                    ? _healthNetworkImage(
+                                        profileImage,
+                                        width: 56,
+                                        height: 56,
+                                        fallbackIcon: Icons.local_hospital_outlined,
+                                        accent: accent,
+                                      )
+                                    : _buildSpotlightAvatarFallback(heroTitle),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Bienvenue',
+                                    style: TextStyle(
+                                      color: accent,
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    heroTitle,
+                                    style: TextStyle(
+                                      color: text,
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 6),
-                        Text(
-                          'Annuaire hospitalier, urgences 24/7, cartographie et operations rapides dans un seul tableau de bord.',
-                          style: TextStyle(color: sub, height: 1.45, fontWeight: FontWeight.w600),
-                        ),
                         const SizedBox(height: 8),
                         Text(
                           'Patients: ${patientsCount ?? 0}  •  Documents: ${patientDocsCount ?? 0}  •  Teleconsultations: $teleconsultCount  •  Alertes critiques: $criticalAlertsCount',
                           style: TextStyle(color: sub, fontWeight: FontWeight.w700),
                         ),
                         const SizedBox(height: 6),
-                        Text(
-                          canAdd
-                              ? 'Votre compte entreprise peut publier et gerer des hopitaux.'
-                              : 'Seuls les comptes Entreprise peuvent ajouter un hopital.',
-                          style: TextStyle(
-                            color: canAdd ? accent : sub,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
                       ],
                     ),
                   ),
@@ -3157,7 +3411,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     final bloodType = _safeStr(health['bloodType'] ?? health['blood_group'] ?? health['groupe']);
     final tension = _safeStr(health['bloodPressure'] ?? health['tension']);
     final glycemie = _safeStr(health['glucose'] ?? health['glycemie']);
-    final heartRate = _safeStr(health['heartRate'] ?? health['frequenceCardiaque']);
+    final heartRate = _displayHeartRate(health);
     final activity = _safeStr(health['activity'] ?? health['activitePhysique']);
     final gender = _safeStr(
       data['genre'] ?? data['gender'] ?? data['sex'] ?? health['genre'] ?? health['gender'] ?? health['sex'],
@@ -3372,6 +3626,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
       age: age,
       bloodType: bloodType,
       bmi: bmi,
+      height: height,
       tension: tension,
       glycemie: glycemie,
       heartRate: heartRate,
@@ -3386,6 +3641,27 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
       },
       onOpenAppointments: () => openPage(HealthAppointmentsPage(contextRef: ctx!)),
       onOpenProfile: () => openPage(HealthProfileEditPage(contextRef: ctx!)),
+      onOpenStressLab: () => openPage(HealthStressLabPage(contextRef: ctx!)),
+      onOpenHospitalDirectory: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const HealthProfilePage(
+              viewMode: HealthProfileViewMode.hospital,
+              hospitalDirectoryOnly: true,
+            ),
+          ),
+        );
+      },
+      onOpenPharmacyDirectory: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const HealthProfilePage(
+              viewMode: HealthProfileViewMode.pharmacy,
+              pharmacyDirectoryOnly: true,
+            ),
+          ),
+        );
+      },
     );
 
     return _FeatureList(
@@ -3405,7 +3681,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     Color sub,
     Color accent,
     Map<String, dynamic> data,
-    {Widget? header}
+    {Widget? header, required bool publicDirectoryOnly}
   ) {
     final health = (data['health'] is Map) ? Map<String, dynamic>.from(data['health'] as Map) : <String, dynamic>{};
     final patients = _stringList(health['patients']);
@@ -3476,6 +3752,27 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     final ctx = (_userCollection != null && _userId != null)
         ? HealthUserContext(userId: _userId!, userCollection: _userCollection!)
         : null;
+
+    if (publicDirectoryOnly) {
+      final publicDirectory = _buildHospitalShowcase(
+        text: text,
+        sub: sub,
+        cardBg: cardBg,
+        accent: accent,
+        items: fallbackHospitals,
+        userContext: ctx,
+      );
+
+      return _FeatureList(
+        cardBg: cardBg,
+        text: text,
+        sub: sub,
+        accent: accent,
+        header: _mergeHeaderWidgets(header, publicDirectory),
+        sections: const <_HealthSection>[],
+      );
+    }
+
     void openPage(Widget page) {
       if (ctx == null) return;
       Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
@@ -3503,6 +3800,10 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
       patientDocsCount: patientDocsCount,
       teleconsultCount: teleconsults.length,
       criticalAlertsCount: criticalAlerts.length,
+      displayName: _healthDisplayName(data),
+      profileImage: _safeStr(
+        data['photo'] ?? data['image'] ?? data['photoUrl'] ?? data['avatar'] ?? data['avatarUrl'],
+      ),
       onOpenPatients: ctx == null ? null : () => openPage(HealthPatientsWaitingPage(contextRef: ctx)),
       onOpenDocuments: ctx == null ? null : () => openPage(HealthDocumentsPage(contextRef: ctx)),
       onOpenAppointments: ctx == null ? null : () => openPage(HealthAppointmentsPage(contextRef: ctx)),
@@ -3527,8 +3828,26 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     Color sub,
     Color accent,
     Map<String, dynamic> data,
-    {required bool showHero}
+    {required bool showHero, required bool publicDirectoryOnly}
   ) {
+    if (publicDirectoryOnly) {
+      final publicDirectory = _buildPersonPharmacyShowcase(
+        text: text,
+        sub: sub,
+        cardBg: cardBg,
+        accent: accent,
+      );
+
+      return _FeatureList(
+        cardBg: cardBg,
+        text: text,
+        sub: sub,
+        accent: accent,
+        header: publicDirectory,
+        sections: const <_HealthSection>[],
+      );
+    }
+
     final query = _pharmacyQuery;
     final pharmaciesRef = FirebaseFirestore.instance.collection('health_pharmacies');
     final pharmaciesStream = pharmaciesRef.orderBy('createdAt', descending: true).snapshots();
@@ -3733,6 +4052,28 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
   }
 
   String _safeStr(dynamic v) => (v ?? '').toString().trim();
+
+  String _displayHeartRate(Map<String, dynamic> health) {
+    final stressLab = (health['stressLab'] is Map)
+        ? Map<String, dynamic>.from(health['stressLab'] as Map)
+        : <String, dynamic>{};
+    final cameraFinger = (stressLab['cameraFinger'] is Map)
+        ? Map<String, dynamic>.from(stressLab['cameraFinger'] as Map)
+        : <String, dynamic>{};
+
+    final measured = _toDouble(cameraFinger['heartRateBpm']);
+    if (measured != null) {
+      return '${measured.toStringAsFixed(0)} bpm';
+    }
+
+    final fallbackRaw = health['heartRate'] ?? health['frequenceCardiaque'];
+    final fallbackNumber = _toDouble(fallbackRaw);
+    if (fallbackNumber != null) {
+      return '${fallbackNumber.toStringAsFixed(0)} bpm';
+    }
+
+    return _safeStr(fallbackRaw);
+  }
 
   String _healthDisplayName(Map<String, dynamic> data) {
     final explicitName = _safeStr(data['name'] ?? data['displayName'] ?? data['fullName']);
@@ -4821,7 +5162,13 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
                 child: image.isNotEmpty
-                    ? Image.network(image, width: 72, height: 72, fit: BoxFit.cover)
+                    ? _healthNetworkImage(
+                        image,
+                        width: 72,
+                        height: 72,
+                        fallbackIcon: Icons.local_pharmacy_outlined,
+                        accent: accent,
+                      )
                     : Container(
                         width: 72,
                         height: 72,
@@ -5455,7 +5802,13 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                           ClipRRect(
                             borderRadius: BorderRadius.circular(18),
                             child: item.image.isNotEmpty
-                                ? Image.network(item.image, width: 72, height: 72, fit: BoxFit.cover)
+                                ? _healthNetworkImage(
+                                    item.image,
+                                    width: 72,
+                                    height: 72,
+                                    fallbackIcon: Icons.local_hospital_outlined,
+                                    accent: accent,
+                                  )
                                 : Container(
                                     width: 72,
                                     height: 72,
@@ -5696,11 +6049,12 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                                       ClipRRect(
                                         borderRadius: BorderRadius.circular(16),
                                         child: showPhoto
-                                            ? Image.network(
+                                            ? _healthNetworkImage(
                                                 doctor.photo,
                                                 width: 58,
                                                 height: 58,
-                                                fit: BoxFit.cover,
+                                                fallbackIcon: Icons.medical_services_outlined,
+                                                accent: accent,
                                               )
                                             : Container(
                                                 width: 58,
@@ -6230,6 +6584,31 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
     );
   }
 
+  String _compactHealthError(Object error, {int maxLen = 180}) {
+    final compact = error.toString().replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (compact.length <= maxLen) return compact;
+    return '${compact.substring(0, maxLen - 3)}...';
+  }
+
+  String _healthPhotoErrorMessage(Object error, {required String bucket}) {
+    final raw = error.toString();
+    final s = raw.toLowerCase();
+
+    if (s.contains('row-level security') || s.contains('violates row-level security')) {
+      return 'Upload photo refuse par la policy du bucket $bucket. Vous pouvez enregistrer sans photo ou utiliser une URL publique.';
+    }
+    if (s.contains('permission') || s.contains('policy')) {
+      return 'Le bucket $bucket refuse cet upload photo. Verifiez les regles Supabase de stockage.';
+    }
+    if (s.contains('bucket') && s.contains('not found')) {
+      return 'Bucket $bucket introuvable sur Supabase.';
+    }
+    if (s.contains('failed to fetch') || s.contains('clientexception')) {
+      return 'Impossible de recuperer la photo. Verifiez la connexion ou utilisez une URL image publique.';
+    }
+    return 'Erreur photo: ${_compactHealthError(error)}';
+  }
+
   Future<_PhotoPickResult> _pickAndUploadHealthPhoto({
     required String bucket,
     required String objectFolder,
@@ -6273,15 +6652,15 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
       }
       final objectPath =
           '$objectFolder/$storageUserId/${DateTime.now().millisecondsSinceEpoch}_$name';
-      final url = await SupabaseService.uploadBytesNamed(
+      await SupabaseService.uploadBytesNamed(
         bytes,
         objectPath,
         bucket,
         contentType: _imageContentType(name),
       );
-      return _PhotoPickResult(url: url, bytes: bytes);
+      return _PhotoPickResult(url: _healthStorageRef(bucket, objectPath), bytes: bytes);
     } catch (e) {
-      _snack('Erreur photo: $e', error: true);
+      _snack(_healthPhotoErrorMessage(e, bucket: bucket), error: true);
       return const _PhotoPickResult(url: '');
     }
   }
@@ -6299,7 +6678,7 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
   }) {
     return _pickAndUploadHealthPhoto(
       bucket: 'health_hospitals',
-      objectFolder: 'health_hospitals/$scope',
+      objectFolder: scope,
       fallbackPrefix: scope,
     );
   }
@@ -6746,11 +7125,12 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                                 height: 92,
                                 fit: BoxFit.cover,
                               )
-                            : Image.network(
+                            : _healthNetworkImage(
                                 photoCtrl.text.trim(),
                                 width: 92,
                                 height: 92,
-                                fit: BoxFit.cover,
+                                fallbackIcon: Icons.local_hospital_outlined,
+                                accent: accent,
                               ),
                       ),
                     ],
@@ -6942,11 +7322,12 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                                 height: 82,
                                 fit: BoxFit.cover,
                               )
-                            : Image.network(
+                            : _healthNetworkImage(
                                 doctorPhotoCtrl.text.trim(),
                                 width: 82,
                                 height: 82,
-                                fit: BoxFit.cover,
+                                fallbackIcon: Icons.medical_services_outlined,
+                                accent: accent,
                               ),
                       ),
                     ],
@@ -7020,11 +7401,12 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(12),
                                 child: showPhoto
-                                    ? Image.network(
+                                    ? _healthNetworkImage(
                                         doctor.photo,
                                         width: 46,
                                         height: 46,
-                                        fit: BoxFit.cover,
+                                        fallbackIcon: Icons.medical_services_outlined,
+                                        accent: accent,
                                       )
                                     : Container(
                                         width: 46,
@@ -7387,9 +7769,15 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                         const SizedBox(height: 10),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(14),
-                          child: photoPreview != null
-                              ? Image.memory(photoPreview!, width: 88, height: 88, fit: BoxFit.cover)
-                              : Image.network(photoCtrl.text.trim(), width: 88, height: 88, fit: BoxFit.cover),
+                        child: photoPreview != null
+                            ? Image.memory(photoPreview!, width: 88, height: 88, fit: BoxFit.cover)
+                            : _healthNetworkImage(
+                                photoCtrl.text.trim(),
+                                width: 88,
+                                height: 88,
+                                fallbackIcon: Icons.medication_outlined,
+                                accent: accent,
+                              ),
                         ),
                       ],
                       const SizedBox(height: 16),
@@ -7666,7 +8054,13 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                                             ClipRRect(
                                               borderRadius: BorderRadius.circular(14),
                                               child: image.isNotEmpty
-                                                  ? Image.network(image, width: 54, height: 54, fit: BoxFit.cover)
+                                                  ? _healthNetworkImage(
+                                                      image,
+                                                      width: 54,
+                                                      height: 54,
+                                                      fallbackIcon: Icons.medication_outlined,
+                                                      accent: accent,
+                                                    )
                                                   : Container(
                                                       width: 54,
                                                       height: 54,
@@ -7947,7 +8341,13 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
                         borderRadius: BorderRadius.circular(10),
                         child: photoPreview != null
                             ? Image.memory(photoPreview!, width: 96, height: 96, fit: BoxFit.cover)
-                            : Image.network(photoCtrl.text.trim(), width: 96, height: 96, fit: BoxFit.cover),
+                            : _healthNetworkImage(
+                                photoCtrl.text.trim(),
+                                width: 96,
+                                height: 96,
+                                fallbackIcon: Icons.local_pharmacy_outlined,
+                                accent: accent,
+                              ),
                       ),
                     ],
                     const SizedBox(height: 12),
@@ -8260,27 +8660,9 @@ class _HealthProfilePageState extends State<HealthProfilePage> {
   }
 
   _HealthRiskSummary _buildHealthRiskSummary({
-    required double? bmi,
-    required String tension,
-    required String glycemie,
-    required String heartRate,
-    required List<String> allergies,
-    required List<String> conditions,
-    required List<String> alerts,
-    required List<String> aiAlerts,
-    required int treatmentsCount,
+    required Map<String, dynamic> data,
   }) {
-    final summary = computeHealthRiskSummary(
-      bmi: bmi,
-      tension: tension,
-      glycemie: glycemie,
-      heartRate: heartRate,
-      allergies: allergies,
-      conditions: conditions,
-      alerts: alerts,
-      aiAlerts: aiAlerts,
-      treatmentsCount: treatmentsCount,
-    );
+    final summary = computeHealthRiskSummaryFromUserData(data);
     return _HealthRiskSummary(
       score: summary.score,
       label: summary.label,
@@ -8607,8 +8989,8 @@ class _HealthDashboardShortcutTile extends StatelessWidget {
     required this.text,
     required this.sub,
     required this.accent,
-    this.compact = false,
-  });
+    bool compact = false,
+  }) : compact = compact;
 
   final _HealthDashboardShortcut item;
   final Color cardBg;
@@ -8746,12 +9128,18 @@ class _QuickHealthActionData {
   final String subtitle;
   final IconData icon;
   final VoidCallback onTap;
+  final bool featured;
+  final String? badge;
+  final Color? accentOverride;
 
   const _QuickHealthActionData({
     required this.title,
     required this.subtitle,
     required this.icon,
     required this.onTap,
+    this.featured = false,
+    this.badge,
+    this.accentOverride,
   });
 }
 
@@ -8826,6 +9214,9 @@ class _HealthQuickActionCard extends StatelessWidget {
     required this.sub,
     required this.accent,
     required this.enabled,
+    this.featured = false,
+    this.badge,
+    this.accentOverride,
     this.onTap,
   });
 
@@ -8837,10 +9228,17 @@ class _HealthQuickActionCard extends StatelessWidget {
   final Color sub;
   final Color accent;
   final bool enabled;
+  final bool featured;
+  final String? badge;
+  final Color? accentOverride;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
+    final resolvedAccent = accentOverride ?? accent;
+    final titleColor = featured ? Colors.white : (enabled ? text : sub);
+    final subtitleColor = featured ? Colors.white.withOpacity(0.82) : sub;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -8849,12 +9247,26 @@ class _HealthQuickActionCard extends StatelessWidget {
         child: Ink(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Color.lerp(cardBg, accent, 0.05),
+            gradient: featured
+                ? LinearGradient(
+                    colors: [
+                      resolvedAccent,
+                      Color.lerp(resolvedAccent, const Color(0xFF0D1B2A), 0.35)!,
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
+            color: featured ? null : Color.lerp(cardBg, resolvedAccent, 0.05),
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: accent.withOpacity(0.10)),
+            border: Border.all(
+              color: featured
+                  ? Colors.white.withOpacity(0.10)
+                  : resolvedAccent.withOpacity(0.10),
+            ),
             boxShadow: [
               BoxShadow(
-                color: accent.withOpacity(0.06),
+                color: resolvedAccent.withOpacity(featured ? 0.18 : 0.06),
                 blurRadius: 16,
                 offset: const Offset(0, 10),
               ),
@@ -8866,12 +9278,16 @@ class _HealthQuickActionCard extends StatelessWidget {
                 width: 46,
                 height: 46,
                 decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      accent.withOpacity(enabled ? 0.90 : 0.30),
-                      Color.lerp(accent, Colors.blue, 0.35)!.withOpacity(enabled ? 0.90 : 0.30),
-                    ],
-                  ),
+                  color: featured ? Colors.white.withOpacity(0.14) : null,
+                  gradient: featured
+                      ? null
+                      : LinearGradient(
+                          colors: [
+                            resolvedAccent.withOpacity(enabled ? 0.90 : 0.30),
+                            Color.lerp(resolvedAccent, Colors.blue, 0.35)!
+                                .withOpacity(enabled ? 0.90 : 0.30),
+                          ],
+                        ),
                   borderRadius: BorderRadius.circular(14),
                 ),
                 child: Icon(icon, color: Colors.white),
@@ -8881,10 +9297,29 @@ class _HealthQuickActionCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (badge != null) ...[
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: featured
+                              ? Colors.white.withOpacity(0.14)
+                              : resolvedAccent.withOpacity(0.10),
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          badge!,
+                          style: TextStyle(
+                            color: featured ? Colors.white : resolvedAccent,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                    ],
                     Text(
                       title,
                       style: TextStyle(
-                        color: enabled ? text : sub,
+                        color: titleColor,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -8892,7 +9327,7 @@ class _HealthQuickActionCard extends StatelessWidget {
                     Text(
                       subtitle,
                       style: TextStyle(
-                        color: sub,
+                        color: subtitleColor,
                         height: 1.35,
                         fontWeight: FontWeight.w600,
                       ),
@@ -8900,7 +9335,10 @@ class _HealthQuickActionCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Icon(Icons.arrow_outward_rounded, color: enabled ? accent : sub),
+              Icon(
+                Icons.arrow_outward_rounded,
+                color: featured ? Colors.white : (enabled ? resolvedAccent : sub),
+              ),
             ],
           ),
         ),
@@ -9017,7 +9455,13 @@ class _HospitalDirectoryCard extends StatelessWidget {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(14),
                     child: item.image.isNotEmpty
-                        ? Image.network(item.image, width: 54, height: 54, fit: BoxFit.cover)
+                        ? _healthNetworkImage(
+                            item.image,
+                            width: 54,
+                            height: 54,
+                            fallbackIcon: Icons.local_hospital_outlined,
+                            accent: accent,
+                          )
                         : Container(
                             width: 54,
                             height: 54,
@@ -9334,7 +9778,13 @@ class _PersonPharmacyCard extends StatelessWidget {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(16),
                     child: image.trim().isNotEmpty
-                        ? Image.network(image, width: 72, height: 72, fit: BoxFit.cover)
+                        ? _healthNetworkImage(
+                            image,
+                            width: 72,
+                            height: 72,
+                            fallbackIcon: Icons.local_pharmacy_outlined,
+                            accent: accent,
+                          )
                         : Container(
                             width: 72,
                             height: 72,

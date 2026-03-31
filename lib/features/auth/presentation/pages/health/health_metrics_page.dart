@@ -26,6 +26,11 @@ class _HealthMetricsPageState extends State<HealthMetricsPage> {
     {'value': 'glucose', 'label': 'Glycemie', 'unit': 'mg/dL'},
     {'value': 'heartRate', 'label': 'Frequence cardiaque', 'unit': 'bpm'},
     {'value': 'activity', 'label': 'Activite', 'unit': 'min'},
+    {'value': 'stressContext', 'label': 'Stress contextuel', 'unit': '/100'},
+    {'value': 'stressFace', 'label': 'Stress facial', 'unit': '/100'},
+    {'value': 'stressExperimental', 'label': 'Stress experimental', 'unit': '/100'},
+    {'value': 'hrv', 'label': 'HRV', 'unit': 'ms'},
+    {'value': 'height', 'label': 'Taille', 'unit': 'cm'},
   ];
 
   String _unitFor(String type) {
@@ -48,6 +53,10 @@ class _HealthMetricsPageState extends State<HealthMetricsPage> {
         return 'heartRate';
       case 'activity':
         return 'activity';
+      case 'hrv':
+        return 'hrv';
+      case 'height':
+        return 'heightCm';
       default:
         return '';
     }

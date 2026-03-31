@@ -36,7 +36,7 @@ class _CopperCardState extends State<CopperCard> {
   String _pickedMineralPath = '';
   String _identificationText = '';
   _MineralProfile? _identifiedMineral;
-  String _catalogQuery = '';
+  final String _catalogQuery = '';
   bool _catalogExpanded = false;
 
   final String copperUrl =

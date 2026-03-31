@@ -2,6 +2,7 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:onesignal_flutter/onesignal_flutter.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -346,6 +347,29 @@ class NotificationService {
     }
   }
 
+  static Future<AndroidScheduleMode> _preferredAndroidScheduleMode() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      return AndroidScheduleMode.exactAllowWhileIdle;
+    }
+
+    final androidPlugin =
+        _fln.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    if (androidPlugin == null) {
+      return AndroidScheduleMode.exactAllowWhileIdle;
+    }
+
+    try {
+      final canExact = await androidPlugin.canScheduleExactNotifications();
+      if (canExact == false) {
+        return AndroidScheduleMode.inexactAllowWhileIdle;
+      }
+    } catch (e) {
+      debugPrint('Exact alarm capability check failed: $e');
+    }
+
+    return AndroidScheduleMode.exactAllowWhileIdle;
+  }
+
   static Future<void> scheduleNotification({
     required int id,
     required String title,
@@ -374,17 +398,39 @@ class NotificationService {
       android: androidDetails,
       iOS: const DarwinNotificationDetails(),
     );
+    final scheduleMode = await _preferredAndroidScheduleMode();
 
-    await _fln.zonedSchedule(
-      id,
-      title,
-      body,
-      tzTime,
-      platform,
-      androidAllowWhileIdle: true,
-      uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
-      payload: payload,
-    );
+    try {
+      await _fln.zonedSchedule(
+        id,
+        title,
+        body,
+        tzTime,
+        platform,
+        androidScheduleMode: scheduleMode,
+        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+        payload: payload,
+      );
+    } on PlatformException catch (e) {
+      final details = '${e.code} ${e.message ?? ''} ${e.details ?? ''}'.toLowerCase();
+      if (defaultTargetPlatform == TargetPlatform.android &&
+          details.contains('exact') &&
+          details.contains('alarm')) {
+        debugPrint('Exact alarm not permitted, retrying with inexact scheduling.');
+        await _fln.zonedSchedule(
+          id,
+          title,
+          body,
+          tzTime,
+          platform,
+          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+          payload: payload,
+        );
+        return;
+      }
+      rethrow;
+    }
   }
 
   static Future<void> cancelNotification(int id) async {

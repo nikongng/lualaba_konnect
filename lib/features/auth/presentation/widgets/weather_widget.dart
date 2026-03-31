@@ -525,7 +525,7 @@ class _WeatherWidgetState extends State<WeatherWidget>
     final score = (_healthScore ?? 0).clamp(0, 100);
     final accent = _healthAccentColor;
     final support = _healthSupportText;
-    final topRisk = _healthRisks.isEmpty ? 'Aucun risque critique détecté' : _healthRisks.first;
+    final topRisk = healthRiskTopPoint(_healthRisks);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
@@ -1204,30 +1204,11 @@ class _WeatherWidgetState extends State<WeatherWidget>
   }
 
   String get _healthLabelDisplay {
-    switch (_healthLabel) {
-      case 'bon':
-        return 'Bon';
-      case 'a surveiller':
-        return 'À surveiller';
-      case 'sensible':
-        return 'Sensible';
-      default:
-        return 'En attente';
-    }
+    return healthRiskDisplayLabel(_healthLabel);
   }
 
   String get _healthSupportText {
-    final score = _healthScore ?? 0;
-    if (score >= 80) {
-      return 'Belle dynamique aujourd’hui. Votre score monte en ouverture pour mettre en valeur votre forme.';
-    }
-    if (score >= 60) {
-      return 'Votre profil demande un peu d’attention. Suivez les points à surveiller et gardez le rythme.';
-    }
-    if (score > 0) {
-      return 'Votre santé mérite une vigilance renforcée. Ouvrez Ma santé pour voir les facteurs qui tirent le score vers le bas.';
-    }
-    return 'Le score s’animera ici dès que votre profil santé sera disponible.';
+    return healthRiskSupportText(_healthScore);
   }
 
   TextStyle get _tagStyle => const TextStyle(
