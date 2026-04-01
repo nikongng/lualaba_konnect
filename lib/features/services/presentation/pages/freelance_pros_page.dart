@@ -1,8 +1,10 @@
-import 'dart:typed_data';
+﻿import 'dart:typed_data';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -51,6 +53,71 @@ class _FreelanceProsPageState extends State<FreelanceProsPage> {
     return const [];
   }
 
+  String _formatLocationLabelFromPlacemark(Placemark place, Position position) {
+    final parts = <String?>[
+      place.street,
+      place.subLocality,
+      place.locality,
+      place.administrativeArea,
+    ].map((value) => (value ?? '').trim()).where((value) => value.isNotEmpty).toList();
+
+    if (parts.isNotEmpty) return parts.join(', ');
+    return '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
+  }
+
+  Future<_FreelanceLocationResult?> _resolveCurrentLocation() async {
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Activez la localisation pour continuer.')),
+          );
+        }
+        return null;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Autorisation de localisation refusee.')),
+          );
+        }
+        return null;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+      );
+
+      var label =
+          '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
+      try {
+        final places = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
+        if (places.isNotEmpty) {
+          label = _formatLocationLabelFromPlacemark(places.first, position);
+        }
+      } catch (_) {}
+
+      return _FreelanceLocationResult(label: label);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Impossible de recuperer la localisation: $e')),
+        );
+      }
+      return null;
+    }
+  }
+
   Query _query() {
     Query q = FirebaseFirestore.instance.collection('freelance_pros');
     if (_filterKey != 'all') q = q.where('tags', arrayContains: _filterKey);
@@ -73,6 +140,7 @@ class _FreelanceProsPageState extends State<FreelanceProsPage> {
       reviews: _asInt(d['reviews'], def: 0),
       certified: _asBool(d['certified'] ?? d['isCertified']),
       tags: _asTags(d['tags']),
+      ownerUid: (d['createdByUid'] ?? '').toString(),
     );
   }
 
@@ -121,6 +189,9 @@ class _FreelanceProsPageState extends State<FreelanceProsPage> {
 
   // UI actions (filled below)
   void _showContactSheet(_FreelancePro p) {
+    final me = FirebaseAuth.instance.currentUser;
+    final isOwner =
+        me != null && p.ownerUid.trim().isNotEmpty && p.ownerUid.trim() == me.uid;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? const Color(0xFF111B21) : Colors.white;
     final text = isDark ? const Color(0xFFE9EDF0) : const Color(0xFF111827);
@@ -166,6 +237,48 @@ class _FreelanceProsPageState extends State<FreelanceProsPage> {
                     ),
                   ],
                 ),
+                if (isOwner) ...[
+                  const SizedBox(height: 6),
+                  ListTile(
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _openAddSheet(existing: p);
+                    },
+                    leading: const Icon(Icons.edit_outlined, color: _accent),
+                    title: Text('Modifier', style: TextStyle(color: text, fontWeight: FontWeight.w900)),
+                    trailing: Icon(Icons.arrow_forward_ios_rounded, size: 16, color: sub),
+                  ),
+                  const SizedBox(height: 6),
+                  ListTile(
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (dialogContext) {
+                          return AlertDialog(
+                            title: const Text('Supprimer le profil'),
+                            content: Text('Voulez-vous vraiment supprimer ${p.name} ?'),
+                            actions: [
+                              TextButton(
+                                onPressed: () => Navigator.pop(dialogContext, false),
+                                child: const Text('Annuler'),
+                              ),
+                              TextButton(
+                                onPressed: () => Navigator.pop(dialogContext, true),
+                                child: const Text('Supprimer', style: TextStyle(color: Colors.redAccent)),
+                              ),
+                            ],
+                          );
+                        },
+                      );
+                      if (confirmed != true) return;
+                      await _deleteFreelancePro(p);
+                    },
+                    leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                    title: const Text('Supprimer', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w900)),
+                    trailing: Icon(Icons.arrow_forward_ios_rounded, size: 16, color: sub),
+                  ),
+                ],
                 if (p.phone.trim().isEmpty && p.email.trim().isEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 6, bottom: 8),
@@ -223,28 +336,52 @@ class _FreelanceProsPageState extends State<FreelanceProsPage> {
     );
   }
 
-  Future<void> _openAddSheet() async {
+  Future<void> _deleteFreelancePro(_FreelancePro p) async {
+    try {
+      await FirebaseFirestore.instance.collection('freelance_pros').doc(p.id).delete();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Profil supprime.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erreur suppression: $e')),
+      );
+    }
+  }
+
+  Future<void> _openAddSheet({_FreelancePro? existing}) async {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? const Color(0xFF111B21) : Colors.white;
     final text = isDark ? const Color(0xFFE9EDF0) : const Color(0xFF111827);
     final sub = isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
     final divider = isDark ? Colors.white12 : Colors.black12;
 
-    final nameCtrl = TextEditingController();
-    final roleCtrl = TextEditingController();
-    final cityCtrl = TextEditingController(text: 'Kolwezi, Centre');
-    final priceCtrl = TextEditingController();
-    final phoneCtrl = TextEditingController();
-    final emailCtrl = TextEditingController();
-    final descCtrl = TextEditingController();
-    final ratingCtrl = TextEditingController(text: '');
-    final reviewsCtrl = TextEditingController(text: '');
+    final nameCtrl = TextEditingController(text: existing?.name ?? '');
+    final roleCtrl = TextEditingController(text: existing?.role ?? '');
+    final cityCtrl = TextEditingController(
+      text: existing != null && existing.cityLabel.isNotEmpty
+          ? existing.cityLabel
+          : 'Kolwezi, Centre',
+    );
+    final priceCtrl = TextEditingController(text: existing?.priceLabel ?? '');
+    final phoneCtrl = TextEditingController(text: existing?.phone ?? '');
+    final emailCtrl = TextEditingController(text: existing?.email ?? '');
+    final descCtrl = TextEditingController(text: existing?.description ?? '');
+    final ratingCtrl = TextEditingController(
+      text: existing != null && existing.rating > 0 ? existing.rating.toString() : '',
+    );
+    final reviewsCtrl = TextEditingController(
+      text: existing != null && existing.reviews > 0 ? existing.reviews.toString() : '',
+    );
 
     final picker = ImagePicker();
     Uint8List? avatarBytes;
 
     final formKey = GlobalKey<FormState>();
     bool saving = false;
+    bool locating = false;
 
     const tagOptions = <(String, String)>[
       ('tech', 'Tech'),
@@ -252,7 +389,9 @@ class _FreelanceProsPageState extends State<FreelanceProsPage> {
       ('art', 'Art'),
       ('vie', 'Vie'),
     ];
-    final selectedTags = <String>{'tech'};
+    final selectedTags = existing != null
+        ? <String>{...existing.tags}
+        : <String>{'tech'};
 
     Future<void> submit(StateSetter setModal) async {
       if (saving) return;
@@ -260,14 +399,14 @@ class _FreelanceProsPageState extends State<FreelanceProsPage> {
 
       setModal(() => saving = true);
       try {
-        String avatarUrl = '';
+        String avatarUrl = existing?.avatarUrl ?? '';
         if (avatarBytes != null) {
           avatarUrl = await _uploadAvatar(avatarBytes!);
         }
 
         final me = FirebaseAuth.instance.currentUser;
 
-        await FirebaseFirestore.instance.collection('freelance_pros').add({
+        final payload = <String, dynamic>{
           'name': nameCtrl.text.trim(),
           'role': roleCtrl.text.trim(),
           'cityLabel': cityCtrl.text.trim(),
@@ -286,14 +425,26 @@ class _FreelanceProsPageState extends State<FreelanceProsPage> {
           'isCertified': false,
           'certifiedAt': null,
           'tags': selectedTags.toList(),
-          'createdAt': FieldValue.serverTimestamp(),
-          'createdAtMs': DateTime.now().millisecondsSinceEpoch,
-        });
+          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+        };
+        if (existing == null) {
+          payload['createdAt'] = FieldValue.serverTimestamp();
+          payload['createdAtMs'] = DateTime.now().millisecondsSinceEpoch;
+          await FirebaseFirestore.instance.collection('freelance_pros').add(payload);
+        } else {
+          await FirebaseFirestore.instance
+              .collection('freelance_pros')
+              .doc(existing.id)
+              .update(payload);
+        }
 
         if (!mounted) return;
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Profil ajoute.')),
+          SnackBar(
+            content: Text(existing == null ? 'Profil ajoute.' : 'Profil mis a jour.'),
+          ),
         );
       } catch (e) {
         if (!mounted) return;
@@ -343,7 +494,7 @@ class _FreelanceProsPageState extends State<FreelanceProsPage> {
                         children: [
                           Expanded(
                             child: Text(
-                              'Ajouter un profil',
+                              existing == null ? 'Ajouter un profil' : 'Modifier le profil',
                               style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 16.5, letterSpacing: -0.2),
                             ),
                           ),
@@ -385,7 +536,9 @@ class _FreelanceProsPageState extends State<FreelanceProsPage> {
                                         height: 66,
                                         color: isDark ? Colors.white12 : Colors.black12,
                                         child: avatarBytes == null
-                                            ? const Icon(Icons.add_a_photo_outlined, color: _accent)
+                                            ? existing?.avatarUrl.isNotEmpty == true
+                                                ? CachedNetworkImage(imageUrl: existing!.avatarUrl, fit: BoxFit.cover)
+                                                : const Icon(Icons.add_a_photo_outlined, color: _accent)
                                             : Image.memory(avatarBytes!, fit: BoxFit.cover),
                                       ),
                                     ),
@@ -404,6 +557,30 @@ class _FreelanceProsPageState extends State<FreelanceProsPage> {
                                     Icon(Icons.chevron_right_rounded, color: sub),
                                   ],
                                 ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: saving || locating
+                                  ? null
+                                  : () async {
+                                      setModal(() => locating = true);
+                                      final result = await _resolveCurrentLocation();
+                                      if (!mounted) return;
+                                      setModal(() {
+                                        locating = false;
+                                        if (result != null) {
+                                          cityCtrl.text = result.label;
+                                        }
+                                      });
+                                    },
+                              icon: Icon(
+                                locating
+                                    ? Icons.hourglass_top_rounded
+                                    : Icons.my_location_rounded,
+                              ),
+                              label: Text(
+                                locating ? 'Localisation...' : 'Utiliser ma position',
                               ),
                             ),
                             const SizedBox(height: 12),
@@ -559,7 +736,10 @@ class _FreelanceProsPageState extends State<FreelanceProsPage> {
                                         height: 22,
                                         child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)),
                                       )
-                                    : const Text('Ajouter', style: TextStyle(fontWeight: FontWeight.w900)),
+                                    : Text(
+                                        existing == null ? 'Ajouter' : 'Enregistrer',
+                                        style: const TextStyle(fontWeight: FontWeight.w900),
+                                      ),
                               ),
                             ),
                           ],
@@ -1144,6 +1324,7 @@ class _FreelancePro {
   final int reviews;
   final bool certified;
   final List<String> tags;
+  final String ownerUid;
 
   const _FreelancePro({
     required this.id,
@@ -1159,5 +1340,12 @@ class _FreelancePro {
     required this.reviews,
     required this.certified,
     required this.tags,
+    required this.ownerUid,
   });
+}
+
+class _FreelanceLocationResult {
+  final String label;
+
+  const _FreelanceLocationResult({required this.label});
 }

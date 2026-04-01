@@ -153,26 +153,53 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     }
   }
 
-  Future<void> _openAddPlaceSheet({String initialType = 'fast_food'}) async {
+  Future<void> _openAddPlaceSheet({
+    String initialType = 'fast_food',
+    _FoodPlace? existing,
+  }) async {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? const Color(0xFF111B21) : Colors.white;
     final text = isDark ? const Color(0xFFE9EDF0) : const Color(0xFF111827);
     final sub = isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
     final divider = isDark ? Colors.white12 : Colors.black12;
 
-    final nameCtrl = TextEditingController();
-    final cityCtrl = TextEditingController();
-    final etaCtrl = TextEditingController(text: '30-45 min');
-    final phoneCtrl = TextEditingController();
-    final emailCtrl = TextEditingController();
-    final ratingCtrl = TextEditingController(text: '4.5');
-    final tagsCtrl = TextEditingController();
+    final nameCtrl = TextEditingController(text: existing?.name ?? '');
+    final cityCtrl = TextEditingController(text: existing?.cityLabel ?? '');
+    final etaCtrl = TextEditingController(
+      text: existing != null && existing.etaLabel.trim().isNotEmpty
+          ? existing.etaLabel
+          : '30-45 min',
+    );
+    final phoneCtrl = TextEditingController(text: existing?.phone ?? '');
+    final emailCtrl = TextEditingController(text: existing?.email ?? '');
+    final ratingCtrl = TextEditingController(
+      text: existing != null && existing.rating > 0
+          ? existing.rating.toString()
+          : '4.5',
+    );
+    final tagsCtrl = TextEditingController(
+      text: existing != null ? existing.tags.join(', ') : '',
+    );
     final picker = ImagePicker();
     Uint8List? coverBytes;
-    final catalogDrafts = <Map<String, dynamic>>[];
+    final catalogDrafts = existing != null
+        ? existing.catalog
+            .map(
+              (item) => <String, dynamic>{
+                'name': item.name,
+                'price': item.price,
+                'priceLabel': item.priceLabel,
+                'imageUrl': item.imageUrl,
+              },
+            )
+            .toList()
+        : <Map<String, dynamic>>[];
 
-    String typeKey = initialType; // restaurants | fast_food | delivery
-    bool isOpen = true;
+    String typeKey =
+        existing != null && existing.type.trim().isNotEmpty
+            ? existing.type
+            : initialType;
+    bool isOpen = existing?.isOpen ?? true;
     bool saving = false;
     bool locating = false;
     double? selectedLat;
@@ -182,7 +209,8 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     Future<void> submit(StateSetter setModal) async {
       if (saving) return;
       if (!(formKey.currentState?.validate() ?? false)) return;
-      if (coverBytes == null || coverBytes!.isEmpty) {
+      if ((coverBytes == null || coverBytes!.isEmpty) &&
+          (existing?.coverUrl.isEmpty ?? true)) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Ajoute une photo de couverture.')),
         );
@@ -198,7 +226,10 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
       setModal(() => saving = true);
       try {
         final me = FirebaseAuth.instance.currentUser;
-        final coverUrl = await _uploadCover(coverBytes!);
+        var coverUrl = existing?.coverUrl ?? '';
+        if (coverBytes != null && coverBytes!.isNotEmpty) {
+          coverUrl = await _uploadCover(coverBytes!);
+        }
         final rawTags = tagsCtrl.text.trim();
         final tags = rawTags.isEmpty
             ? <String>[]
@@ -225,7 +256,7 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
           );
         }
 
-        await FirebaseFirestore.instance.collection('food_places').add({
+        final payload = <String, dynamic>{
           'name': nameCtrl.text.trim(),
           'type': typeKey,
           'coverUrl': coverUrl,
@@ -249,19 +280,37 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
           'certified': false,
           'isCertified': false,
           'certifiedAt': null,
-          'createdAt': FieldValue.serverTimestamp(),
-          'createdAtMs': DateTime.now().millisecondsSinceEpoch,
-        });
+          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+        };
+        if (existing == null) {
+          payload['createdAt'] = FieldValue.serverTimestamp();
+          payload['createdAtMs'] = DateTime.now().millisecondsSinceEpoch;
+          await FirebaseFirestore.instance.collection('food_places').add(payload);
+        } else {
+          await FirebaseFirestore.instance
+              .collection('food_places')
+              .doc(existing.id)
+              .update(payload);
+        }
 
         if (!mounted) return;
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Fast-food ajoute.')),
+          SnackBar(
+            content: Text(
+              existing == null ? 'Service restaure ajoute.' : 'Service restaure mis a jour.',
+            ),
+          ),
         );
       } catch (e) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur ajout: $e')),
+          SnackBar(
+            content: Text(
+              existing == null ? 'Erreur ajout: $e' : 'Erreur mise a jour: $e',
+            ),
+          ),
         );
         setModal(() => saving = false);
       }
@@ -315,7 +364,9 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                         children: [
                           Expanded(
                             child: Text(
-                              'Ajouter un fast-food',
+                              existing == null
+                                  ? 'Ajouter un service resto'
+                                  : 'Modifier le service',
                               style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 16.5, letterSpacing: -0.2),
                             ),
                           ),
@@ -441,15 +492,24 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                                     height: 64,
                                     decoration: BoxDecoration(
                                       color: isDark ? Colors.white10 : Colors.black12,
-                                      borderRadius: BorderRadius.circular(16),
-                                      border: Border.all(color: divider),
-                                    ),
-                                    child: coverBytes == null
-                                        ? Icon(Icons.image_outlined, color: sub)
-                                        : ClipRRect(
+                                     borderRadius: BorderRadius.circular(16),
+                                     border: Border.all(color: divider),
+                                   ),
+                                    child: coverBytes != null
+                                        ? ClipRRect(
                                             borderRadius: BorderRadius.circular(16),
                                             child: Image.memory(coverBytes!, fit: BoxFit.cover),
-                                          ),
+                                          )
+                                        : existing != null &&
+                                                existing.coverUrl.trim().isNotEmpty
+                                            ? ClipRRect(
+                                                borderRadius: BorderRadius.circular(16),
+                                                child: CachedNetworkImage(
+                                                  imageUrl: existing.coverUrl,
+                                                  fit: BoxFit.cover,
+                                                ),
+                                              )
+                                            : Icon(Icons.image_outlined, color: sub),
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
@@ -665,8 +725,13 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                                 onPressed: saving ? null : () => submit(setModal),
                                 icon: saving
                                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                    : const Icon(Icons.add, color: Colors.white),
-                                label: Text(saving ? 'Ajout...' : 'Ajouter', style: const TextStyle(fontWeight: FontWeight.w900)),
+                                    : Icon(existing == null ? Icons.add : Icons.save_outlined, color: Colors.white),
+                                label: Text(
+                                  saving
+                                      ? (existing == null ? 'Ajout...' : 'Enregistrement...')
+                                      : (existing == null ? 'Ajouter' : 'Enregistrer'),
+                                  style: const TextStyle(fontWeight: FontWeight.w900),
+                                ),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: _orange,
                                   foregroundColor: Colors.white,
@@ -1042,6 +1107,9 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     final text = isDark ? const Color(0xFFE9EDF0) : const Color(0xFF111827);
     final sub = isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
     final div = isDark ? Colors.white12 : Colors.black12;
+    final me = FirebaseAuth.instance.currentUser;
+    final isOwner =
+        me != null && p.ownerUid.trim().isNotEmpty && p.ownerUid.trim() == me.uid;
 
     final phone = p.phone.trim();
     final email = p.email.trim();
@@ -1083,6 +1151,46 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                     style: TextStyle(color: sub, fontWeight: FontWeight.w600),
                   ),
                 ),
+                if (isOwner) ...[
+                  Divider(height: 1, color: div),
+                  ListTile(
+                    leading: const Icon(Icons.edit_outlined, color: _orange),
+                    title: Text('Modifier', style: TextStyle(color: text, fontWeight: FontWeight.w800)),
+                    subtitle: Text('Mettre a jour cette publication', style: TextStyle(color: sub)),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _openAddPlaceSheet(existing: p, initialType: p.type);
+                    },
+                  ),
+                  Divider(height: 1, color: div),
+                  ListTile(
+                    leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                    title: const Text('Supprimer', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w800)),
+                    subtitle: Text('Retirer cette publication', style: TextStyle(color: sub)),
+                    onTap: () async {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (dialogContext) => AlertDialog(
+                          title: const Text('Supprimer la publication'),
+                          content: const Text('Cette publication sera retiree definitivement.'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(dialogContext, false),
+                              child: const Text('Annuler'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.pop(dialogContext, true),
+                              child: const Text('Supprimer', style: TextStyle(color: Colors.redAccent)),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirm != true || !mounted) return;
+                      Navigator.pop(ctx);
+                      await _deletePlace(p);
+                    },
+                  ),
+                ],
                 Divider(height: 1, color: div),
                 ListTile(
                   leading: const Icon(Icons.menu_book_rounded),
@@ -1131,6 +1239,21 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     );
   }
 
+  Future<void> _deletePlace(_FoodPlace place) async {
+    try {
+      await FirebaseFirestore.instance.collection('food_places').doc(place.id).delete();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Publication supprimee.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Suppression impossible: $e')),
+      );
+    }
+  }
+
   double _asDouble(dynamic v, {double def = 0}) {
     if (v == null) return def;
     if (v is num) return v.toDouble();
@@ -1168,6 +1291,7 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
       tags: _asTags(d['tags']),
       phone: (d['phone'] ?? d['phoneNumber'] ?? '').toString(),
       email: (d['email'] ?? '').toString(),
+      ownerUid: (d['createdByUid'] ?? '').toString(),
       catalog: _catalogFromRaw(d['catalog'] ?? d['menu'] ?? d['products']),
     );
   }
@@ -1875,6 +1999,7 @@ class _FoodPlace {
   final List<String> tags;
   final String phone;
   final String email;
+  final String ownerUid;
   final List<_FoodCatalogItem> catalog;
 
   const _FoodPlace({
@@ -1890,6 +2015,7 @@ class _FoodPlace {
     required this.tags,
     required this.phone,
     required this.email,
+    required this.ownerUid,
     required this.catalog,
   });
 }

@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
@@ -42,6 +44,75 @@ class _MobilityServicesPageState extends State<MobilityServicesPage> {
     return const [];
   }
 
+  String _formatLocationLabelFromPlacemark(Placemark place, Position position) {
+    final parts = <String?>[
+      place.street,
+      place.subLocality,
+      place.locality,
+      place.administrativeArea,
+    ].map((value) => (value ?? '').trim()).where((value) => value.isNotEmpty).toList();
+
+    if (parts.isNotEmpty) return parts.join(', ');
+    return '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
+  }
+
+  Future<_MobilityLocationResult?> _resolveCurrentLocation() async {
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Activez la localisation pour continuer.')),
+          );
+        }
+        return null;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Autorisation de localisation refusee.')),
+          );
+        }
+        return null;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+      );
+
+      var label =
+          '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
+      try {
+        final places = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
+        if (places.isNotEmpty) {
+          label = _formatLocationLabelFromPlacemark(places.first, position);
+        }
+      } catch (_) {}
+
+      return _MobilityLocationResult(
+        label: label,
+        lat: position.latitude,
+        lng: position.longitude,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Impossible de recuperer la localisation: $e')),
+        );
+      }
+      return null;
+    }
+  }
+
   Query _query() {
     Query q = FirebaseFirestore.instance.collection('car_rentals');
     if (_filterKey != 'all') q = q.where('tags', arrayContains: _filterKey);
@@ -65,6 +136,8 @@ class _MobilityServicesPageState extends State<MobilityServicesPage> {
       ownerUid: (d['createdByUid'] ?? d['ownerUid'] ?? '').toString(),
       ownerEmail: (d['createdByEmail'] ?? d['ownerEmail'] ?? '').toString(),
       ownerName: (d['createdByName'] ?? d['ownerName'] ?? '').toString(),
+      lat: d['lat'] is num ? (d['lat'] as num).toDouble() : null,
+      lng: d['lng'] is num ? (d['lng'] as num).toDouble() : null,
     );
   }
 
@@ -219,6 +292,9 @@ class _MobilityServicesPageState extends State<MobilityServicesPage> {
     final bg = isDark ? const Color(0xFF111B21) : Colors.white;
     final text = isDark ? const Color(0xFFE9EDF0) : const Color(0xFF111827);
     final sub = isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
+    final me = FirebaseAuth.instance.currentUser;
+    final isOwner =
+        me != null && p.ownerUid.trim().isNotEmpty && p.ownerUid.trim() == me.uid;
 
     showModalBottomSheet<void>(
       context: context,
@@ -244,6 +320,44 @@ class _MobilityServicesPageState extends State<MobilityServicesPage> {
                     IconButton(onPressed: () => Navigator.pop(ctx), icon: Icon(Icons.close, color: sub)),
                   ],
                 ),
+                if (isOwner)
+                  ListTile(
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _openAddCarSheet(existing: p);
+                    },
+                    leading: const Icon(Icons.edit_outlined, color: _ctaBlue),
+                    title: Text('Modifier', style: TextStyle(color: text, fontWeight: FontWeight.w800)),
+                    subtitle: Text('Mettre a jour cette annonce', style: TextStyle(color: sub, fontWeight: FontWeight.w700)),
+                  ),
+                if (isOwner)
+                  ListTile(
+                    onTap: () async {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (dialogContext) => AlertDialog(
+                          title: const Text('Supprimer la voiture'),
+                          content: const Text('Cette annonce sera retiree definitivement.'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(dialogContext, false),
+                              child: const Text('Annuler'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.pop(dialogContext, true),
+                              child: const Text('Supprimer', style: TextStyle(color: Colors.redAccent)),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirm != true || !mounted) return;
+                      Navigator.pop(ctx);
+                      await _deleteCarRental(p);
+                    },
+                    leading: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                    title: const Text('Supprimer', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w800)),
+                    subtitle: Text('Retirer cette publication', style: TextStyle(color: sub, fontWeight: FontWeight.w700)),
+                  ),
                 if (p.phone.trim().isEmpty && p.email.trim().isEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 6, bottom: 8),
@@ -275,6 +389,21 @@ class _MobilityServicesPageState extends State<MobilityServicesPage> {
         );
       },
     );
+  }
+
+  Future<void> _deleteCarRental(_CarRental rental) async {
+    try {
+      await FirebaseFirestore.instance.collection('car_rentals').doc(rental.id).delete();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Annonce supprimee.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Suppression impossible: $e')),
+      );
+    }
   }
 
   Future<void> _reserve(_CarRental p) async {
@@ -410,19 +539,23 @@ class _MobilityServicesPageState extends State<MobilityServicesPage> {
     msgCtrl.dispose();
   }
 
-  Future<void> _openAddCarSheet() async {
+  Future<void> _openAddCarSheet({_CarRental? existing}) async {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? const Color(0xFF111B21) : Colors.white;
     final text = isDark ? const Color(0xFFE9EDF0) : const Color(0xFF111827);
     final sub = isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
     final divider = isDark ? Colors.white12 : Colors.black12;
 
-    final nameCtrl = TextEditingController();
-    final cityCtrl = TextEditingController(text: 'Kolwezi, Centre');
-    final priceCtrl = TextEditingController();
-    final phoneCtrl = TextEditingController();
-    final emailCtrl = TextEditingController();
-    final descCtrl = TextEditingController();
+    final nameCtrl = TextEditingController(text: existing?.name ?? '');
+    final cityCtrl = TextEditingController(
+      text: existing != null && existing.cityLabel.isNotEmpty
+          ? existing.cityLabel
+          : 'Kolwezi, Centre',
+    );
+    final priceCtrl = TextEditingController(text: existing?.priceLabel ?? '');
+    final phoneCtrl = TextEditingController(text: existing?.phone ?? '');
+    final emailCtrl = TextEditingController(text: existing?.email ?? '');
+    final descCtrl = TextEditingController(text: existing?.description ?? '');
     final picker = ImagePicker();
     Uint8List? coverBytes;
 
@@ -434,23 +567,32 @@ class _MobilityServicesPageState extends State<MobilityServicesPage> {
       ('van_bus', 'Van/Bus'),
       ('lux', 'Lux'),
     ];
-    final selectedTags = <String>{'berline'};
+    final selectedTags = existing != null
+        ? <String>{...existing.tags}
+        : <String>{'berline'};
 
     final formKey = GlobalKey<FormState>();
     bool saving = false;
+    bool locating = false;
+    double? selectedLat = existing?.lat;
+    double? selectedLng = existing?.lng;
 
     Future<void> submit(StateSetter setModal) async {
       if (saving) return;
       if (!(formKey.currentState?.validate() ?? false)) return;
-      if (coverBytes == null || coverBytes!.isEmpty) {
+      if ((coverBytes == null || coverBytes!.isEmpty) &&
+          (existing?.coverUrl.isEmpty ?? true)) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ajoute une photo.')));
         return;
       }
       setModal(() => saving = true);
       try {
         final me = FirebaseAuth.instance.currentUser;
-        final coverUrl = await _uploadCover(coverBytes!);
-        await FirebaseFirestore.instance.collection('car_rentals').add({
+        String coverUrl = existing?.coverUrl ?? '';
+        if (coverBytes != null) {
+          coverUrl = await _uploadCover(coverBytes!);
+        }
+        final payload = <String, dynamic>{
           'name': nameCtrl.text.trim(),
           'cityLabel': cityCtrl.text.trim(),
           'priceLabel': priceCtrl.text.trim(),
@@ -459,6 +601,8 @@ class _MobilityServicesPageState extends State<MobilityServicesPage> {
           'email': emailCtrl.text.trim(),
           'description': descCtrl.text.trim(),
           'tags': selectedTags.toList(),
+          if (selectedLat != null) 'lat': selectedLat,
+          if (selectedLng != null) 'lng': selectedLng,
           'createdByUid': me?.uid,
           'createdByEmail': me?.email,
           'createdByName': me?.displayName,
@@ -467,15 +611,37 @@ class _MobilityServicesPageState extends State<MobilityServicesPage> {
           'certifiedAt': null,
           'active': true,
           'isActive': true,
-          'createdAt': FieldValue.serverTimestamp(),
-          'createdAtMs': DateTime.now().millisecondsSinceEpoch,
-        });
+          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+        };
+        if (existing == null) {
+          payload['createdAt'] = FieldValue.serverTimestamp();
+          payload['createdAtMs'] = DateTime.now().millisecondsSinceEpoch;
+          await FirebaseFirestore.instance.collection('car_rentals').add(payload);
+        } else {
+          await FirebaseFirestore.instance
+              .collection('car_rentals')
+              .doc(existing.id)
+              .update(payload);
+        }
         if (!mounted) return;
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Voiture ajoutee.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              existing == null ? 'Voiture ajoutee.' : 'Voiture mise a jour.',
+            ),
+          ),
+        );
       } catch (e) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur ajout: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              existing == null ? 'Erreur ajout: $e' : 'Erreur mise a jour: $e',
+            ),
+          ),
+        );
         setModal(() => saving = false);
       }
     }
@@ -505,7 +671,7 @@ class _MobilityServicesPageState extends State<MobilityServicesPage> {
                       Center(child: Container(width: 46, height: 4, margin: const EdgeInsets.only(top: 6, bottom: 10), decoration: BoxDecoration(color: isDark ? Colors.white24 : Colors.black12, borderRadius: BorderRadius.circular(99)))),
                       Row(
                         children: [
-                          Expanded(child: Text('Ajouter une voiture', style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 16.5))),
+                          Expanded(child: Text(existing == null ? 'Ajouter une voiture' : 'Modifier la voiture', style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 16.5))),
                           IconButton(onPressed: saving ? null : () => Navigator.pop(ctx), icon: Icon(Icons.close, color: sub)),
                         ],
                       ),
@@ -535,7 +701,14 @@ class _MobilityServicesPageState extends State<MobilityServicesPage> {
                                         width: 78,
                                         height: 72,
                                         color: isDark ? Colors.white12 : Colors.black12,
-                                        child: coverBytes == null ? const Icon(Icons.add_a_photo_outlined, color: _accent) : Image.memory(coverBytes!, fit: BoxFit.cover),
+                                        child: coverBytes != null
+                                            ? Image.memory(coverBytes!, fit: BoxFit.cover)
+                                            : existing != null && existing.coverUrl.trim().isNotEmpty
+                                                ? CachedNetworkImage(
+                                                    imageUrl: existing.coverUrl,
+                                                    fit: BoxFit.cover,
+                                                  )
+                                                : const Icon(Icons.add_a_photo_outlined, color: _accent),
                                       ),
                                     ),
                                     const SizedBox(width: 12),
@@ -546,6 +719,36 @@ class _MobilityServicesPageState extends State<MobilityServicesPage> {
                               ),
                             ),
                             const SizedBox(height: 12),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton.icon(
+                                onPressed: saving || locating
+                                    ? null
+                                    : () async {
+                                        setModal(() => locating = true);
+                                        final result = await _resolveCurrentLocation();
+                                        if (!context.mounted) return;
+                                        if (result != null) {
+                                          cityCtrl.text = result.label;
+                                          selectedLat = result.lat;
+                                          selectedLng = result.lng;
+                                        }
+                                        setModal(() => locating = false);
+                                      },
+                                icon: locating
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      )
+                                    : const Icon(Icons.my_location_outlined),
+                                label: Text(
+                                  locating ? 'Localisation...' : 'Utiliser ma position',
+                                  style: const TextStyle(fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
                             _Field(label: 'Modele / Titre (ex: Toyota Rav4)', controller: nameCtrl, textColor: text, subColor: sub, divider: divider, validator: (v) => (v == null || v.trim().isEmpty) ? 'Titre requis' : null),
                             const SizedBox(height: 10),
                             Row(
@@ -603,7 +806,7 @@ class _MobilityServicesPageState extends State<MobilityServicesPage> {
                                 style: ElevatedButton.styleFrom(backgroundColor: _accent, foregroundColor: Colors.white, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18))),
                                 child: saving
                                     ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)))
-                                    : const Text('Ajouter', style: TextStyle(fontWeight: FontWeight.w900)),
+                                    : Text(existing == null ? 'Ajouter' : 'Enregistrer', style: const TextStyle(fontWeight: FontWeight.w900)),
                               ),
                             ),
                           ],
@@ -1222,6 +1425,8 @@ class _CarRental {
   final String ownerUid;
   final String ownerEmail;
   final String ownerName;
+  final double? lat;
+  final double? lng;
 
   const _CarRental({
     required this.id,
@@ -1238,5 +1443,19 @@ class _CarRental {
     required this.ownerUid,
     required this.ownerEmail,
     required this.ownerName,
+    required this.lat,
+    required this.lng,
+  });
+}
+
+class _MobilityLocationResult {
+  final String label;
+  final double lat;
+  final double lng;
+
+  const _MobilityLocationResult({
+    required this.label,
+    required this.lat,
+    required this.lng,
   });
 }

@@ -3,6 +3,8 @@ import 'dart:typed_data';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:geocoding/geocoding.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
@@ -37,6 +39,71 @@ class _TrainingServicesPageState extends State<TrainingServicesPage> {
     return const [];
   }
 
+  String _formatLocationLabelFromPlacemark(Placemark place, Position position) {
+    final parts = <String?>[
+      place.street,
+      place.subLocality,
+      place.locality,
+      place.administrativeArea,
+    ].map((value) => (value ?? '').trim()).where((value) => value.isNotEmpty).toList();
+
+    if (parts.isNotEmpty) return parts.join(', ');
+    return '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
+  }
+
+  Future<_TrainingLocationResult?> _resolveCurrentLocation() async {
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Activez la localisation pour continuer.')),
+          );
+        }
+        return null;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Autorisation de localisation refusee.')),
+          );
+        }
+        return null;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.medium,
+      );
+
+      var label =
+          '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
+      try {
+        final places = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
+        if (places.isNotEmpty) {
+          label = _formatLocationLabelFromPlacemark(places.first, position);
+        }
+      } catch (_) {}
+
+      return _TrainingLocationResult(label: label);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Impossible de recuperer la localisation: $e')),
+        );
+      }
+      return null;
+    }
+  }
+
   Query _query() {
     Query q = FirebaseFirestore.instance.collection('training_offers');
     if (_filterKey != 'all') q = q.where('tags', arrayContains: _filterKey);
@@ -57,6 +124,7 @@ class _TrainingServicesPageState extends State<TrainingServicesPage> {
       description: (d['description'] ?? '').toString(),
       certified: _asBool(d['certified'] ?? d['isCertified']),
       tags: _asTags(d['tags']),
+      ownerUid: (d['createdByUid'] ?? '').toString(),
     );
   }
 
@@ -99,6 +167,9 @@ class _TrainingServicesPageState extends State<TrainingServicesPage> {
     final bg = isDark ? const Color(0xFF111B21) : Colors.white;
     final text = isDark ? const Color(0xFFE9EDF0) : const Color(0xFF111827);
     final sub = isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
+    final me = FirebaseAuth.instance.currentUser;
+    final isOwner =
+        me != null && p.ownerUid.trim().isNotEmpty && p.ownerUid.trim() == me.uid;
 
     showModalBottomSheet<void>(
       context: context,
@@ -129,6 +200,44 @@ class _TrainingServicesPageState extends State<TrainingServicesPage> {
                     IconButton(onPressed: () => Navigator.pop(ctx), icon: Icon(Icons.close, color: sub)),
                   ],
                 ),
+                if (isOwner)
+                  ListTile(
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _openAddOfferSheet(existing: p);
+                    },
+                    leading: const Icon(Icons.edit_outlined, color: _ctaBlue),
+                    title: Text('Modifier', style: TextStyle(color: text, fontWeight: FontWeight.w800)),
+                    subtitle: Text('Mettre a jour cette formation', style: TextStyle(color: sub, fontWeight: FontWeight.w700)),
+                  ),
+                if (isOwner)
+                  ListTile(
+                    onTap: () async {
+                      final confirm = await showDialog<bool>(
+                        context: context,
+                        builder: (dialogContext) => AlertDialog(
+                          title: const Text('Supprimer la formation'),
+                          content: const Text('Cette publication sera retiree definitivement.'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(dialogContext, false),
+                              child: const Text('Annuler'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.pop(dialogContext, true),
+                              child: const Text('Supprimer', style: TextStyle(color: Colors.redAccent)),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (confirm != true || !mounted) return;
+                      Navigator.pop(ctx);
+                      await _deleteTrainingOffer(p);
+                    },
+                    leading: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                    title: const Text('Supprimer', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w800)),
+                    subtitle: Text('Retirer cette publication', style: TextStyle(color: sub, fontWeight: FontWeight.w700)),
+                  ),
                 if (p.phone.trim().isEmpty && p.email.trim().isEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 6, bottom: 8),
@@ -162,6 +271,21 @@ class _TrainingServicesPageState extends State<TrainingServicesPage> {
     );
   }
 
+  Future<void> _deleteTrainingOffer(_TrainingOffer offer) async {
+    try {
+      await FirebaseFirestore.instance.collection('training_offers').doc(offer.id).delete();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Formation supprimee.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Suppression impossible: $e')),
+      );
+    }
+  }
+
   static const List<(String, String, IconData)> _filters = [
     ('all', 'Tout', Icons.grid_view_rounded),
     ('scolaire', 'Scolaire', Icons.menu_book_rounded),
@@ -172,31 +296,43 @@ class _TrainingServicesPageState extends State<TrainingServicesPage> {
     ('art', 'Art', Icons.brush_outlined),
   ];
 
-  Future<void> _openAddOfferSheet() async {
+  Future<void> _openAddOfferSheet({_TrainingOffer? existing}) async {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final bg = isDark ? const Color(0xFF111B21) : Colors.white;
     final text = isDark ? const Color(0xFFE9EDF0) : const Color(0xFF111827);
     final sub = isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
     final divider = isDark ? Colors.white12 : Colors.black12;
 
-    final titleCtrl = TextEditingController();
-    final cityCtrl = TextEditingController(text: 'Kolwezi, Centre');
-    final priceCtrl = TextEditingController();
-    final durationCtrl = TextEditingController(text: '4 semaines');
-    final phoneCtrl = TextEditingController();
-    final emailCtrl = TextEditingController();
-    final descCtrl = TextEditingController();
+    final titleCtrl = TextEditingController(text: existing?.title ?? '');
+    final cityCtrl = TextEditingController(
+      text: existing != null && existing.cityLabel.isNotEmpty
+          ? existing.cityLabel
+          : 'Kolwezi, Centre',
+    );
+    final priceCtrl = TextEditingController(text: existing?.priceLabel ?? '');
+    final durationCtrl = TextEditingController(
+      text: existing != null && existing.durationLabel.isNotEmpty
+          ? existing.durationLabel
+          : '4 semaines',
+    );
+    final phoneCtrl = TextEditingController(text: existing?.phone ?? '');
+    final emailCtrl = TextEditingController(text: existing?.email ?? '');
+    final descCtrl = TextEditingController(text: existing?.description ?? '');
     final picker = ImagePicker();
     Uint8List? coverBytes;
 
     final formKey = GlobalKey<FormState>();
     bool saving = false;
-    final selectedTags = <String>{'informatique'};
+    bool locating = false;
+    final selectedTags = existing != null
+        ? <String>{...existing.tags}
+        : <String>{'informatique'};
 
     Future<void> submit(StateSetter setModal) async {
       if (saving) return;
       if (!(formKey.currentState?.validate() ?? false)) return;
-      if (coverBytes == null || coverBytes!.isEmpty) {
+      if ((coverBytes == null || coverBytes!.isEmpty) &&
+          (existing?.coverUrl.isEmpty ?? true)) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ajoute une photo.')));
         return;
       }
@@ -204,8 +340,11 @@ class _TrainingServicesPageState extends State<TrainingServicesPage> {
       setModal(() => saving = true);
       try {
         final me = FirebaseAuth.instance.currentUser;
-        final coverUrl = await _uploadCover(coverBytes!);
-        await FirebaseFirestore.instance.collection('training_offers').add({
+        String coverUrl = existing?.coverUrl ?? '';
+        if (coverBytes != null) {
+          coverUrl = await _uploadCover(coverBytes!);
+        }
+        final payload = <String, dynamic>{
           'title': titleCtrl.text.trim(),
           'cityLabel': cityCtrl.text.trim(),
           'priceLabel': priceCtrl.text.trim(),
@@ -222,15 +361,42 @@ class _TrainingServicesPageState extends State<TrainingServicesPage> {
           'certified': false,
           'isCertified': false,
           'certifiedAt': null,
-          'createdAt': FieldValue.serverTimestamp(),
-          'createdAtMs': DateTime.now().millisecondsSinceEpoch,
-        });
+          'updatedAt': FieldValue.serverTimestamp(),
+          'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+        };
+        if (existing == null) {
+          payload['createdAt'] = FieldValue.serverTimestamp();
+          payload['createdAtMs'] = DateTime.now().millisecondsSinceEpoch;
+          await FirebaseFirestore.instance.collection('training_offers').add(payload);
+        } else {
+          await FirebaseFirestore.instance
+              .collection('training_offers')
+              .doc(existing.id)
+              .update(payload);
+        }
 
         if (!mounted) return;
         Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              existing == null ? 'Formation ajoutee.' : 'Formation mise a jour.',
+            ),
+          ),
+        );
+        return;
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Formation ajoutée.')));
       } catch (e) {
         if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              existing == null ? 'Erreur ajout: $e' : 'Erreur mise a jour: $e',
+            ),
+          ),
+        );
+        setModal(() => saving = false);
+        return;
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erreur ajout: $e')));
         setModal(() => saving = false);
       }
@@ -261,7 +427,7 @@ class _TrainingServicesPageState extends State<TrainingServicesPage> {
                       Center(child: Container(width: 46, height: 4, margin: const EdgeInsets.only(top: 6, bottom: 10), decoration: BoxDecoration(color: isDark ? Colors.white24 : Colors.black12, borderRadius: BorderRadius.circular(99)))),
                       Row(
                         children: [
-                          Expanded(child: Text('Ajouter une formation', style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 16.5))),
+                          Expanded(child: Text(existing == null ? 'Ajouter une formation' : 'Modifier la formation', style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 16.5))),
                           IconButton(onPressed: saving ? null : () => Navigator.pop(ctx), icon: Icon(Icons.close, color: sub)),
                         ],
                       ),
@@ -291,7 +457,14 @@ class _TrainingServicesPageState extends State<TrainingServicesPage> {
                                         width: 78,
                                         height: 72,
                                         color: isDark ? Colors.white12 : Colors.black12,
-                                        child: coverBytes == null ? const Icon(Icons.add_photo_alternate_outlined, color: _accent) : Image.memory(coverBytes!, fit: BoxFit.cover),
+                                        child: coverBytes != null
+                                            ? Image.memory(coverBytes!, fit: BoxFit.cover)
+                                            : existing != null && existing.coverUrl.trim().isNotEmpty
+                                                ? CachedNetworkImage(
+                                                    imageUrl: existing.coverUrl,
+                                                    fit: BoxFit.cover,
+                                                  )
+                                                : const Icon(Icons.add_photo_alternate_outlined, color: _accent),
                                       ),
                                     ),
                                     const SizedBox(width: 12),
@@ -302,6 +475,34 @@ class _TrainingServicesPageState extends State<TrainingServicesPage> {
                               ),
                             ),
                             const SizedBox(height: 12),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton.icon(
+                                onPressed: saving || locating
+                                    ? null
+                                    : () async {
+                                        setModal(() => locating = true);
+                                        final result = await _resolveCurrentLocation();
+                                        if (!context.mounted) return;
+                                        if (result != null) {
+                                          cityCtrl.text = result.label;
+                                        }
+                                        setModal(() => locating = false);
+                                      },
+                                icon: locating
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(strokeWidth: 2),
+                                      )
+                                    : const Icon(Icons.my_location_outlined),
+                                label: Text(
+                                  locating ? 'Localisation...' : 'Utiliser ma position',
+                                  style: const TextStyle(fontWeight: FontWeight.w800),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
                             _Field(label: 'Titre (ex: Informatique de base)', controller: titleCtrl, textColor: text, subColor: sub, divider: divider, validator: (v) => (v == null || v.trim().isEmpty) ? 'Titre requis' : null),
                             const SizedBox(height: 10),
                             Row(
@@ -358,7 +559,7 @@ class _TrainingServicesPageState extends State<TrainingServicesPage> {
                                 style: ElevatedButton.styleFrom(backgroundColor: _accent, foregroundColor: Colors.white, elevation: 0, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18))),
                                 child: saving
                                     ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Colors.white)))
-                                    : const Text('Ajouter', style: TextStyle(fontWeight: FontWeight.w900)),
+                                    : Text(existing == null ? 'Ajouter' : 'Enregistrer', style: const TextStyle(fontWeight: FontWeight.w900)),
                               ),
                             ),
                           ],
@@ -883,6 +1084,7 @@ class _TrainingOffer {
   final String description;
   final bool certified;
   final List<String> tags;
+  final String ownerUid;
 
   const _TrainingOffer({
     required this.id,
@@ -896,5 +1098,14 @@ class _TrainingOffer {
     required this.description,
     required this.certified,
     required this.tags,
+    required this.ownerUid,
+  });
+}
+
+class _TrainingLocationResult {
+  final String label;
+
+  const _TrainingLocationResult({
+    required this.label,
   });
 }
