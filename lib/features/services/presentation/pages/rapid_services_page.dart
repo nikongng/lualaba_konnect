@@ -6,6 +6,7 @@ import 'home_services_page.dart';
 import 'local_services_catalog_page.dart';
 import 'mobility_services_page.dart';
 import 'real_estate_role_picker_page.dart';
+import 'revenue_management_page.dart';
 import 'training_services_page.dart';
 
 class RapidServicesPage extends StatefulWidget {
@@ -176,6 +177,13 @@ class _RapidServicesPageState extends State<RapidServicesPage> {
       Navigator.push(
         context,
         MaterialPageRoute(builder: (_) => const FoodServicesPage()),
+      );
+      return;
+    }
+    if (key.contains('administration')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const RevenueManagementPage()),
       );
       return;
     }
