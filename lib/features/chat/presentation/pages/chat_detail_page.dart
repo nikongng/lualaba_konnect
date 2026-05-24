@@ -5258,11 +5258,29 @@ class _ChatState extends State<ChatDetailPage>
         case 'file':
           preview = rawText.isNotEmpty ? rawText : 'Fichier';
           break;
+        case 'alert':
+          preview =
+              rawText.isNotEmpty ? rawText : 'Je me sens en insecurite.';
+          break;
         default:
           preview = rawText.isNotEmpty ? rawText : 'Nouveau message';
           break;
       }
       if (preview.length > 120) preview = '${preview.substring(0, 117)}...';
+
+      final bool isSosAlert = msgType == 'alert';
+      final dynamic location = payload['location'];
+      final bool hasLocation =
+          location is Map && location['lat'] != null && location['lng'] != null;
+      final String notificationType = isSosAlert ? 'sos_alert' : 'chat_message';
+      final String notificationTitle = isSosAlert ? 'SOS urgent' : senderName;
+      final String notificationBody = isSosAlert
+          ? (rawText.isNotEmpty
+                ? rawText
+                : (hasLocation
+                      ? '$senderName a partage sa position et a besoin d aide.'
+                      : '$senderName a besoin d aide immediatement.'))
+          : preview;
 
       final String mediaUrl =
           (payload['url'] ?? payload['imageUrl'] ?? payload['fileUrl'] ?? '')
@@ -5280,8 +5298,8 @@ class _ChatState extends State<ChatDetailPage>
             },
             body: jsonEncode({
               'recipients': recipients,
-              'title': senderName,
-              'body': preview,
+              'title': notificationTitle,
+              'body': notificationBody,
               'senderAvatarUrl': senderPhoto,
               'imageUrl': imageUrl,
               'existing_android_channel_id': 'lualaba_channel_v2',
@@ -5290,14 +5308,16 @@ class _ChatState extends State<ChatDetailPage>
                 'chatId': widget.chatId,
                 'chatName': widget.chatName,
                 'senderId': user.uid,
-                'type': 'chat_message',
+                'fromName': senderName,
+                'type': notificationType,
+                if (hasLocation) 'location': location,
               },
             }),
           )
           .timeout(const Duration(seconds: 10));
 
       debugPrint(
-        '[Notifier][chat_message] status=${resp.statusCode} body=${resp.body}',
+        '[Notifier][$notificationType] status=${resp.statusCode} body=${resp.body}',
       );
     } catch (e) {
       debugPrint('Notifier call error: $e');

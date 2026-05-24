@@ -87,4 +87,5 @@ flutter {
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
     implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
+    implementation("com.onesignal:OneSignal:5.6.1")
 }

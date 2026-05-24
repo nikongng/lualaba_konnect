@@ -1,6 +1,7 @@
 // 1. Bloc ajouté pour charger le plugin Google Services
 buildscript {
     repositories {
+        mavenLocal()
         google()
         mavenCentral()
     }
@@ -12,6 +13,7 @@ buildscript {
 
 allprojects {
     repositories {
+        mavenLocal()
         google()
         mavenCentral()
     }

@@ -43,7 +43,9 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     final client = Supabase.instance.client;
     final now = DateTime.now().millisecondsSinceEpoch;
     final path = '$folder/$now.jpg';
-    await client.storage.from('market').uploadBinary(
+    await client.storage
+        .from('market')
+        .uploadBinary(
           path,
           bytes,
           fileOptions: const FileOptions(
@@ -72,13 +74,17 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     for (final item in raw) {
       if (item is! Map) continue;
       final map = item.map((key, value) => MapEntry(key.toString(), value));
-      final name = (map['name'] ?? map['product'] ?? map['label'] ?? '').toString().trim();
+      final name = (map['name'] ?? map['product'] ?? map['label'] ?? '')
+          .toString()
+          .trim();
       if (name.isEmpty) continue;
       final price = _asDouble(map['price'], def: 0);
       out.add(
         _FoodCatalogItem(
           name: name,
-          imageUrl: (map['imageUrl'] ?? map['image'] ?? map['photoUrl'] ?? '').toString().trim(),
+          imageUrl: (map['imageUrl'] ?? map['image'] ?? map['photoUrl'] ?? '')
+              .toString()
+              .trim(),
           price: price,
           priceLabel: (map['priceLabel'] ?? '').toString().trim().isNotEmpty
               ? (map['priceLabel'] ?? '').toString().trim()
@@ -90,12 +96,16 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
   }
 
   String _formatLocationLabelFromPlacemark(Placemark place, Position position) {
-    final parts = <String?>[
-      place.street,
-      place.subLocality,
-      place.locality,
-      place.administrativeArea,
-    ].map((value) => (value ?? '').trim()).where((value) => value.isNotEmpty).toList();
+    final parts =
+        <String?>[
+              place.street,
+              place.subLocality,
+              place.locality,
+              place.administrativeArea,
+            ]
+            .map((value) => (value ?? '').trim())
+            .where((value) => value.isNotEmpty)
+            .toList();
 
     if (parts.isNotEmpty) return parts.join(', ');
     return '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
@@ -107,7 +117,9 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
       if (!enabled) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Activez la localisation pour continuer.')),
+            const SnackBar(
+              content: Text('Activez la localisation pour continuer.'),
+            ),
           );
         }
         return null;
@@ -117,10 +129,13 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
-      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Autorisation de localisation refusee.')),
+            const SnackBar(
+              content: Text('Autorisation de localisation refusee.'),
+            ),
           );
         }
         return null;
@@ -130,9 +145,13 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
         desiredAccuracy: LocationAccuracy.medium,
       );
 
-      var label = '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
+      var label =
+          '${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}';
       try {
-        final places = await placemarkFromCoordinates(position.latitude, position.longitude);
+        final places = await placemarkFromCoordinates(
+          position.latitude,
+          position.longitude,
+        );
         if (places.isNotEmpty) {
           label = _formatLocationLabelFromPlacemark(places.first, position);
         }
@@ -146,7 +165,9 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Impossible de recuperer la localisation: $e')),
+          SnackBar(
+            content: Text('Impossible de recuperer la localisation: $e'),
+          ),
         );
       }
       return null;
@@ -184,21 +205,20 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     Uint8List? coverBytes;
     final catalogDrafts = existing != null
         ? existing.catalog
-            .map(
-              (item) => <String, dynamic>{
-                'name': item.name,
-                'price': item.price,
-                'priceLabel': item.priceLabel,
-                'imageUrl': item.imageUrl,
-              },
-            )
-            .toList()
+              .map(
+                (item) => <String, dynamic>{
+                  'name': item.name,
+                  'price': item.price,
+                  'priceLabel': item.priceLabel,
+                  'imageUrl': item.imageUrl,
+                },
+              )
+              .toList()
         : <Map<String, dynamic>>[];
 
-    String typeKey =
-        existing != null && existing.type.trim().isNotEmpty
-            ? existing.type
-            : initialType;
+    String typeKey = existing != null && existing.type.trim().isNotEmpty
+        ? existing.type
+        : initialType;
     bool isOpen = existing?.isOpen ?? true;
     bool saving = false;
     bool locating = false;
@@ -218,7 +238,9 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
       }
       if (catalogDrafts.isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ajoute au moins un produit au catalogue.')),
+          const SnackBar(
+            content: Text('Ajoute au moins un produit au catalogue.'),
+          ),
         );
         return;
       }
@@ -234,10 +256,10 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
         final tags = rawTags.isEmpty
             ? <String>[]
             : rawTags
-                .split(',')
-                .map((e) => e.trim())
-                .where((e) => e.isNotEmpty)
-                .toList();
+                  .split(',')
+                  .map((e) => e.trim())
+                  .where((e) => e.isNotEmpty)
+                  .toList();
         final catalog = <Map<String, dynamic>>[];
         for (final item in catalogDrafts) {
           String imageUrl = (item['imageUrl'] ?? '').toString().trim();
@@ -246,14 +268,12 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
             imageUrl = await _uploadFoodImage(bytes, folder: 'food_catalog');
           }
           final price = _asDouble(item['price'], def: 0);
-          catalog.add(
-            <String, dynamic>{
-              'name': (item['name'] ?? '').toString().trim(),
-              'price': price,
-              'priceLabel': _formatCatalogPrice(price),
-              'imageUrl': imageUrl,
-            },
-          );
+          catalog.add(<String, dynamic>{
+            'name': (item['name'] ?? '').toString().trim(),
+            'price': price,
+            'priceLabel': _formatCatalogPrice(price),
+            'imageUrl': imageUrl,
+          });
         }
 
         final payload = <String, dynamic>{
@@ -286,7 +306,9 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
         if (existing == null) {
           payload['createdAt'] = FieldValue.serverTimestamp();
           payload['createdAtMs'] = DateTime.now().millisecondsSinceEpoch;
-          await FirebaseFirestore.instance.collection('food_places').add(payload);
+          await FirebaseFirestore.instance
+              .collection('food_places')
+              .add(payload);
         } else {
           await FirebaseFirestore.instance
               .collection('food_places')
@@ -299,7 +321,9 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              existing == null ? 'Service restaure ajoute.' : 'Service restaure mis a jour.',
+              existing == null
+                  ? 'Service restaure ajoute.'
+                  : 'Service restaure mis a jour.',
             ),
           ),
         );
@@ -323,432 +347,612 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
       builder: (ctx) {
         return SafeArea(
           top: false,
-          child: StatefulBuilder(builder: (context, setModal) {
-            return DraggableScrollableSheet(
-              initialChildSize: 0.92,
-              minChildSize: 0.55,
-              maxChildSize: 0.95,
-              expand: false,
-              builder: (context, controller) {
-                return Container(
-                  margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-                  decoration: BoxDecoration(
-                    color: bg,
-                    borderRadius: BorderRadius.circular(22),
-                    border: Border.all(color: divider),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(isDark ? 0.55 : 0.12),
-                        blurRadius: 26,
-                        offset: const Offset(0, 14),
+          child: StatefulBuilder(
+            builder: (context, setModal) {
+              return DraggableScrollableSheet(
+                initialChildSize: 0.92,
+                minChildSize: 0.55,
+                maxChildSize: 0.95,
+                expand: false,
+                builder: (context, controller) {
+                  return Container(
+                    margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+                    decoration: BoxDecoration(
+                      color: bg,
+                      borderRadius: BorderRadius.circular(22),
+                      border: Border.all(color: divider),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(isDark ? 0.55 : 0.12),
+                          blurRadius: 26,
+                          offset: const Offset(0, 14),
+                        ),
+                      ],
+                    ),
+                    child: ListView(
+                      controller: controller,
+                      padding: EdgeInsets.only(
+                        bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
                       ),
-                    ],
-                  ),
-                  child: ListView(
-                    controller: controller,
-                    padding: EdgeInsets.only(bottom: 16 + MediaQuery.of(context).viewInsets.bottom),
-                    children: [
-                      Center(
-                        child: Container(
-                          width: 46,
-                          height: 4,
-                          margin: const EdgeInsets.only(top: 6, bottom: 10),
-                          decoration: BoxDecoration(
-                            color: isDark ? Colors.white24 : Colors.black12,
-                            borderRadius: BorderRadius.circular(99),
+                      children: [
+                        Center(
+                          child: Container(
+                            width: 46,
+                            height: 4,
+                            margin: const EdgeInsets.only(top: 6, bottom: 10),
+                            decoration: BoxDecoration(
+                              color: isDark ? Colors.white24 : Colors.black12,
+                              borderRadius: BorderRadius.circular(99),
+                            ),
                           ),
                         ),
-                      ),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              existing == null
-                                  ? 'Ajouter un service resto'
-                                  : 'Modifier le service',
-                              style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 16.5, letterSpacing: -0.2),
-                            ),
-                          ),
-                          IconButton(
-                            onPressed: saving ? null : () => Navigator.pop(ctx),
-                            icon: Icon(Icons.close, color: sub),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Form(
-                        key: formKey,
-                        child: Column(
+                        Row(
                           children: [
-                            _Field(
-                              label: 'Nom',
-                              controller: nameCtrl,
-                              textColor: text,
-                              subColor: sub,
-                              divider: divider,
-                              validator: (v) => (v == null || v.trim().isEmpty) ? 'Nom requis' : null,
-                            ),
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _Field(
-                                    label: 'Localisation',
-                                    controller: cityCtrl,
-                                    textColor: text,
-                                    subColor: sub,
-                                    divider: divider,
-                                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Localisation requise' : null,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _Field(
-                                    label: 'Livraison (ex: 30-45 min)',
-                                    controller: etaCtrl,
-                                    textColor: text,
-                                    subColor: sub,
-                                    divider: divider,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: TextButton.icon(
-                                onPressed: saving || locating
-                                    ? null
-                                    : () async {
-                                        setModal(() => locating = true);
-                                        final result = await _resolveCurrentLocation();
-                                        if (!context.mounted) return;
-                                        if (result != null) {
-                                          cityCtrl.text = result.label;
-                                          selectedLat = result.lat;
-                                          selectedLng = result.lng;
-                                        }
-                                        setModal(() => locating = false);
-                                      },
-                                icon: locating
-                                    ? const SizedBox(
-                                        width: 16,
-                                        height: 16,
-                                        child: CircularProgressIndicator(strokeWidth: 2),
-                                      )
-                                    : const Icon(Icons.my_location_outlined),
-                                label: Text(
-                                  locating ? 'Localisation...' : 'Utiliser ma position',
-                                  style: const TextStyle(fontWeight: FontWeight.w800),
+                            Expanded(
+                              child: Text(
+                                existing == null
+                                    ? 'Ajouter un service resto'
+                                    : 'Modifier le service',
+                                style: TextStyle(
+                                  color: text,
+                                  fontWeight: FontWeight.w900,
+                                  fontSize: 16.5,
+                                  letterSpacing: -0.2,
                                 ),
                               ),
                             ),
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _Field(
-                                    label: 'Telephone',
-                                    controller: phoneCtrl,
-                                    textColor: text,
-                                    subColor: sub,
-                                    divider: divider,
-                                    keyboardType: TextInputType.phone,
-                                    validator: (v) => (v == null || v.trim().isEmpty) ? 'Telephone requis' : null,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _Field(
-                                    label: 'Email',
-                                    controller: emailCtrl,
-                                    textColor: text,
-                                    subColor: sub,
-                                    divider: divider,
-                                    keyboardType: TextInputType.emailAddress,
-                                    validator: (v) {
-                                      final x = (v ?? '').trim();
-                                      if (x.isEmpty) return 'Email requis';
-                                      if (!x.contains('@')) return 'Email invalide';
-                                      return null;
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: isDark ? Colors.white10 : const Color(0xFFF3F4F6),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: divider),
-                              ),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    width: 64,
-                                    height: 64,
-                                    decoration: BoxDecoration(
-                                      color: isDark ? Colors.white10 : Colors.black12,
-                                     borderRadius: BorderRadius.circular(16),
-                                     border: Border.all(color: divider),
-                                   ),
-                                    child: coverBytes != null
-                                        ? ClipRRect(
-                                            borderRadius: BorderRadius.circular(16),
-                                            child: Image.memory(coverBytes!, fit: BoxFit.cover),
-                                          )
-                                        : existing != null &&
-                                                existing.coverUrl.trim().isNotEmpty
-                                            ? ClipRRect(
-                                                borderRadius: BorderRadius.circular(16),
-                                                child: CachedNetworkImage(
-                                                  imageUrl: existing.coverUrl,
-                                                  fit: BoxFit.cover,
-                                                ),
-                                              )
-                                            : Icon(Icons.image_outlined, color: sub),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text('Couverture', style: TextStyle(color: text, fontWeight: FontWeight.w900)),
-                                        const SizedBox(height: 2),
-                                        Text('Uploader une photo', style: TextStyle(color: sub, fontWeight: FontWeight.w600)),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  IconButton(
-                                    tooltip: 'Galerie',
-                                    onPressed: saving
-                                        ? null
-                                        : () async {
-                                            final x = await picker.pickImage(source: ImageSource.gallery, imageQuality: 75);
-                                            if (x == null) return;
-                                            final b = await x.readAsBytes();
-                                            setModal(() => coverBytes = b);
-                                          },
-                                    icon: Icon(Icons.photo_library_outlined, color: sub),
-                                  ),
-                                  IconButton(
-                                    tooltip: 'Camera',
-                                    onPressed: saving
-                                        ? null
-                                        : () async {
-                                            final x = await picker.pickImage(source: ImageSource.camera, imageQuality: 75);
-                                            if (x == null) return;
-                                            final b = await x.readAsBytes();
-                                            setModal(() => coverBytes = b);
-                                          },
-                                    icon: Icon(Icons.photo_camera_outlined, color: sub),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _Field(
-                                    label: 'Note (ex: 4.5)',
-                                    controller: ratingCtrl,
-                                    textColor: text,
-                                    subColor: sub,
-                                    divider: divider,
-                                    keyboardType: TextInputType.number,
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: _TypeDropdown(
-                                    value: typeKey,
-                                    onChanged: saving ? null : (v) => setModal(() => typeKey = v),
-                                    isDark: isDark,
-                                    text: text,
-                                    sub: sub,
-                                    divider: divider,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 10),
-                            _Field(
-                              label: 'Tags (separes par virgule)',
-                              controller: tagsCtrl,
-                              textColor: text,
-                              subColor: sub,
-                              divider: divider,
-                            ),
-                            const SizedBox(height: 12),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(14),
-                              decoration: BoxDecoration(
-                                color: isDark ? Colors.white10 : const Color(0xFFF3F4F6),
-                                borderRadius: BorderRadius.circular(18),
-                                border: Border.all(color: divider),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Text(
-                                              'Catalogue',
-                                              style: TextStyle(color: text, fontWeight: FontWeight.w900),
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              'Ajoutez image, produit et prix.',
-                                              style: TextStyle(color: sub, fontWeight: FontWeight.w600),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      ElevatedButton.icon(
-                                        onPressed: saving
-                                            ? null
-                                            : () async {
-                                                final created = await _openAddCatalogItemDialog();
-                                                if (created == null) return;
-                                                setModal(() => catalogDrafts.add(created));
-                                              },
-                                        icon: const Icon(Icons.add),
-                                        label: const Text('Produit'),
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: _orange,
-                                          foregroundColor: Colors.white,
-                                          elevation: 0,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  if (catalogDrafts.isEmpty)
-                                    Text(
-                                      'Aucun produit ajoute pour le moment.',
-                                      style: TextStyle(color: sub, fontWeight: FontWeight.w700),
-                                    )
-                                  else
-                                    ...List.generate(catalogDrafts.length, (index) {
-                                      final item = catalogDrafts[index];
-                                      final imageBytes = item['imageBytes'] as Uint8List?;
-                                      final imageUrl = (item['imageUrl'] ?? '').toString().trim();
-                                      return Container(
-                                        margin: const EdgeInsets.only(bottom: 10),
-                                        padding: const EdgeInsets.all(10),
-                                        decoration: BoxDecoration(
-                                          color: isDark ? Colors.black.withOpacity(0.12) : Colors.white,
-                                          borderRadius: BorderRadius.circular(16),
-                                          border: Border.all(color: divider),
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            ClipRRect(
-                                              borderRadius: BorderRadius.circular(12),
-                                              child: imageBytes != null
-                                                  ? Image.memory(imageBytes, width: 56, height: 56, fit: BoxFit.cover)
-                                                  : imageUrl.isNotEmpty
-                                                      ? CachedNetworkImage(imageUrl: imageUrl, width: 56, height: 56, fit: BoxFit.cover)
-                                                      : Container(
-                                                          width: 56,
-                                                          height: 56,
-                                                          color: isDark ? Colors.white10 : Colors.black12,
-                                                          child: Icon(Icons.fastfood_outlined, color: sub),
-                                                        ),
-                                            ),
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  Text(
-                                                    (item['name'] ?? '').toString(),
-                                                    style: TextStyle(color: text, fontWeight: FontWeight.w900),
-                                                  ),
-                                                  const SizedBox(height: 4),
-                                                  Text(
-                                                    _formatCatalogPrice(item['price']),
-                                                    style: const TextStyle(color: _orange, fontWeight: FontWeight.w900),
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                            IconButton(
-                                              tooltip: 'Modifier',
-                                              onPressed: saving
-                                                  ? null
-                                                  : () async {
-                                                      final updated = await _openAddCatalogItemDialog(existing: item);
-                                                      if (updated == null) return;
-                                                      setModal(() => catalogDrafts[index] = updated);
-                                                    },
-                                              icon: Icon(Icons.edit_outlined, color: sub),
-                                            ),
-                                            IconButton(
-                                              tooltip: 'Supprimer',
-                                              onPressed: saving
-                                                  ? null
-                                                  : () => setModal(() => catalogDrafts.removeAt(index)),
-                                              icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    }),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            SwitchListTile.adaptive(
-                              value: isOpen,
-                              activeColor: _orange,
-                              contentPadding: EdgeInsets.zero,
-                              title: Text('Ouvert', style: TextStyle(color: text, fontWeight: FontWeight.w900)),
-                              subtitle: Text('Affiche OUVERT sur la carte', style: TextStyle(color: sub, fontWeight: FontWeight.w600)),
-                              onChanged: saving ? null : (v) => setModal(() => isOpen = v),
-                            ),
-                            const SizedBox(height: 14),
-                            SizedBox(
-                              width: double.infinity,
-                              height: 50,
-                              child: ElevatedButton.icon(
-                                onPressed: saving ? null : () => submit(setModal),
-                                icon: saving
-                                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                                    : Icon(existing == null ? Icons.add : Icons.save_outlined, color: Colors.white),
-                                label: Text(
-                                  saving
-                                      ? (existing == null ? 'Ajout...' : 'Enregistrement...')
-                                      : (existing == null ? 'Ajouter' : 'Enregistrer'),
-                                  style: const TextStyle(fontWeight: FontWeight.w900),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: _orange,
-                                  foregroundColor: Colors.white,
-                                  elevation: 0,
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                ),
-                              ),
+                            IconButton(
+                              onPressed: saving
+                                  ? null
+                                  : () => Navigator.pop(ctx),
+                              icon: Icon(Icons.close, color: sub),
                             ),
                           ],
                         ),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            );
-          }),
+                        const SizedBox(height: 8),
+                        Form(
+                          key: formKey,
+                          child: Column(
+                            children: [
+                              _Field(
+                                label: 'Nom',
+                                controller: nameCtrl,
+                                textColor: text,
+                                subColor: sub,
+                                divider: divider,
+                                validator: (v) =>
+                                    (v == null || v.trim().isEmpty)
+                                    ? 'Nom requis'
+                                    : null,
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _Field(
+                                      label: 'Localisation',
+                                      controller: cityCtrl,
+                                      textColor: text,
+                                      subColor: sub,
+                                      divider: divider,
+                                      validator: (v) =>
+                                          (v == null || v.trim().isEmpty)
+                                          ? 'Localisation requise'
+                                          : null,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _Field(
+                                      label: 'Livraison (ex: 30-45 min)',
+                                      controller: etaCtrl,
+                                      textColor: text,
+                                      subColor: sub,
+                                      divider: divider,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: TextButton.icon(
+                                  onPressed: saving || locating
+                                      ? null
+                                      : () async {
+                                          setModal(() => locating = true);
+                                          final result =
+                                              await _resolveCurrentLocation();
+                                          if (!context.mounted) return;
+                                          if (result != null) {
+                                            cityCtrl.text = result.label;
+                                            selectedLat = result.lat;
+                                            selectedLng = result.lng;
+                                          }
+                                          setModal(() => locating = false);
+                                        },
+                                  icon: locating
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                          ),
+                                        )
+                                      : const Icon(Icons.my_location_outlined),
+                                  label: Text(
+                                    locating
+                                        ? 'Localisation...'
+                                        : 'Utiliser ma position',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _Field(
+                                      label: 'Telephone',
+                                      controller: phoneCtrl,
+                                      textColor: text,
+                                      subColor: sub,
+                                      divider: divider,
+                                      keyboardType: TextInputType.phone,
+                                      validator: (v) =>
+                                          (v == null || v.trim().isEmpty)
+                                          ? 'Telephone requis'
+                                          : null,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _Field(
+                                      label: 'Email',
+                                      controller: emailCtrl,
+                                      textColor: text,
+                                      subColor: sub,
+                                      divider: divider,
+                                      keyboardType: TextInputType.emailAddress,
+                                      validator: (v) {
+                                        final x = (v ?? '').trim();
+                                        if (x.isEmpty) return 'Email requis';
+                                        if (!x.contains('@'))
+                                          return 'Email invalide';
+                                        return null;
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? Colors.white10
+                                      : const Color(0xFFF3F4F6),
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: divider),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 64,
+                                      height: 64,
+                                      decoration: BoxDecoration(
+                                        color: isDark
+                                            ? Colors.white10
+                                            : Colors.black12,
+                                        borderRadius: BorderRadius.circular(16),
+                                        border: Border.all(color: divider),
+                                      ),
+                                      child: coverBytes != null
+                                          ? ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
+                                              child: Image.memory(
+                                                coverBytes!,
+                                                fit: BoxFit.cover,
+                                              ),
+                                            )
+                                          : existing != null &&
+                                                existing.coverUrl
+                                                    .trim()
+                                                    .isNotEmpty
+                                          ? ClipRRect(
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
+                                              child: CachedNetworkImage(
+                                                imageUrl: existing.coverUrl,
+                                                fit: BoxFit.cover,
+                                              ),
+                                            )
+                                          : Icon(
+                                              Icons.image_outlined,
+                                              color: sub,
+                                            ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Couverture',
+                                            style: TextStyle(
+                                              color: text,
+                                              fontWeight: FontWeight.w900,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            'Uploader une photo',
+                                            style: TextStyle(
+                                              color: sub,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    IconButton(
+                                      tooltip: 'Galerie',
+                                      onPressed: saving
+                                          ? null
+                                          : () async {
+                                              final x = await picker.pickImage(
+                                                source: ImageSource.gallery,
+                                                imageQuality: 75,
+                                              );
+                                              if (x == null) return;
+                                              final b = await x.readAsBytes();
+                                              setModal(() => coverBytes = b);
+                                            },
+                                      icon: Icon(
+                                        Icons.photo_library_outlined,
+                                        color: sub,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: 'Camera',
+                                      onPressed: saving
+                                          ? null
+                                          : () async {
+                                              final x = await picker.pickImage(
+                                                source: ImageSource.camera,
+                                                imageQuality: 75,
+                                              );
+                                              if (x == null) return;
+                                              final b = await x.readAsBytes();
+                                              setModal(() => coverBytes = b);
+                                            },
+                                      icon: Icon(
+                                        Icons.photo_camera_outlined,
+                                        color: sub,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _Field(
+                                      label: 'Note (ex: 4.5)',
+                                      controller: ratingCtrl,
+                                      textColor: text,
+                                      subColor: sub,
+                                      divider: divider,
+                                      keyboardType: TextInputType.number,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _TypeDropdown(
+                                      value: typeKey,
+                                      onChanged: saving
+                                          ? null
+                                          : (v) => setModal(() => typeKey = v),
+                                      isDark: isDark,
+                                      text: text,
+                                      sub: sub,
+                                      divider: divider,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              _Field(
+                                label: 'Tags (separes par virgule)',
+                                controller: tagsCtrl,
+                                textColor: text,
+                                subColor: sub,
+                                divider: divider,
+                              ),
+                              const SizedBox(height: 12),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(14),
+                                decoration: BoxDecoration(
+                                  color: isDark
+                                      ? Colors.white10
+                                      : const Color(0xFFF3F4F6),
+                                  borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(color: divider),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                'Catalogue',
+                                                style: TextStyle(
+                                                  color: text,
+                                                  fontWeight: FontWeight.w900,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                'Ajoutez image, produit et prix.',
+                                                style: TextStyle(
+                                                  color: sub,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        ElevatedButton.icon(
+                                          onPressed: saving
+                                              ? null
+                                              : () async {
+                                                  final created =
+                                                      await _openAddCatalogItemDialog();
+                                                  if (created == null) return;
+                                                  setModal(
+                                                    () => catalogDrafts.add(
+                                                      created,
+                                                    ),
+                                                  );
+                                                },
+                                          icon: const Icon(Icons.add),
+                                          label: const Text('Produit'),
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: _orange,
+                                            foregroundColor: Colors.white,
+                                            elevation: 0,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    if (catalogDrafts.isEmpty)
+                                      Text(
+                                        'Aucun produit ajoute pour le moment.',
+                                        style: TextStyle(
+                                          color: sub,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      )
+                                    else
+                                      ...List.generate(catalogDrafts.length, (
+                                        index,
+                                      ) {
+                                        final item = catalogDrafts[index];
+                                        final imageBytes =
+                                            item['imageBytes'] as Uint8List?;
+                                        final imageUrl =
+                                            (item['imageUrl'] ?? '')
+                                                .toString()
+                                                .trim();
+                                        return Container(
+                                          margin: const EdgeInsets.only(
+                                            bottom: 10,
+                                          ),
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(
+                                            color: isDark
+                                                ? Colors.black.withOpacity(0.12)
+                                                : Colors.white,
+                                            borderRadius: BorderRadius.circular(
+                                              16,
+                                            ),
+                                            border: Border.all(color: divider),
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(12),
+                                                child: imageBytes != null
+                                                    ? Image.memory(
+                                                        imageBytes,
+                                                        width: 56,
+                                                        height: 56,
+                                                        fit: BoxFit.cover,
+                                                      )
+                                                    : imageUrl.isNotEmpty
+                                                    ? CachedNetworkImage(
+                                                        imageUrl: imageUrl,
+                                                        width: 56,
+                                                        height: 56,
+                                                        fit: BoxFit.cover,
+                                                      )
+                                                    : Container(
+                                                        width: 56,
+                                                        height: 56,
+                                                        color: isDark
+                                                            ? Colors.white10
+                                                            : Colors.black12,
+                                                        child: Icon(
+                                                          Icons
+                                                              .fastfood_outlined,
+                                                          color: sub,
+                                                        ),
+                                                      ),
+                                              ),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Text(
+                                                      (item['name'] ?? '')
+                                                          .toString(),
+                                                      style: TextStyle(
+                                                        color: text,
+                                                        fontWeight:
+                                                            FontWeight.w900,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 4),
+                                                    Text(
+                                                      _formatCatalogPrice(
+                                                        item['price'],
+                                                      ),
+                                                      style: const TextStyle(
+                                                        color: _orange,
+                                                        fontWeight:
+                                                            FontWeight.w900,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              IconButton(
+                                                tooltip: 'Modifier',
+                                                onPressed: saving
+                                                    ? null
+                                                    : () async {
+                                                        final updated =
+                                                            await _openAddCatalogItemDialog(
+                                                              existing: item,
+                                                            );
+                                                        if (updated == null)
+                                                          return;
+                                                        setModal(
+                                                          () =>
+                                                              catalogDrafts[index] =
+                                                                  updated,
+                                                        );
+                                                      },
+                                                icon: Icon(
+                                                  Icons.edit_outlined,
+                                                  color: sub,
+                                                ),
+                                              ),
+                                              IconButton(
+                                                tooltip: 'Supprimer',
+                                                onPressed: saving
+                                                    ? null
+                                                    : () => setModal(
+                                                        () => catalogDrafts
+                                                            .removeAt(index),
+                                                      ),
+                                                icon: const Icon(
+                                                  Icons.delete_outline,
+                                                  color: Colors.redAccent,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              SwitchListTile.adaptive(
+                                value: isOpen,
+                                activeColor: _orange,
+                                contentPadding: EdgeInsets.zero,
+                                title: Text(
+                                  'Ouvert',
+                                  style: TextStyle(
+                                    color: text,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  'Affiche OUVERT sur la carte',
+                                  style: TextStyle(
+                                    color: sub,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                onChanged: saving
+                                    ? null
+                                    : (v) => setModal(() => isOpen = v),
+                              ),
+                              const SizedBox(height: 14),
+                              SizedBox(
+                                width: double.infinity,
+                                height: 50,
+                                child: ElevatedButton.icon(
+                                  onPressed: saving
+                                      ? null
+                                      : () => submit(setModal),
+                                  icon: saving
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 2,
+                                            color: Colors.white,
+                                          ),
+                                        )
+                                      : Icon(
+                                          existing == null
+                                              ? Icons.add
+                                              : Icons.save_outlined,
+                                          color: Colors.white,
+                                        ),
+                                  label: Text(
+                                    saving
+                                        ? (existing == null
+                                              ? 'Ajout...'
+                                              : 'Enregistrement...')
+                                        : (existing == null
+                                              ? 'Ajouter'
+                                              : 'Enregistrer'),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: _orange,
+                                    foregroundColor: Colors.white,
+                                    elevation: 0,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(16),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
         );
       },
     );
@@ -771,13 +975,19 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     final sub = isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
     final divider = isDark ? Colors.white12 : Colors.black12;
 
-    final nameCtrl = TextEditingController(text: (existing?['name'] ?? '').toString());
+    final nameCtrl = TextEditingController(
+      text: (existing?['name'] ?? '').toString(),
+    );
     final priceCtrl = TextEditingController(
-      text: _asDouble(existing?['price'], def: 0) > 0 ? '${_asDouble(existing?['price'], def: 0)}' : '',
+      text: _asDouble(existing?['price'], def: 0) > 0
+          ? '${_asDouble(existing?['price'], def: 0)}'
+          : '',
     );
     final picker = ImagePicker();
     Uint8List? imageBytes = existing?['imageBytes'] as Uint8List?;
-    String imageUrl = (existing?['imageUrl'] ?? existing?['image'] ?? '').toString().trim();
+    String imageUrl = (existing?['imageUrl'] ?? existing?['image'] ?? '')
+        .toString()
+        .trim();
     final formKey = GlobalKey<FormState>();
 
     final result = await showModalBottomSheet<Map<String, dynamic>>(
@@ -817,14 +1027,22 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          existing == null ? 'Ajouter un produit' : 'Modifier le produit',
-                          style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 17),
+                          existing == null
+                              ? 'Ajouter un produit'
+                              : 'Modifier le produit',
+                          style: TextStyle(
+                            color: text,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 17,
+                          ),
                         ),
                         const SizedBox(height: 12),
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: isDark ? Colors.white10 : const Color(0xFFF3F4F6),
+                            color: isDark
+                                ? Colors.white10
+                                : const Color(0xFFF3F4F6),
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: divider),
                           ),
@@ -834,37 +1052,60 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                                 width: 64,
                                 height: 64,
                                 decoration: BoxDecoration(
-                                  color: isDark ? Colors.white10 : Colors.black12,
+                                  color: isDark
+                                      ? Colors.white10
+                                      : Colors.black12,
                                   borderRadius: BorderRadius.circular(16),
                                   border: Border.all(color: divider),
                                 ),
                                 child: imageBytes != null
                                     ? ClipRRect(
                                         borderRadius: BorderRadius.circular(16),
-                                        child: Image.memory(imageBytes!, fit: BoxFit.cover),
+                                        child: Image.memory(
+                                          imageBytes!,
+                                          fit: BoxFit.cover,
+                                        ),
                                       )
                                     : imageUrl.isNotEmpty
-                                        ? ClipRRect(
-                                            borderRadius: BorderRadius.circular(16),
-                                            child: CachedNetworkImage(imageUrl: imageUrl, fit: BoxFit.cover),
-                                          )
-                                        : Icon(Icons.fastfood_outlined, color: sub),
+                                    ? ClipRRect(
+                                        borderRadius: BorderRadius.circular(16),
+                                        child: CachedNetworkImage(
+                                          imageUrl: imageUrl,
+                                          fit: BoxFit.cover,
+                                        ),
+                                      )
+                                    : Icon(Icons.fastfood_outlined, color: sub),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Text('Image du produit', style: TextStyle(color: text, fontWeight: FontWeight.w900)),
+                                    Text(
+                                      'Image du produit',
+                                      style: TextStyle(
+                                        color: text,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
                                     const SizedBox(height: 2),
-                                    Text('Ajoutez une photo claire du produit.', style: TextStyle(color: sub, fontWeight: FontWeight.w600)),
+                                    Text(
+                                      'Ajoutez une photo claire du produit.',
+                                      style: TextStyle(
+                                        color: sub,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
                               IconButton(
                                 tooltip: 'Galerie',
                                 onPressed: () async {
-                                  final x = await picker.pickImage(source: ImageSource.gallery, imageQuality: 75);
+                                  final x = await picker.pickImage(
+                                    source: ImageSource.gallery,
+                                    imageQuality: 75,
+                                  );
                                   if (x == null) return;
                                   final b = await x.readAsBytes();
                                   setModal(() {
@@ -872,7 +1113,10 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                                     imageUrl = '';
                                   });
                                 },
-                                icon: Icon(Icons.photo_library_outlined, color: sub),
+                                icon: Icon(
+                                  Icons.photo_library_outlined,
+                                  color: sub,
+                                ),
                               ),
                             ],
                           ),
@@ -884,7 +1128,9 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                           textColor: text,
                           subColor: sub,
                           divider: divider,
-                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Produit requis' : null,
+                          validator: (v) => (v == null || v.trim().isEmpty)
+                              ? 'Produit requis'
+                              : null,
                         ),
                         const SizedBox(height: 10),
                         _Field(
@@ -893,11 +1139,15 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                           textColor: text,
                           subColor: sub,
                           divider: divider,
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
                           validator: (v) {
                             final value = (v ?? '').trim();
                             if (value.isEmpty) return 'Prix requis';
-                            return _asDouble(value, def: -1) < 0 ? 'Prix invalide' : null;
+                            return _asDouble(value, def: -1) < 0
+                                ? 'Prix invalide'
+                                : null;
                           },
                         ),
                         const SizedBox(height: 16),
@@ -906,34 +1156,49 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                           height: 48,
                           child: ElevatedButton.icon(
                             onPressed: () {
-                              if (!(formKey.currentState?.validate() ?? false)) return;
+                              if (!(formKey.currentState?.validate() ?? false))
+                                return;
                               if (imageBytes == null && imageUrl.isEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Ajoute une image pour ce produit.')),
+                                  const SnackBar(
+                                    content: Text(
+                                      'Ajoute une image pour ce produit.',
+                                    ),
+                                  ),
                                 );
                                 return;
                               }
-                              final price = _asDouble(priceCtrl.text.trim(), def: 0);
-                              Navigator.of(ctx).pop(
-                                <String, dynamic>{
-                                  'name': nameCtrl.text.trim(),
-                                  'price': price,
-                                  'priceLabel': _formatCatalogPrice(price),
-                                  'imageUrl': imageUrl,
-                                  'imageBytes': imageBytes,
-                                },
+                              final price = _asDouble(
+                                priceCtrl.text.trim(),
+                                def: 0,
                               );
+                              Navigator.of(ctx).pop(<String, dynamic>{
+                                'name': nameCtrl.text.trim(),
+                                'price': price,
+                                'priceLabel': _formatCatalogPrice(price),
+                                'imageUrl': imageUrl,
+                                'imageBytes': imageBytes,
+                              });
                             },
-                            icon: const Icon(Icons.save_outlined, color: Colors.white),
+                            icon: const Icon(
+                              Icons.save_outlined,
+                              color: Colors.white,
+                            ),
                             label: Text(
-                              existing == null ? 'Ajouter au catalogue' : 'Mettre a jour',
-                              style: const TextStyle(fontWeight: FontWeight.w900),
+                              existing == null
+                                  ? 'Ajouter au catalogue'
+                                  : 'Mettre a jour',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                              ),
                             ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: _orange,
                               foregroundColor: Colors.white,
                               elevation: 0,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
                             ),
                           ),
                         ),
@@ -1004,7 +1269,11 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                     ),
                     Text(
                       'Catalogue',
-                      style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 18),
+                      style: TextStyle(
+                        color: text,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 18,
+                      ),
                     ),
                     const SizedBox(height: 4),
                     Text(
@@ -1018,7 +1287,10 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                         child: Center(
                           child: Text(
                             'Aucun produit dans le catalogue pour le moment.',
-                            style: TextStyle(color: sub, fontWeight: FontWeight.w700),
+                            style: TextStyle(
+                              color: sub,
+                              fontWeight: FontWeight.w700,
+                            ),
                             textAlign: TextAlign.center,
                           ),
                         ),
@@ -1029,7 +1301,9 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: isDark ? Colors.white10 : const Color(0xFFF8FAFC),
+                            color: isDark
+                                ? Colors.white10
+                                : const Color(0xFFF8FAFC),
                             borderRadius: BorderRadius.circular(18),
                             border: Border.all(color: div),
                           ),
@@ -1047,8 +1321,13 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                                     : Container(
                                         width: 72,
                                         height: 72,
-                                        color: isDark ? Colors.white10 : Colors.black12,
-                                        child: Icon(Icons.fastfood_outlined, color: sub),
+                                        color: isDark
+                                            ? Colors.white10
+                                            : Colors.black12,
+                                        child: Icon(
+                                          Icons.fastfood_outlined,
+                                          color: sub,
+                                        ),
                                       ),
                               ),
                               const SizedBox(width: 12),
@@ -1058,7 +1337,11 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                                   children: [
                                     Text(
                                       item.name,
-                                      style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 15),
+                                      style: TextStyle(
+                                        color: text,
+                                        fontWeight: FontWeight.w900,
+                                        fontSize: 15,
+                                      ),
                                     ),
                                     const SizedBox(height: 6),
                                     Text(
@@ -1089,15 +1372,15 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     try {
       final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!ok && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Impossible d’ouvrir.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Impossible d’ouvrir.')));
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
     }
   }
 
@@ -1109,7 +1392,9 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     final div = isDark ? Colors.white12 : Colors.black12;
     final me = FirebaseAuth.instance.currentUser;
     final isOwner =
-        me != null && p.ownerUid.trim().isNotEmpty && p.ownerUid.trim() == me.uid;
+        me != null &&
+        p.ownerUid.trim().isNotEmpty &&
+        p.ownerUid.trim() == me.uid;
 
     final phone = p.phone.trim();
     final email = p.email.trim();
@@ -1126,7 +1411,13 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
               color: bg,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(color: div),
-              boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.55 : 0.12), blurRadius: 26, offset: const Offset(0, 14))],
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(isDark ? 0.55 : 0.12),
+                  blurRadius: 26,
+                  offset: const Offset(0, 14),
+                ),
+              ],
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -1142,10 +1433,17 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                 ),
                 ListTile(
                   leading: CircleAvatar(
-                    backgroundImage: p.coverUrl.isNotEmpty ? CachedNetworkImageProvider(p.coverUrl) : null,
-                    child: p.coverUrl.isEmpty ? const Icon(Icons.storefront_outlined) : null,
+                    backgroundImage: p.coverUrl.isNotEmpty
+                        ? CachedNetworkImageProvider(p.coverUrl)
+                        : null,
+                    child: p.coverUrl.isEmpty
+                        ? const Icon(Icons.storefront_outlined)
+                        : null,
                   ),
-                  title: Text(p.name, style: TextStyle(color: text, fontWeight: FontWeight.w900)),
+                  title: Text(
+                    p.name,
+                    style: TextStyle(color: text, fontWeight: FontWeight.w900),
+                  ),
                   subtitle: Text(
                     'Contacter • ${p.isOpen ? 'Ouvert' : 'Ferme'}',
                     style: TextStyle(color: sub, fontWeight: FontWeight.w600),
@@ -1155,8 +1453,17 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                   Divider(height: 1, color: div),
                   ListTile(
                     leading: const Icon(Icons.edit_outlined, color: _orange),
-                    title: Text('Modifier', style: TextStyle(color: text, fontWeight: FontWeight.w800)),
-                    subtitle: Text('Mettre a jour cette publication', style: TextStyle(color: sub)),
+                    title: Text(
+                      'Modifier',
+                      style: TextStyle(
+                        color: text,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Mettre a jour cette publication',
+                      style: TextStyle(color: sub),
+                    ),
                     onTap: () {
                       Navigator.pop(ctx);
                       _openAddPlaceSheet(existing: p, initialType: p.type);
@@ -1164,23 +1471,42 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                   ),
                   Divider(height: 1, color: div),
                   ListTile(
-                    leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                    title: const Text('Supprimer', style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.w800)),
-                    subtitle: Text('Retirer cette publication', style: TextStyle(color: sub)),
+                    leading: const Icon(
+                      Icons.delete_outline,
+                      color: Colors.redAccent,
+                    ),
+                    title: const Text(
+                      'Supprimer',
+                      style: TextStyle(
+                        color: Colors.redAccent,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Retirer cette publication',
+                      style: TextStyle(color: sub),
+                    ),
                     onTap: () async {
                       final confirm = await showDialog<bool>(
                         context: context,
                         builder: (dialogContext) => AlertDialog(
                           title: const Text('Supprimer la publication'),
-                          content: const Text('Cette publication sera retiree definitivement.'),
+                          content: const Text(
+                            'Cette publication sera retiree definitivement.',
+                          ),
                           actions: [
                             TextButton(
-                              onPressed: () => Navigator.pop(dialogContext, false),
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, false),
                               child: const Text('Annuler'),
                             ),
                             TextButton(
-                              onPressed: () => Navigator.pop(dialogContext, true),
-                              child: const Text('Supprimer', style: TextStyle(color: Colors.redAccent)),
+                              onPressed: () =>
+                                  Navigator.pop(dialogContext, true),
+                              child: const Text(
+                                'Supprimer',
+                                style: TextStyle(color: Colors.redAccent),
+                              ),
                             ),
                           ],
                         ),
@@ -1194,9 +1520,14 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                 Divider(height: 1, color: div),
                 ListTile(
                   leading: const Icon(Icons.menu_book_rounded),
-                  title: Text('Voir catalogue', style: TextStyle(color: text, fontWeight: FontWeight.w800)),
+                  title: Text(
+                    'Voir catalogue',
+                    style: TextStyle(color: text, fontWeight: FontWeight.w800),
+                  ),
                   subtitle: Text(
-                    p.catalog.isEmpty ? 'Aucun produit renseigne' : '${p.catalog.length} produit(s) disponible(s)',
+                    p.catalog.isEmpty
+                        ? 'Aucun produit renseigne'
+                        : '${p.catalog.length} produit(s) disponible(s)',
                     style: TextStyle(color: sub),
                   ),
                   onTap: () {
@@ -1207,8 +1538,14 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                 Divider(height: 1, color: div),
                 ListTile(
                   leading: const Icon(Icons.call_outlined),
-                  title: Text('Appeler', style: TextStyle(color: text, fontWeight: FontWeight.w800)),
-                  subtitle: Text(phone.isEmpty ? 'Numero non fourni' : phone, style: TextStyle(color: sub)),
+                  title: Text(
+                    'Appeler',
+                    style: TextStyle(color: text, fontWeight: FontWeight.w800),
+                  ),
+                  subtitle: Text(
+                    phone.isEmpty ? 'Numero non fourni' : phone,
+                    style: TextStyle(color: sub),
+                  ),
                   enabled: phone.isNotEmpty,
                   onTap: phone.isEmpty
                       ? null
@@ -1220,8 +1557,14 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                 Divider(height: 1, color: div),
                 ListTile(
                   leading: const Icon(Icons.email_outlined),
-                  title: Text('Envoyer un email', style: TextStyle(color: text, fontWeight: FontWeight.w800)),
-                  subtitle: Text(email.isEmpty ? 'Email non fourni' : email, style: TextStyle(color: sub)),
+                  title: Text(
+                    'Envoyer un email',
+                    style: TextStyle(color: text, fontWeight: FontWeight.w800),
+                  ),
+                  subtitle: Text(
+                    email.isEmpty ? 'Email non fourni' : email,
+                    style: TextStyle(color: sub),
+                  ),
                   enabled: email.isNotEmpty,
                   onTap: email.isEmpty
                       ? null
@@ -1241,16 +1584,19 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
 
   Future<void> _deletePlace(_FoodPlace place) async {
     try {
-      await FirebaseFirestore.instance.collection('food_places').doc(place.id).delete();
+      await FirebaseFirestore.instance
+          .collection('food_places')
+          .doc(place.id)
+          .delete();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Publication supprimee.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Publication supprimee.')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Suppression impossible: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Suppression impossible: $e')));
     }
   }
 
@@ -1260,7 +1606,8 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     return double.tryParse(v.toString()) ?? def;
   }
 
-  bool _asBool(dynamic v) => v == true || v == 1 || v == '1' || v == 'true' || v == 'True';
+  bool _asBool(dynamic v) =>
+      v == true || v == 1 || v == '1' || v == 'true' || v == 'True';
 
   List<String> _asTags(dynamic v) {
     if (v is List) return List<String>.from(v.map((e) => e.toString()));
@@ -1275,15 +1622,18 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     final etaLabel = eta.isNotEmpty
         ? eta
         : (etaMin is num && etaMax is num)
-            ? '${etaMin.toInt()}-${etaMax.toInt()} min'
-            : '';
+        ? '${etaMin.toInt()}-${etaMax.toInt()} min'
+        : '';
 
     return _FoodPlace(
       id: doc.id,
       name: (d['name'] ?? d['title'] ?? 'Restaurant').toString(),
-      type: (d['type'] ?? d['category'] ?? '').toString(), // restaurants, fast_food, delivery
-      coverUrl: (d['coverUrl'] ?? d['imageUrl'] ?? d['photoUrl'] ?? '').toString(),
-      cityLabel: (d['cityLabel'] ?? d['location'] ?? d['city'] ?? '').toString(),
+      type: (d['type'] ?? d['category'] ?? '')
+          .toString(), // restaurants, fast_food, delivery
+      coverUrl: (d['coverUrl'] ?? d['imageUrl'] ?? d['photoUrl'] ?? '')
+          .toString(),
+      cityLabel: (d['cityLabel'] ?? d['location'] ?? d['city'] ?? '')
+          .toString(),
       isOpen: _asBool(d['isOpen'] ?? d['open'] ?? d['opened']),
       certified: _asBool(d['certified'] ?? d['isCertified']),
       rating: _asDouble(d['rating'], def: 0),
@@ -1299,7 +1649,8 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
   String _typeLabel(String t) {
     final x = t.trim().toLowerCase();
     if (x == 'restaurants' || x == 'restaurant') return 'RESTAURANT';
-    if (x == 'fast_food' || x == 'fastfood' || x == 'fast-food') return 'FAST-FOOD';
+    if (x == 'fast_food' || x == 'fastfood' || x == 'fast-food')
+      return 'FAST-FOOD';
     if (x == 'delivery' || x == 'livraison') return 'LIVRAISON';
     return x.isEmpty ? '' : x.toUpperCase();
   }
@@ -1330,9 +1681,15 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
     final sub = isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
     final divider = isDark ? Colors.white12 : Colors.black12;
 
-    final searchFill = isDark ? const Color(0xFF0F1A20) : Colors.white.withOpacity(0.96);
-    final searchText = isDark ? const Color(0xFFE9EDF0) : const Color(0xFF111827);
-    final searchHint = isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
+    final searchFill = isDark
+        ? const Color(0xFF0F1A20)
+        : Colors.white.withOpacity(0.96);
+    final searchText = isDark
+        ? const Color(0xFFE9EDF0)
+        : const Color(0xFF111827);
+    final searchHint = isDark
+        ? const Color(0xFFAAB2B8)
+        : const Color(0xFF6B7280);
 
     return Scaffold(
       backgroundColor: bg,
@@ -1358,7 +1715,10 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
             ),
             title: const Text(
               'Resto & Fast-Food',
-              style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: -0.2),
+              style: TextStyle(
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.2,
+              ),
             ),
             flexibleSpace: Container(
               decoration: const BoxDecoration(
@@ -1380,19 +1740,39 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                       decoration: BoxDecoration(
                         color: searchFill,
                         borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: Colors.white.withOpacity(isDark ? 0.10 : 0.35)),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 18, offset: const Offset(0, 10))],
+                        border: Border.all(
+                          color: Colors.white.withOpacity(isDark ? 0.10 : 0.35),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.12),
+                            blurRadius: 18,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
                       ),
                       child: TextField(
                         controller: _qCtrl,
                         onChanged: (_) => setState(() {}),
-                        style: TextStyle(color: searchText, fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                          color: searchText,
+                          fontWeight: FontWeight.w700,
+                        ),
                         decoration: InputDecoration(
                           hintText: 'Rechercher...',
-                          hintStyle: TextStyle(color: searchHint, fontWeight: FontWeight.w700),
-                          prefixIcon: Icon(Icons.search_rounded, color: searchHint),
+                          hintStyle: TextStyle(
+                            color: searchHint,
+                            fontWeight: FontWeight.w700,
+                          ),
+                          prefixIcon: Icon(
+                            Icons.search_rounded,
+                            color: searchHint,
+                          ),
                           border: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
                         ),
                       ),
                     ),
@@ -1410,9 +1790,13 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
             sliver: StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('food_places').limit(60).snapshots(),
+              stream: FirebaseFirestore.instance
+                  .collection('food_places')
+                  .limit(60)
+                  .snapshots(),
               builder: (context, snap) {
-                if (snap.connectionState == ConnectionState.waiting && !snap.hasData) {
+                if (snap.connectionState == ConnectionState.waiting &&
+                    !snap.hasData) {
                   return SliverToBoxAdapter(
                     child: Column(
                       children: [
@@ -1426,12 +1810,19 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                 if (snap.hasError) {
                   return SliverToBoxAdapter(
                     child: Center(
-                      child: Text('Erreur: ${snap.error}', style: TextStyle(color: sub, fontWeight: FontWeight.w700)),
+                      child: Text(
+                        'Erreur: ${snap.error}',
+                        style: TextStyle(
+                          color: sub,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                     ),
                   );
                 }
 
-                final docs = snap.data?.docs ?? const <QueryDocumentSnapshot<Object?>>[];
+                final docs =
+                    snap.data?.docs ?? const <QueryDocumentSnapshot<Object?>>[];
                 final q = _qCtrl.text.trim().toLowerCase();
                 final items = <_FoodPlace>[];
                 for (final d in docs) {
@@ -1446,40 +1837,48 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                     child: Padding(
                       padding: const EdgeInsets.only(top: 36),
                       child: Center(
-                        child: Text('Aucun resultat', style: TextStyle(color: sub, fontWeight: FontWeight.w800)),
+                        child: Text(
+                          'Aucun resultat',
+                          style: TextStyle(
+                            color: sub,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
                       ),
                     ),
                   );
                 }
 
                 return SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, i) {
-                      final p = items[i];
-                      return TweenAnimationBuilder<double>(
-                        key: ValueKey('${_filterKey}_${p.id}'),
-                        tween: Tween(begin: 0, end: 1),
-                        duration: Duration(milliseconds: 420 + (i.clamp(0, 10) * 35)),
-                        curve: Curves.easeOutCubic,
-                        builder: (context, v, child) => Opacity(
-                          opacity: v,
-                          child: Transform.translate(offset: Offset(0, 16 * (1 - v)), child: child),
+                  delegate: SliverChildBuilderDelegate((context, i) {
+                    final p = items[i];
+                    return TweenAnimationBuilder<double>(
+                      key: ValueKey('${_filterKey}_${p.id}'),
+                      tween: Tween(begin: 0, end: 1),
+                      duration: Duration(
+                        milliseconds: 420 + (i.clamp(0, 10) * 35),
+                      ),
+                      curve: Curves.easeOutCubic,
+                      builder: (context, v, child) => Opacity(
+                        opacity: v,
+                        child: Transform.translate(
+                          offset: Offset(0, 16 * (1 - v)),
+                          child: child,
                         ),
-                        child: _FoodCard(
-                          isDark: isDark,
-                          card: card,
-                          text: text,
-                          sub: sub,
-                          divider: divider,
-                          place: p,
-                          typeLabel: _typeLabel(p.type),
-                          onViewCatalog: () => _showCatalogSheet(p),
-                          onContact: () => _showContactSheet(p),
-                        ),
-                      );
-                    },
-                    childCount: items.length,
-                  ),
+                      ),
+                      child: _FoodCard(
+                        isDark: isDark,
+                        card: card,
+                        text: text,
+                        sub: sub,
+                        divider: divider,
+                        place: p,
+                        typeLabel: _typeLabel(p.type),
+                        onViewCatalog: () => _showCatalogSheet(p),
+                        onContact: () => _showContactSheet(p),
+                      ),
+                    );
+                  }, childCount: items.length),
                 );
               },
             ),
@@ -1533,9 +1932,15 @@ class _FoodFilterRow extends StatelessWidget {
 
           final bg = selected
               ? (isDark ? const Color(0xFF111B21) : Colors.white)
-              : (isDark ? Colors.black.withOpacity(0.20) : Colors.black.withOpacity(0.16));
-          final fg = selected ? (isDark ? Colors.white : const Color(0xFFB84E00)) : Colors.white;
-          final border = selected ? Colors.white.withOpacity(isDark ? 0.14 : 0.22) : Colors.transparent;
+              : (isDark
+                    ? Colors.black.withOpacity(0.20)
+                    : Colors.black.withOpacity(0.16));
+          final fg = selected
+              ? (isDark ? Colors.white : const Color(0xFFB84E00))
+              : Colors.white;
+          final border = selected
+              ? Colors.white.withOpacity(isDark ? 0.14 : 0.22)
+              : Colors.transparent;
 
           return GestureDetector(
             onTap: () => onSelected(f.$1),
@@ -1548,7 +1953,13 @@ class _FoodFilterRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: border),
                 boxShadow: selected && !isDark
-                    ? [BoxShadow(color: Colors.black.withOpacity(0.10), blurRadius: 14, offset: const Offset(0, 10))]
+                    ? [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.10),
+                          blurRadius: 14,
+                          offset: const Offset(0, 10),
+                        ),
+                      ]
                     : null,
               ),
               child: Row(
@@ -1601,7 +2012,9 @@ class _FoodCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final openPillBg = place.isOpen ? const Color(0xFF27AE60) : const Color(0xFF5C6B78);
+    final openPillBg = place.isOpen
+        ? const Color(0xFF27AE60)
+        : const Color(0xFF5C6B78);
     final openText = place.isOpen ? 'OUVERT' : 'FERME';
 
     return Container(
@@ -1610,7 +2023,13 @@ class _FoodCard extends StatelessWidget {
         color: card,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: divider),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.35 : 0.08), blurRadius: 22, offset: const Offset(0, 14))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.35 : 0.08),
+            blurRadius: 22,
+            offset: const Offset(0, 14),
+          ),
+        ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(22),
@@ -1627,7 +2046,9 @@ class _FoodCard extends StatelessWidget {
                       imageUrl: place.coverUrl,
                       fit: BoxFit.cover,
                       fadeInDuration: const Duration(milliseconds: 220),
-                      errorWidget: (_, __, ___) => Container(color: isDark ? Colors.white10 : Colors.black12),
+                      errorWidget: (_, __, ___) => Container(
+                        color: isDark ? Colors.white10 : Colors.black12,
+                      ),
                     )
                   else
                     Container(color: isDark ? Colors.white10 : Colors.black12),
@@ -1647,13 +2068,29 @@ class _FoodCard extends StatelessWidget {
                     top: 12,
                     left: 12,
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 7,
+                      ),
                       decoration: BoxDecoration(
                         color: openPillBg,
                         borderRadius: BorderRadius.circular(12),
-                        boxShadow: [BoxShadow(color: openPillBg.withOpacity(0.25), blurRadius: 14, offset: const Offset(0, 10))],
+                        boxShadow: [
+                          BoxShadow(
+                            color: openPillBg.withOpacity(0.25),
+                            blurRadius: 14,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
                       ),
-                      child: Text(openText, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 12)),
+                      child: Text(
+                        openText,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w900,
+                          fontSize: 12,
+                        ),
+                      ),
                     ),
                   ),
                   if (place.certified)
@@ -1667,9 +2104,19 @@ class _FoodCard extends StatelessWidget {
                           color: const Color(0xFF2D6BFF),
                           borderRadius: BorderRadius.circular(99),
                           border: Border.all(color: card, width: 3),
-                          boxShadow: [BoxShadow(color: const Color(0xFF2D6BFF).withOpacity(0.35), blurRadius: 14, offset: const Offset(0, 8))],
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF2D6BFF).withOpacity(0.35),
+                              blurRadius: 14,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
                         ),
-                        child: const Icon(Icons.shield_rounded, size: 16, color: Colors.white),
+                        child: const Icon(
+                          Icons.shield_rounded,
+                          size: 16,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   Positioned(
@@ -1684,7 +2131,8 @@ class _FoodCard extends StatelessWidget {
                             iconColor: const Color(0xFFFFC107),
                             text: place.rating.toStringAsFixed(1),
                           ),
-                        if (place.rating > 0 && place.etaLabel.isNotEmpty) const SizedBox(width: 8),
+                        if (place.rating > 0 && place.etaLabel.isNotEmpty)
+                          const SizedBox(width: 8),
                         if (place.etaLabel.isNotEmpty)
                           _InfoPill(
                             bg: Colors.white.withOpacity(0.96),
@@ -1710,13 +2158,23 @@ class _FoodCard extends StatelessWidget {
                           place.name,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 20, letterSpacing: -0.2),
+                          style: TextStyle(
+                            color: text,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 20,
+                            letterSpacing: -0.2,
+                          ),
                         ),
                       ),
                       if (typeLabel.isNotEmpty)
                         Text(
                           typeLabel,
-                          style: TextStyle(color: sub, fontWeight: FontWeight.w800, letterSpacing: 1.4, fontSize: 12),
+                          style: TextStyle(
+                            color: sub,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 1.4,
+                            fontSize: 12,
+                          ),
                         ),
                     ],
                   ),
@@ -1724,10 +2182,22 @@ class _FoodCard extends StatelessWidget {
                   if (place.cityLabel.trim().isNotEmpty)
                     Row(
                       children: [
-                        Icon(Icons.location_on_outlined, size: 18, color: const Color(0xFFB84E00).withOpacity(isDark ? 0.90 : 0.85)),
+                        Icon(
+                          Icons.location_on_outlined,
+                          size: 18,
+                          color: const Color(
+                            0xFFB84E00,
+                          ).withOpacity(isDark ? 0.90 : 0.85),
+                        ),
                         const SizedBox(width: 6),
                         Expanded(
-                          child: Text(place.cityLabel, style: TextStyle(color: sub, fontWeight: FontWeight.w700)),
+                          child: Text(
+                            place.cityLabel,
+                            style: TextStyle(
+                              color: sub,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ),
                       ],
                     ),
@@ -1737,20 +2207,29 @@ class _FoodCard extends StatelessWidget {
                     runSpacing: 10,
                     children: [
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 7,
+                        ),
                         decoration: BoxDecoration(
                           color: place.isOpen
                               ? const Color(0x1627AE60)
-                              : (isDark ? Colors.white10 : const Color(0x145C6B78)),
+                              : (isDark
+                                    ? Colors.white10
+                                    : const Color(0x145C6B78)),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
                             color: place.isOpen
                                 ? const Color(0x3327AE60)
-                                : (isDark ? Colors.white12 : const Color(0x225C6B78)),
+                                : (isDark
+                                      ? Colors.white12
+                                      : const Color(0x225C6B78)),
                           ),
                         ),
                         child: Text(
-                          place.isOpen ? 'Ouvert maintenant' : 'Ferme actuellement',
+                          place.isOpen
+                              ? 'Ouvert maintenant'
+                              : 'Ferme actuellement',
                           style: TextStyle(
                             color: place.isOpen ? const Color(0xFF27AE60) : sub,
                             fontWeight: FontWeight.w900,
@@ -1759,9 +2238,14 @@ class _FoodCard extends StatelessWidget {
                         ),
                       ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 7,
+                        ),
                         decoration: BoxDecoration(
-                          color: isDark ? const Color(0x22FF7A1A) : const Color(0x14FF7A1A),
+                          color: isDark
+                              ? const Color(0x22FF7A1A)
+                              : const Color(0x14FF7A1A),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(color: const Color(0x33FF7A1A)),
                         ),
@@ -1784,15 +2268,26 @@ class _FoodCard extends StatelessWidget {
                       children: [
                         for (final t in place.tags.take(2))
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 7,
+                            ),
                             decoration: BoxDecoration(
-                              color: isDark ? const Color(0x22FF7A1A) : const Color(0x14FF7A1A),
+                              color: isDark
+                                  ? const Color(0x22FF7A1A)
+                                  : const Color(0x14FF7A1A),
                               borderRadius: BorderRadius.circular(14),
-                              border: Border.all(color: const Color(0x33FF7A1A)),
+                              border: Border.all(
+                                color: const Color(0x33FF7A1A),
+                              ),
                             ),
                             child: Text(
                               t,
-                              style: const TextStyle(color: _FoodServicesPageState._orange, fontWeight: FontWeight.w900, fontSize: 12),
+                              style: const TextStyle(
+                                color: _FoodServicesPageState._orange,
+                                fontWeight: FontWeight.w900,
+                                fontSize: 12,
+                              ),
                             ),
                           ),
                       ],
@@ -1808,8 +2303,12 @@ class _FoodCard extends StatelessWidget {
                       label: const Text('Voir catalogue'),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFFB84E00),
-                        side: BorderSide(color: const Color(0xFFB84E00).withOpacity(0.28)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        side: BorderSide(
+                          color: const Color(0xFFB84E00).withOpacity(0.28),
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
                     ),
                   ),
@@ -1819,13 +2318,18 @@ class _FoodCard extends StatelessWidget {
                     height: 48,
                     child: ElevatedButton.icon(
                       onPressed: onContact,
-                      icon: const Icon(Icons.call_outlined, color: Colors.white),
+                      icon: const Icon(
+                        Icons.call_outlined,
+                        color: Colors.white,
+                      ),
                       label: const Text('Contacter'),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF2D6BFF),
                         foregroundColor: Colors.white,
                         elevation: 0,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
                       ),
                     ),
                   ),
@@ -1859,14 +2363,27 @@ class _InfoPill extends StatelessWidget {
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BorderRadius.circular(14),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.10), blurRadius: 14, offset: const Offset(0, 10))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.10),
+            blurRadius: 14,
+            offset: const Offset(0, 10),
+          ),
+        ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           Icon(icon, size: 18, color: iconColor),
           const SizedBox(width: 6),
-          Text(text, style: const TextStyle(color: Color(0xFF111827), fontWeight: FontWeight.w900, fontSize: 12)),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Color(0xFF111827),
+              fontWeight: FontWeight.w900,
+              fontSize: 12,
+            ),
+          ),
         ],
       ),
     );
@@ -1904,7 +2421,10 @@ class _TypeDropdown extends StatelessWidget {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: _FoodServicesPageState._orange, width: 1.2),
+          borderSide: const BorderSide(
+            color: _FoodServicesPageState._orange,
+            width: 1.2,
+          ),
         ),
         contentPadding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
       ),
@@ -1971,7 +2491,10 @@ class _Field extends StatelessWidget {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
-          borderSide: const BorderSide(color: _FoodServicesPageState._orange, width: 1.2),
+          borderSide: const BorderSide(
+            color: _FoodServicesPageState._orange,
+            width: 1.2,
+          ),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),

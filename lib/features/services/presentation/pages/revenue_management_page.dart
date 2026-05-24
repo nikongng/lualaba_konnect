@@ -1025,7 +1025,7 @@ class _RevenueManagementPageState extends State<RevenueManagementPage> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              value: _selectedTransactionType,
+              initialValue: _selectedTransactionType,
               decoration: _inputDecoration('Type'),
               items: const [
                 DropdownMenuItem(value: 'Taxe', child: Text('Taxe')),
@@ -1160,7 +1160,7 @@ class _RevenueManagementPageState extends State<RevenueManagementPage> {
                 children: [
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _historyType,
+                      initialValue: _historyType,
                       decoration: _inputDecoration('Type'),
                       items: const [
                         DropdownMenuItem(value: 'TOUT', child: Text('Tous')),
@@ -1177,7 +1177,7 @@ class _RevenueManagementPageState extends State<RevenueManagementPage> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: DropdownButtonFormField<String>(
-                      value: _historyStatus,
+                      initialValue: _historyStatus,
                       decoration: _inputDecoration('Statut'),
                       items: const [
                         DropdownMenuItem(value: 'TOUT', child: Text('Tous')),
@@ -1343,7 +1343,7 @@ class _RevenueManagementPageState extends State<RevenueManagementPage> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: _adminStatus,
+                initialValue: _adminStatus,
                 decoration: _inputDecoration('Filtre de statut'),
                 items: const [
                   DropdownMenuItem(value: 'TOUT', child: Text('Tous')),
@@ -1489,7 +1489,7 @@ class _RevenueManagementPageState extends State<RevenueManagementPage> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: _selectedAgentGender,
+                  initialValue: _selectedAgentGender,
                   decoration: _inputDecoration('Genre'),
                   items: const [
                     DropdownMenuItem(value: 'Masculin', child: Text('Masculin')),

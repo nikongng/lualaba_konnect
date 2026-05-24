@@ -194,7 +194,11 @@ app.post('/sendNotification', async (req, res) => {
             return res.status(404).json({ error: 'no_onesignal_ids_found' });
         }
 
-        const isCall = data && data.type === 'incoming_call';
+        const rawNotificationType = data && data.type ? String(data.type) : '';
+        const notificationType = rawNotificationType === 'alert' ? 'sos_alert' : rawNotificationType;
+        const isCall = notificationType === 'incoming_call';
+        const isSos = notificationType === 'sos_alert';
+        const isUrgentAlert = isCall || isSos;
 
         const payload = {
             app_id: ONE_SIGNAL_APP_ID,
@@ -205,25 +209,27 @@ app.post('/sendNotification', async (req, res) => {
             large_icon: req.body.senderAvatarUrl || '', 
             big_picture: req.body.imageUrl || '',
             priority: 10,
-            android_group: isCall ? "calls_group" : "messages_group",
+            android_group: isCall ? "calls_group" : (isSos ? "sos_group" : "messages_group"),
             // For calls, keep TTL short so stale "incoming call" notifications don't arrive late.
-            ttl: isCall ? 35 : 86400,
+            ttl: isCall ? 35 : (isSos ? 600 : 86400),
             buttons: isCall ? [
                 { id: "accept", text: "Répondre", icon: "ic_menu_call" },
                 { id: "decline", text: "Refuser", icon: "ic_menu_close" }
-            ] : [],
-            data: { ...data, sentBy: caller.uid }
+            ] : (isSos ? [
+                { id: "open_sos", text: "Ouvrir" }
+            ] : []),
+            data: { ...data, type: notificationType, sentBy: caller.uid }
         };
 
         // Only set android_channel_id if you provided real channel UUIDs from OneSignal dashboard.
         // Passing an unknown value can cause confusing behavior on some devices.
-        const channelId = isCall ? ONESIGNAL_ANDROID_CHANNEL_CALLS : ONESIGNAL_ANDROID_CHANNEL_MESSAGES;
+        const channelId = isUrgentAlert ? ONESIGNAL_ANDROID_CHANNEL_CALLS : ONESIGNAL_ANDROID_CHANNEL_MESSAGES;
         if (channelId && typeof channelId === 'string' && channelId.trim().length > 0) {
             payload.android_channel_id = channelId.trim();
         }
 
         // Optional call sounds (recommended to configure on the OneSignal "Calls" channel instead).
-        if (isCall) {
+        if (isUrgentAlert) {
             if (ONESIGNAL_CALL_ANDROID_SOUND && typeof ONESIGNAL_CALL_ANDROID_SOUND === 'string' && ONESIGNAL_CALL_ANDROID_SOUND.trim().length > 0) {
                 payload.android_sound = ONESIGNAL_CALL_ANDROID_SOUND.trim();
             }

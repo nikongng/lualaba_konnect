@@ -13,13 +13,16 @@ import 'features/chat/presentation/pages/chat_detail_page.dart';
 import 'firebase_options.dart';
 import 'core/supabase_service.dart';
 // Assure-toi que ce fichier existe et contient : final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
-import 'core/app_navigator.dart'; 
+import 'core/app_navigator.dart';
 import 'features/auth/presentation/pages/splash_screen.dart';
 import 'features/auth/presentation/pages/AuthMainPage.dart';
 import 'features/dashboard/presentation/pages/dashboard_page.dart';
 import 'core/theme_controller.dart';
 import 'core/call_invite_listener.dart';
+import 'core/full_screen_intent_service.dart';
 import 'core/notification_service.dart';
+import 'core/sos_alert_listener.dart';
+import 'core/sos_launch_service.dart';
 
 // Keep OneSignal push subscription id synced to Firestore (Android can take a bit to provide it).
 String? _oneSignalBoundUid;
@@ -30,7 +33,9 @@ void main() async {
 
   // 1. Initialisation Firebase
   try {
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
   } catch (e) {
     debugPrint('❌ Erreur init Firebase: $e');
   }
@@ -57,7 +62,9 @@ void main() async {
     dotenv.loadFromString(envString: '', isOptional: true);
     debugPrint("ℹ️ Note : Problème chargement .env (defaults). error=$e");
   }
-  debugPrint('dotenv initialized=${dotenv.isInitialized} keys=${dotenv.env.length}');
+  debugPrint(
+    'dotenv initialized=${dotenv.isInitialized} keys=${dotenv.env.length}',
+  );
 
   // 4. Initialisation Supabase (Optionnel selon ton projet)
   final String supabaseUrl = dotenv.maybeGet('SUPABASE_URL') ?? '';
@@ -73,17 +80,30 @@ void main() async {
 
   // 4b. Initialiser le canal Android des notifications (son personnalisé, vibration, etc.)
   // Important: sur Android 8+, le son est "verrouillé" au niveau du channel id.
-  try { await NotificationService.initLocalOnly(); } catch (e) { debugPrint('NotificationService.initLocalOnly error: $e'); }
+  try {
+    await NotificationService.initLocalOnly();
+  } catch (e) {
+    debugPrint('NotificationService.initLocalOnly error: $e');
+  }
+
+  try {
+    await SosLaunchService.init();
+  } catch (e) {
+    debugPrint('SosLaunchService.init error: $e');
+  }
 
   // 5. CONFIGURATION ONESIGNAL (UNIQUEMENT MOBILE)
   // On ignore le Web pour se concentrer sur Android/iOS
   if (!kIsWeb) {
-    final envAppId = dotenv.maybeGet('ONE_SIGNAL_APP_ID') 
-        ?? dotenv.maybeGet('ONESIGNAL_APP_ID') 
-        ?? 'TON_APP_ID_PAR_DEFAUT_ICI'; // Remplace par ton ID en dur au cas où
+    final envAppId =
+        dotenv.maybeGet('ONE_SIGNAL_APP_ID') ??
+        dotenv.maybeGet('ONESIGNAL_APP_ID') ??
+        'TON_APP_ID_PAR_DEFAUT_ICI'; // Remplace par ton ID en dur au cas où
 
     if (envAppId.trim().isEmpty || envAppId == 'TON_APP_ID_PAR_DEFAUT_ICI') {
-      debugPrint('ERROR: OneSignal AppId missing. Set ONE_SIGNAL_APP_ID in .env (or hardcode it).');
+      debugPrint(
+        'ERROR: OneSignal AppId missing. Set ONE_SIGNAL_APP_ID in .env (or hardcode it).',
+      );
     }
 
     debugPrint('ℹ️ OneSignal AppId resolved -> $envAppId');
@@ -94,7 +114,7 @@ void main() async {
 
       // B. Init
       OneSignal.initialize(envAppId);
-      
+
       // C. Demande de permission immédiate
       final accepted = await OneSignal.Notifications.requestPermission(true);
       debugPrint('OneSignal permission accepted=$accepted');
@@ -129,14 +149,20 @@ void main() async {
             if (callId.isNotEmpty) {
               try {
                 if (currentUid.isNotEmpty) {
-                  FirebaseFirestore.instance.collection('calls').doc(callId).set({
-                    'declinedBy': FieldValue.arrayUnion([currentUid]),
-                  }, SetOptions(merge: true));
+                  FirebaseFirestore.instance
+                      .collection('calls')
+                      .doc(callId)
+                      .set({
+                        'declinedBy': FieldValue.arrayUnion([currentUid]),
+                      }, SetOptions(merge: true));
                 }
               } catch (_) {}
               if (!isGroup) {
                 try {
-                  FirebaseFirestore.instance.collection('calls').doc(callId).update({'status': 'rejected'});
+                  FirebaseFirestore.instance
+                      .collection('calls')
+                      .doc(callId)
+                      .update({'status': 'rejected'});
                 } catch (_) {}
               }
             }
@@ -144,7 +170,12 @@ void main() async {
           }
           // Si on clique sur "Répondre" ou sur la notif elle-même
           if (action != 'accept') {
-            AppNavigator.runWhenReady(() => CallInviteListener.showIncomingCallById(callId, uid: currentUid));
+            AppNavigator.runWhenReady(
+              () => CallInviteListener.showIncomingCallById(
+                callId,
+                uid: currentUid,
+              ),
+            );
             return;
           }
           if (action == 'accept') {
@@ -152,23 +183,37 @@ void main() async {
               if (callId.isEmpty) return;
               Map<String, dynamic> callData = <String, dynamic>{};
               try {
-                final snap = await FirebaseFirestore.instance.collection('calls').doc(callId).get();
+                final snap = await FirebaseFirestore.instance
+                    .collection('calls')
+                    .doc(callId)
+                    .get();
                 callData = snap.data() ?? <String, dynamic>{};
               } catch (_) {}
 
-              final bool isGroup = (data['isGroup'] == true) || (callData['isGroup'] == true);
+              final bool isGroup =
+                  (data['isGroup'] == true) || (callData['isGroup'] == true);
               final bool isVideo =
-                  (data['isVideo'] == true) || (callData['type'] ?? '').toString().toLowerCase() == 'video';
-              final callerId = (callData['caller'] ?? data['sentBy'] ?? data['caller'] ?? '').toString();
+                  (data['isVideo'] == true) ||
+                  (callData['type'] ?? '').toString().toLowerCase() == 'video';
+              final callerId =
+                  (callData['caller'] ?? data['sentBy'] ?? data['caller'] ?? '')
+                      .toString();
               final calleeId = (callData['callee'] ?? '').toString();
               final String title =
-                  (callData['chatName'] ?? callData['groupName'] ?? event.notification.title ?? 'Appel entrant')
+                  (callData['chatName'] ??
+                          callData['groupName'] ??
+                          event.notification.title ??
+                          'Appel entrant')
                       .toString();
-              final bool amCaller = currentUid.isNotEmpty && callerId == currentUid;
+              final bool amCaller =
+                  currentUid.isNotEmpty && callerId == currentUid;
 
               if (!isGroup) {
                 try {
-                  FirebaseFirestore.instance.collection('calls').doc(callId).update({'status': 'accepted'});
+                  FirebaseFirestore.instance
+                      .collection('calls')
+                      .doc(callId)
+                      .update({'status': 'accepted'});
                 } catch (_) {}
 
                 final otherId = amCaller ? calleeId : callerId;
@@ -178,7 +223,9 @@ void main() async {
                       callId: callId,
                       otherId: otherId,
                       name: title,
-                      avatarLetter: title.isNotEmpty ? title[0].toUpperCase() : '?',
+                      avatarLetter: title.isNotEmpty
+                          ? title[0].toUpperCase()
+                          : '?',
                       isVideo: isVideo,
                       isCaller: amCaller,
                     ),
@@ -189,9 +236,12 @@ void main() async {
 
               try {
                 if (currentUid.isNotEmpty) {
-                  FirebaseFirestore.instance.collection('calls').doc(callId).set({
-                    'acceptedBy': FieldValue.arrayUnion([currentUid]),
-                  }, SetOptions(merge: true));
+                  FirebaseFirestore.instance
+                      .collection('calls')
+                      .doc(callId)
+                      .set({
+                        'acceptedBy': FieldValue.arrayUnion([currentUid]),
+                      }, SetOptions(merge: true));
                 }
               } catch (_) {}
 
@@ -210,13 +260,32 @@ void main() async {
         } else if (data != null && data['type'] == 'chat_message') {
           final chatId = (data['chatId'] ?? '').toString();
           if (chatId.isEmpty) return;
-          final chatName = (data['chatName'] ?? event.notification.title ?? 'Discussion').toString();
+          final chatName =
+              (data['chatName'] ?? event.notification.title ?? 'Discussion')
+                  .toString();
           AppNavigator.pushWhenReady(
-            MaterialPageRoute(builder: (_) => ChatDetailPage(chatId: chatId, chatName: chatName)),
+            MaterialPageRoute(
+              builder: (_) =>
+                  ChatDetailPage(chatId: chatId, chatName: chatName),
+            ),
+          );
+        } else if (data != null && data['type'] == 'sos_alert') {
+          final chatId = (data['chatId'] ?? '').toString();
+          if (chatId.isEmpty) return;
+          final chatName =
+              (data['chatName'] ??
+                      data['fromName'] ??
+                      event.notification.title ??
+                      'Alerte SOS')
+                  .toString();
+          AppNavigator.pushWhenReady(
+            MaterialPageRoute(
+              builder: (_) =>
+                  ChatDetailPage(chatId: chatId, chatName: chatName),
+            ),
           );
         }
       });
-
     } catch (e) {
       debugPrint('❌ Erreur initialisation OneSignal: $e');
     }
@@ -231,9 +300,13 @@ void main() async {
       debugPrint('👤 User connecté : ${user.uid} -> Mise à jour OneSignal...');
       _updateUserOneSignalId(user.uid);
       CallInviteListener.start(user.uid);
+      SosAlertListener.start(user.uid);
+      SosLaunchService.processPendingLaunch();
+      FullScreenIntentService.promptIfNeeded();
     } else {
       _oneSignalBoundUid = null;
       CallInviteListener.stop();
+      SosAlertListener.stop();
     }
   });
 
@@ -256,7 +329,10 @@ void _attachOneSignalPushSubscriptionObserver() {
       if (playerId == null || playerId.trim().isEmpty) return;
 
       // Best-effort: keep Firestore in sync so the notifier can target this device.
-      _saveOneSignalIdToFirestore(uid: uid.trim(), onesignalId: playerId.trim());
+      _saveOneSignalIdToFirestore(
+        uid: uid.trim(),
+        onesignalId: playerId.trim(),
+      );
     });
   } catch (e) {
     debugPrint('OneSignal addObserver error: $e');
@@ -296,7 +372,9 @@ Future<void> _saveOneSignalIdToFirestore({
   }
 
   if (!userFound) {
-    final fallbackRef = FirebaseFirestore.instance.collection('classic_users').doc(uid);
+    final fallbackRef = FirebaseFirestore.instance
+        .collection('classic_users')
+        .doc(uid);
     await fallbackRef.set({
       'oneSignalPlayerId': onesignalId,
       'uid': uid,
@@ -343,7 +421,6 @@ Future<void> _updateUserOneSignalId(String uid) async {
 
     // ÉTAPE 3 : Sauvegarde dans Firestore pour que Render puisse le trouver
     await _saveOneSignalIdToFirestore(uid: uid, onesignalId: onesignalId);
-
   } catch (e) {
     debugPrint('❌ Erreur critique _updateUserOneSignalId : $e');
   }
@@ -361,26 +438,23 @@ class MyApp extends StatelessWidget {
         final baseLight = ThemeData.light(useMaterial3: true);
         final baseDark = ThemeData.dark(useMaterial3: true);
         return MaterialApp(
-          navigatorKey: appNavigatorKey, // Indispensable pour la navigation hors contexte
+          navigatorKey:
+              appNavigatorKey, // Indispensable pour la navigation hors contexte
           title: 'Lualaba Konnect',
           debugShowCheckedModeBanner: false,
           theme: baseLight.copyWith(
-  colorScheme: baseLight.colorScheme.copyWith(
-    primary: Colors.orange,
-  ),
-  textTheme: baseLight.textTheme.apply(
-    fontFamily: 'Poppins',
-  ),
-),
+            colorScheme: baseLight.colorScheme.copyWith(primary: Colors.orange),
+            textTheme: baseLight.textTheme.apply(fontFamily: 'Poppins'),
+          ),
 
           darkTheme: ThemeData(
-  brightness: Brightness.dark,
-  colorScheme: ColorScheme.fromSeed(
-    seedColor: Colors.orange,
-    brightness: Brightness.dark,
-  ),
-  fontFamily: 'Poppins',
-),
+            brightness: Brightness.dark,
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.orange,
+              brightness: Brightness.dark,
+            ),
+            fontFamily: 'Poppins',
+          ),
 
           themeMode: themeCtrl.mode,
           home: const SplashScreen(),
