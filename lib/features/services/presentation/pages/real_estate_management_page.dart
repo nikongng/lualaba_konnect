@@ -1,4 +1,3 @@
-﻿
 import 'dart:async';
 import 'dart:convert';
 
@@ -25,10 +24,7 @@ class _ImmoTabItem {
   final String label;
   final Widget child;
 
-  const _ImmoTabItem({
-    required this.label,
-    required this.child,
-  });
+  const _ImmoTabItem({required this.label, required this.child});
 }
 
 class RealEstateManagementPage extends StatefulWidget {
@@ -193,6 +189,14 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
   bool get _isSupabaseReady => SupabaseService.isInitialized;
   bool get _canSyncImmoRemote => _isSupabaseReady && _remoteImmoEnabled;
   SupabaseClient get _supabase => Supabase.instance.client;
+  String get _currentImmoOwnerId =>
+      _isSupabaseReady ? (_supabase.auth.currentUser?.id ?? '') : '';
+
+  Future<String> _ensureRemoteImmoOwnerId() async {
+    if (!_isSupabaseReady) return '';
+    await SupabaseService.ensureAuthenticated();
+    return _supabase.auth.currentUser?.id ?? '';
+  }
 
   @override
   void initState() {
@@ -211,7 +215,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
       if (!mounted) return;
       setState(() => _rentSearchQuery = v);
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeOpenInitialHouse());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _maybeOpenInitialHouse(),
+    );
   }
 
   @override
@@ -241,7 +247,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
 
   List<String> _asStringList(dynamic v) {
     if (v is List) {
-      return v.map((e) => e.toString()).where((e) => e.trim().isNotEmpty).toList();
+      return v
+          .map((e) => e.toString())
+          .where((e) => e.trim().isNotEmpty)
+          .toList();
     }
     return const <String>[];
   }
@@ -283,7 +292,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
 
   _HouseListing _houseFromRow(Map<String, dynamic> row) {
     final id = (row['id'] ?? '').toString().trim();
-    final quartier = (row['quartier'] ?? row['district'] ?? '').toString().trim();
+    final quartier = (row['quartier'] ?? row['district'] ?? '')
+        .toString()
+        .trim();
     return _HouseListing(
       id: id.isEmpty ? 'house_${DateTime.now().millisecondsSinceEpoch}' : id,
       title: (row['title'] ?? row['name'] ?? 'Maison - $quartier').toString(),
@@ -296,7 +307,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
       status: _statusFromDb(row['status']),
       ownerName: (row['owner_name'] ?? row['ownerName'] ?? '').toString(),
       ownerPhone: (row['owner_phone'] ?? row['ownerPhone'] ?? '').toString(),
-      fromCommissioner: _asBool(row['from_commissioner'] ?? row['fromCommissioner']),
+      fromCommissioner: _asBool(
+        row['from_commissioner'] ?? row['fromCommissioner'],
+      ),
+      ownerId: (row['owner_id'] ?? row['ownerId'] ?? '').toString(),
       latitude: _asDoubleOrNull(row['latitude'] ?? row['lat']),
       longitude: _asDoubleOrNull(row['longitude'] ?? row['lng']),
     );
@@ -319,6 +333,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
       monthlyRent: _asInt(row['monthly_rent'] ?? row['monthlyRent']),
       rentPaid: rentPaid,
       paidMonthKey: rentPaid ? paidMonth : null,
+      ownerId: (row['owner_id'] ?? row['ownerId'] ?? '').toString(),
     );
   }
 
@@ -419,14 +434,16 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     final monthKey = _monthKeyFromDate(now);
     if (now.day <= _rentDueDay) return;
 
-    final arrearsCount =
-        _tenants.where((t) => !_isTenantPaidForMonth(t, monthKey)).length;
+    final arrearsCount = _tenants
+        .where((t) => !_isTenantPaidForMonth(t, monthKey))
+        .length;
     if (arrearsCount <= 0) return;
 
     _lateRentNotifBusy = true;
     try {
       final prefs = await SharedPreferences.getInstance();
-      final lastMonth = (prefs.getString('immo_late_rent_notified_month') ?? '').trim();
+      final lastMonth = (prefs.getString('immo_late_rent_notified_month') ?? '')
+          .trim();
       if (lastMonth == monthKey) return;
 
       final daysLate = now.day - _rentDueDay;
@@ -509,11 +526,17 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       contentPadding: EdgeInsets.zero,
                       title: Text(
                         'Alerte retard loyer',
-                        style: TextStyle(color: text, fontWeight: FontWeight.w800),
+                        style: TextStyle(
+                          color: text,
+                          fontWeight: FontWeight.w800,
+                        ),
                       ),
                       subtitle: Text(
                         'Notification locale apres la date limite.',
-                        style: TextStyle(color: sub, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          color: sub,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                       onChanged: (v) => setModal(() => enabled = v),
                     ),
@@ -524,7 +547,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                         labelText: 'Jour limite de paiement',
                         labelStyle: TextStyle(color: sub),
                         filled: true,
-                        fillColor: isDark ? Colors.white10 : const Color(0xFFF3F4F6),
+                        fillColor: isDark
+                            ? Colors.white10
+                            : const Color(0xFFF3F4F6),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
                           borderSide: BorderSide(color: divider),
@@ -535,7 +560,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                         ),
                       ),
                       dropdownColor: bg,
-                      style: TextStyle(color: text, fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                        color: text,
+                        fontWeight: FontWeight.w700,
+                      ),
                       items: days
                           .map(
                             (d) => DropdownMenuItem<int>(
@@ -555,7 +583,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       child: ElevatedButton.icon(
                         onPressed: () async {
                           Navigator.pop(ctx);
-                          await _saveRentSettings(dueDay: dueDay, enabled: enabled);
+                          await _saveRentSettings(
+                            dueDay: dueDay,
+                            enabled: enabled,
+                          );
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: _ctaBlue,
@@ -596,7 +627,8 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
-        String selected = normalizedInitial != null && options.contains(normalizedInitial)
+        String selected =
+            normalizedInitial != null && options.contains(normalizedInitial)
             ? normalizedInitial
             : first;
         return SafeArea(
@@ -639,7 +671,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                         labelText: 'Mois paye',
                         labelStyle: TextStyle(color: sub),
                         filled: true,
-                        fillColor: isDark ? Colors.white10 : const Color(0xFFF3F4F6),
+                        fillColor: isDark
+                            ? Colors.white10
+                            : const Color(0xFFF3F4F6),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(14),
                           borderSide: BorderSide(color: divider),
@@ -650,7 +684,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                         ),
                       ),
                       dropdownColor: bg,
-                      style: TextStyle(color: text, fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                        color: text,
+                        fontWeight: FontWeight.w700,
+                      ),
                       items: options
                           .map(
                             (m) => DropdownMenuItem<String>(
@@ -704,7 +741,8 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
           .doc(uid)
           .get();
       final data = snap.data() ?? <String, dynamic>{};
-      final disabled = data['disabled'] == true ||
+      final disabled =
+          data['disabled'] == true ||
           data['disabled'] == 1 ||
           data['disabled'] == '1' ||
           data['disabled'] == 'true';
@@ -793,7 +831,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
   Future<void> _setNewHouseAlertsEnabled(bool enabled) async {
     final me = FirebaseAuth.instance.currentUser;
     if (me == null) {
-      _showInfo("Connectez-vous pour activer les alertes de nouvelles maisons.");
+      _showInfo(
+        "Connectez-vous pour activer les alertes de nouvelles maisons.",
+      );
       return;
     }
     if (mounted) {
@@ -804,12 +844,12 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
           .collection(_immoAlertSubscribersCollection)
           .doc(me.uid)
           .set({
-        'uid': me.uid,
-        'enabled': enabled,
-        'updatedAt': FieldValue.serverTimestamp(),
-        'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
-        if (enabled) 'createdAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+            'uid': me.uid,
+            'enabled': enabled,
+            'updatedAt': FieldValue.serverTimestamp(),
+            'updatedAtMs': DateTime.now().millisecondsSinceEpoch,
+            if (enabled) 'createdAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
 
       if (!mounted) return;
       setState(() {
@@ -829,9 +869,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     }
   }
 
-  Future<void> _notifySubscribersForNewHouse(
-    _HouseListing house,
-  ) async {
+  Future<void> _notifySubscribersForNewHouse(_HouseListing house) async {
     final me = FirebaseAuth.instance.currentUser;
     if (me == null) return;
     try {
@@ -854,10 +892,12 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
       }
       if (recipients.isEmpty) return;
 
-      final roleLabel =
-          house.fromCommissioner ? 'Commissionnaire' : 'Proprietaire';
-      final notifType =
-          house.fromCommissioner ? 'new_commissioner_house' : 'new_owner_house';
+      final roleLabel = house.fromCommissioner
+          ? 'Commissionnaire'
+          : 'Proprietaire';
+      final notifType = house.fromCommissioner
+          ? 'new_commissioner_house'
+          : 'new_owner_house';
       final displayName = (me.displayName ?? '').trim();
       final houseOwnerName = house.ownerName.trim();
       final fromName = displayName.isNotEmpty
@@ -869,11 +909,15 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
 
       const writeBatchLimit = 450;
       for (int i = 0; i < recipients.length; i += writeBatchLimit) {
-        final chunk =
-            recipients.sublist(i, _minInt(i + writeBatchLimit, recipients.length));
+        final chunk = recipients.sublist(
+          i,
+          _minInt(i + writeBatchLimit, recipients.length),
+        );
         final batch = FirebaseFirestore.instance.batch();
         for (final toUid in chunk) {
-          final ref = FirebaseFirestore.instance.collection('notifications').doc();
+          final ref = FirebaseFirestore.instance
+              .collection('notifications')
+              .doc();
           batch.set(ref, {
             'toUserId': toUid,
             'fromUserId': me.uid,
@@ -892,7 +936,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
 
       const pushChunk = 80;
       for (int i = 0; i < recipients.length; i += pushChunk) {
-        final chunk = recipients.sublist(i, _minInt(i + pushChunk, recipients.length));
+        final chunk = recipients.sublist(
+          i,
+          _minInt(i + pushChunk, recipients.length),
+        );
         await _sendPush(
           recipients: chunk,
           title: fromName,
@@ -928,7 +975,8 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     if (raw.contains(_housesTable.toLowerCase()) && raw.contains('not found')) {
       return true;
     }
-    if (raw.contains(_tenantsTable.toLowerCase()) && raw.contains('not found')) {
+    if (raw.contains(_tenantsTable.toLowerCase()) &&
+        raw.contains('not found')) {
       return true;
     }
     return false;
@@ -974,6 +1022,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     required String ownerName,
     required String ownerPhone,
     required bool fromCommissioner,
+    required String ownerId,
     double? latitude,
     double? longitude,
   }) {
@@ -990,6 +1039,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
       ownerName: ownerName,
       ownerPhone: ownerPhone,
       fromCommissioner: fromCommissioner,
+      ownerId: ownerId,
       latitude: latitude,
       longitude: longitude,
     );
@@ -1001,6 +1051,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     required String houseId,
     required int monthlyRent,
     required bool rentPaid,
+    required String ownerId,
     String? paidMonthKey,
   }) {
     return _TenantRecord(
@@ -1010,6 +1061,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
       houseId: houseId,
       monthlyRent: monthlyRent,
       rentPaid: rentPaid,
+      ownerId: ownerId,
       paidMonthKey: paidMonthKey,
     );
   }
@@ -1037,8 +1089,11 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
         final e = parts.last.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
         return e.isEmpty ? 'jpg' : e;
       })();
-      final objectPath = 'houses/${DateTime.now().millisecondsSinceEpoch}_$i.$ext';
-      await _supabase.storage.from(_immoBucket).uploadBinary(
+      final objectPath =
+          'houses/${DateTime.now().millisecondsSinceEpoch}_$i.$ext';
+      await _supabase.storage
+          .from(_immoBucket)
+          .uploadBinary(
             objectPath,
             bytes,
             fileOptions: FileOptions(
@@ -1064,7 +1119,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     try {
       final found = await locationFromAddress(place);
       if (found.isNotEmpty) {
-        return (latitude: found.first.latitude, longitude: found.first.longitude);
+        return (
+          latitude: found.first.latitude,
+          longitude: found.first.longitude,
+        );
       }
     } catch (_) {}
     return (latitude: latitude, longitude: longitude);
@@ -1076,10 +1134,25 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
       setState(() => _loadingRemote = true);
     }
     try {
+      await SupabaseService.ensureAuthenticated();
       final houseRows = await _selectTableRows(_housesTable);
       final tenantRows = await _selectTableRows(_tenantsTable);
-      final loadedHouses = houseRows.map(_houseFromRow).toList();
-      final loadedTenants = tenantRows.map(_tenantFromRow).toList();
+      final loadedHouses = houseRows
+          .map(_houseFromRow)
+          .where(_isHouseVisibleForCurrentAccount)
+          .toList();
+      final loadedHouseById = <String, _HouseListing>{
+        for (final house in loadedHouses) house.id: house,
+      };
+      final loadedTenants = tenantRows
+          .map(_tenantFromRow)
+          .where(
+            (tenant) => _isTenantVisibleForCurrentAccount(
+              tenant,
+              housesById: loadedHouseById,
+            ),
+          )
+          .toList();
 
       if (!mounted) return;
       setState(() {
@@ -1118,8 +1191,32 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     return out;
   }
 
+  bool _isOwnerIdCurrentAccount(String ownerId) {
+    final owner = ownerId.trim();
+    if (owner.isEmpty) return !_canSyncImmoRemote;
+    final me = _currentImmoOwnerId.trim();
+    return me.isNotEmpty && owner == me;
+  }
+
+  bool _isHouseOwnedByCurrentAccount(_HouseListing house) =>
+      _isOwnerIdCurrentAccount(house.ownerId);
+
+  bool _isHouseVisibleForCurrentAccount(_HouseListing house) =>
+      house.fromCommissioner || _isHouseOwnedByCurrentAccount(house);
+
+  bool _isTenantVisibleForCurrentAccount(
+    _TenantRecord tenant, {
+    Map<String, _HouseListing>? housesById,
+  }) {
+    if (_isOwnerIdCurrentAccount(tenant.ownerId)) return true;
+    if (tenant.ownerId.trim().isNotEmpty) return false;
+    final house = housesById?[tenant.houseId] ?? _houseById(tenant.houseId);
+    return house != null && _isHouseOwnedByCurrentAccount(house);
+  }
+
   List<_HouseListing> get _tenantHouses {
     return _houses.where((house) {
+      if (!_isHouseVisibleForCurrentAccount(house)) return false;
       if (house.status == _HousingStatus.occupied) return false;
       if (_selectedQuartier != 'Tous' && house.quartier != _selectedQuartier) {
         return false;
@@ -1158,24 +1255,20 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     }
   }
 
-  List<_HouseListing> get _ownerHouses =>
-      _houses
-          .where(
-            (h) =>
-                !h.fromCommissioner && h.status != _HousingStatus.occupied,
-          )
-          .toList();
+  List<_HouseListing> get _ownerHouses => _houses
+      .where(
+        (h) =>
+            !h.fromCommissioner &&
+            _isHouseOwnedByCurrentAccount(h) &&
+            h.status != _HousingStatus.occupied,
+      )
+      .toList();
 
-  List<_HouseListing> get _availableOwnerHouses =>
-      _ownerHouses;
+  List<_HouseListing> get _availableOwnerHouses => _ownerHouses;
 
-  List<_HouseListing> get _commissionerHouses =>
-      _houses
-          .where(
-            (h) =>
-                h.fromCommissioner && h.status != _HousingStatus.occupied,
-          )
-          .toList();
+  List<_HouseListing> get _commissionerHouses => _houses
+      .where((h) => h.fromCommissioner && h.status != _HousingStatus.occupied)
+      .toList();
 
   int get _totalRevenue {
     return _tenants
@@ -1183,11 +1276,23 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
         .fold<int>(0, (sum, t) => sum + t.monthlyRent);
   }
 
-  int get _freeHouses =>
-      _houses.where((h) => h.status == _HousingStatus.vacant).length;
+  int get _freeHouses => _houses
+      .where(
+        (h) =>
+            !h.fromCommissioner &&
+            _isHouseOwnedByCurrentAccount(h) &&
+            h.status == _HousingStatus.vacant,
+      )
+      .length;
 
-  int get _occupiedHouses =>
-      _houses.where((h) => h.status == _HousingStatus.occupied).length;
+  int get _occupiedHouses => _houses
+      .where(
+        (h) =>
+            !h.fromCommissioner &&
+            _isHouseOwnedByCurrentAccount(h) &&
+            h.status == _HousingStatus.occupied,
+      )
+      .length;
 
   String _priceLabel(int price) => '$price USD/mois';
 
@@ -1221,17 +1326,15 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erreur: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erreur: $e')));
     }
   }
 
   void _showInfo(String text) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(text)),
-    );
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
   void _openContactSheet(_HouseListing house) {
@@ -1253,7 +1356,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
             decoration: BoxDecoration(
               color: bg,
               borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
+              border: Border.all(
+                color: isDark ? Colors.white12 : Colors.black12,
+              ),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withOpacity(isDark ? 0.5 : 0.12),
@@ -1295,11 +1400,16 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       Navigator.pop(ctx);
                       _openPhotoViewer(house);
                     },
-                    leading:
-                        const Icon(Icons.photo_library_outlined, color: _accent),
+                    leading: const Icon(
+                      Icons.photo_library_outlined,
+                      color: _accent,
+                    ),
                     title: Text(
                       'Voir les photos',
-                      style: TextStyle(color: text, fontWeight: FontWeight.w800),
+                      style: TextStyle(
+                        color: text,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     subtitle: Text(
                       '${house.photos.length} photo(s) disponible(s)',
@@ -1315,7 +1425,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                     leading: const Icon(Icons.call_rounded, color: _ctaBlue),
                     title: Text(
                       'Appeler le proprietaire',
-                      style: TextStyle(color: text, fontWeight: FontWeight.w800),
+                      style: TextStyle(
+                        color: text,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     subtitle: Text(
                       phone,
@@ -1331,7 +1444,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                     leading: const Icon(Icons.sms_rounded, color: _accent),
                     title: Text(
                       'Envoyer un message',
-                      style: TextStyle(color: text, fontWeight: FontWeight.w800),
+                      style: TextStyle(
+                        color: text,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     subtitle: Text(
                       'Contacter rapidement le proprietaire',
@@ -1377,7 +1493,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                 decoration: BoxDecoration(
                   color: isDark ? const Color(0xFF111B21) : Colors.white,
                   borderRadius: BorderRadius.circular(22),
-                  border: Border.all(color: isDark ? Colors.white12 : Colors.black12),
+                  border: Border.all(
+                    color: isDark ? Colors.white12 : Colors.black12,
+                  ),
                 ),
                 child: Column(
                   children: [
@@ -1501,6 +1619,14 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                 if (saving) return;
                 if (!(formKey.currentState?.validate() ?? false)) return;
                 final useRemote = _canSyncImmoRemote;
+                final remoteOwnerId = useRemote
+                    ? await _ensureRemoteImmoOwnerId()
+                    : '';
+                if (useRemote && remoteOwnerId.isEmpty) {
+                  _showInfo('Connexion Supabase requise pour publier.');
+                  return;
+                }
+                final ownerId = useRemote ? remoteOwnerId : _currentImmoOwnerId;
 
                 final price = int.tryParse(priceCtrl.text.trim());
                 final bedrooms = int.tryParse(bedroomsCtrl.text.trim());
@@ -1528,7 +1654,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                 final parsedLat = double.tryParse(latCtrl.text.trim());
                 final parsedLng = double.tryParse(lngCtrl.text.trim());
                 if ((parsedLat == null) != (parsedLng == null)) {
-                  _showInfo('Latitude et longitude doivent etre toutes les deux renseignees.');
+                  _showInfo(
+                    'Latitude et longitude doivent etre toutes les deux renseignees.',
+                  );
                   return;
                 }
 
@@ -1544,7 +1672,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                   );
                   List<String> allPhotos = photos;
                   if (useRemote) {
-                    final uploadedPhotos = await _uploadPhotosToSupabase(pickedPhotos);
+                    final uploadedPhotos = await _uploadPhotosToSupabase(
+                      pickedPhotos,
+                    );
                     allPhotos = <String>[...uploadedPhotos, ...photos];
                   } else if (pickedPhotos.isNotEmpty) {
                     _showInfo(
@@ -1564,6 +1694,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                     'owner_name': ownerName,
                     'owner_phone': ownerPhone,
                     'from_commissioner': fromCommissioner,
+                    'owner_id': ownerId,
                     'latitude': coordinates.latitude,
                     'longitude': coordinates.longitude,
                   };
@@ -1589,6 +1720,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       ownerName: ownerName,
                       ownerPhone: ownerPhone,
                       fromCommissioner: fromCommissioner,
+                      ownerId: ownerId,
                       latitude: coordinates.latitude,
                       longitude: coordinates.longitude,
                     );
@@ -1598,7 +1730,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                   setState(() {
                     _houses = <_HouseListing>[created, ..._houses];
                   });
-                  if (useRemote) {
+                  if (useRemote && created.fromCommissioner) {
                     unawaited(_notifySubscribersForNewHouse(created));
                   }
                   Navigator.pop(ctx);
@@ -1630,6 +1762,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       ownerName: ownerName,
                       ownerPhone: ownerPhone,
                       fromCommissioner: fromCommissioner,
+                      ownerId: ownerId,
                       latitude: coordinates.latitude,
                       longitude: coordinates.longitude,
                     );
@@ -1703,7 +1836,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                               ),
                             ),
                             IconButton(
-                              onPressed: saving ? null : () => Navigator.pop(ctx),
+                              onPressed: saving
+                                  ? null
+                                  : () => Navigator.pop(ctx),
                               icon: Icon(Icons.close, color: sub),
                             ),
                           ],
@@ -1719,7 +1854,8 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                                 textColor: text,
                                 subColor: sub,
                                 divider: divider,
-                                validator: (v) => (v == null || v.trim().isEmpty)
+                                validator: (v) =>
+                                    (v == null || v.trim().isEmpty)
                                     ? 'Quartier requis'
                                     : null,
                               ),
@@ -1734,7 +1870,8 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                                       subColor: sub,
                                       divider: divider,
                                       keyboardType: TextInputType.number,
-                                      validator: (v) => (v == null ||
+                                      validator: (v) =>
+                                          (v == null ||
                                               int.tryParse(v.trim()) == null)
                                           ? 'Prix invalide'
                                           : null,
@@ -1749,7 +1886,8 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                                       subColor: sub,
                                       divider: divider,
                                       keyboardType: TextInputType.number,
-                                      validator: (v) => (v == null ||
+                                      validator: (v) =>
+                                          (v == null ||
                                               int.tryParse(v.trim()) == null)
                                           ? 'Nombre invalide'
                                           : null,
@@ -1766,7 +1904,8 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                                 divider: divider,
                                 minLines: 3,
                                 maxLines: 4,
-                                validator: (v) => (v == null || v.trim().isEmpty)
+                                validator: (v) =>
+                                    (v == null || v.trim().isEmpty)
                                     ? 'Description requise'
                                     : null,
                               ),
@@ -1777,7 +1916,8 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                                 textColor: text,
                                 subColor: sub,
                                 divider: divider,
-                                validator: (v) => (v == null || v.trim().isEmpty)
+                                validator: (v) =>
+                                    (v == null || v.trim().isEmpty)
                                     ? 'Localisation requise'
                                     : null,
                               ),
@@ -1801,7 +1941,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                                   ),
                                 ),
                                 dropdownColor: bg,
-                                style: TextStyle(color: text, fontWeight: FontWeight.w700),
+                                style: TextStyle(
+                                  color: text,
+                                  fontWeight: FontWeight.w700,
+                                ),
                                 items: _HousingStatus.values
                                     .map(
                                       (s) => DropdownMenuItem<_HousingStatus>(
@@ -1830,7 +1973,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                                 width: double.infinity,
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: isDark ? Colors.white10 : const Color(0xFFF3F4F6),
+                                  color: isDark
+                                      ? Colors.white10
+                                      : const Color(0xFFF3F4F6),
                                   borderRadius: BorderRadius.circular(14),
                                   border: Border.all(color: divider),
                                 ),
@@ -1847,7 +1992,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                                     const SizedBox(height: 4),
                                     Text(
                                       'Ces photos seront uploades visible pour tout le monde".',
-                                      style: TextStyle(color: sub, fontWeight: FontWeight.w600),
+                                      style: TextStyle(
+                                        color: sub,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                     const SizedBox(height: 8),
                                     Wrap(
@@ -1858,9 +2006,11 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                                           onPressed: saving
                                               ? null
                                               : () async {
-                                                  final images = await _imagePicker.pickMultiImage(
-                                                    imageQuality: 78,
-                                                  );
+                                                  final images =
+                                                      await _imagePicker
+                                                          .pickMultiImage(
+                                                            imageQuality: 78,
+                                                          );
                                                   if (images.isEmpty) return;
                                                   setModal(() {
                                                     pickedPhotos
@@ -1872,22 +2022,30 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                                             backgroundColor: _ctaBlue,
                                             foregroundColor: Colors.white,
                                           ),
-                                          icon: const Icon(Icons.photo_library_outlined),
+                                          icon: const Icon(
+                                            Icons.photo_library_outlined,
+                                          ),
                                           label: const Text(
                                             'Choisir photos',
-                                            style: TextStyle(fontWeight: FontWeight.w700),
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                            ),
                                           ),
                                         ),
                                         if (pickedPhotos.isNotEmpty)
                                           OutlinedButton.icon(
                                             onPressed: saving
                                                 ? null
-                                                : () => setModal(() => pickedPhotos.clear()),
+                                                : () => setModal(
+                                                    () => pickedPhotos.clear(),
+                                                  ),
                                             style: OutlinedButton.styleFrom(
                                               foregroundColor: sub,
                                               side: BorderSide(color: divider),
                                             ),
-                                            icon: const Icon(Icons.clear_rounded),
+                                            icon: const Icon(
+                                              Icons.clear_rounded,
+                                            ),
                                             label: const Text('Vider'),
                                           ),
                                       ],
@@ -1905,10 +2063,11 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                                       textColor: text,
                                       subColor: sub,
                                       divider: divider,
-                                      keyboardType: const TextInputType.numberWithOptions(
-                                        decimal: true,
-                                        signed: true,
-                                      ),
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                            decimal: true,
+                                            signed: true,
+                                          ),
                                     ),
                                   ),
                                   const SizedBox(width: 10),
@@ -1919,10 +2078,11 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                                       textColor: text,
                                       subColor: sub,
                                       divider: divider,
-                                      keyboardType: const TextInputType.numberWithOptions(
-                                        decimal: true,
-                                        signed: true,
-                                      ),
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                            decimal: true,
+                                            signed: true,
+                                          ),
                                     ),
                                   ),
                                 ],
@@ -1954,7 +2114,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: _accent,
                                     foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 13),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 13,
+                                    ),
                                     shape: RoundedRectangleBorder(
                                       borderRadius: BorderRadius.circular(14),
                                     ),
@@ -1971,7 +2133,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                                       : const Icon(Icons.add_home_outlined),
                                   label: Text(
                                     saving ? 'Ajout en cours...' : 'Publier',
-                                    style: const TextStyle(fontWeight: FontWeight.w800),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
                                   ),
                                 ),
                               ),
@@ -2077,10 +2241,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       'latitude': coordinates.latitude,
                       'longitude': coordinates.longitude,
                     };
-                    await _supabase.from(_housesTable).update(payload).eq(
-                          'id',
-                          before.id,
-                        );
+                    await _supabase
+                        .from(_housesTable)
+                        .update(payload)
+                        .eq('id', before.id);
                   }
 
                   if (!mounted) return;
@@ -2140,8 +2304,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                             ),
                           ),
                           IconButton(
-                            onPressed:
-                                saving ? null : () => Navigator.pop(ctx),
+                            onPressed: saving ? null : () => Navigator.pop(ctx),
                             icon: Icon(Icons.close, color: sub),
                           ),
                         ],
@@ -2218,8 +2381,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                               : const Icon(Icons.save_outlined),
                           label: Text(
                             saving ? 'Mise a jour...' : 'Enregistrer',
-                            style:
-                                const TextStyle(fontWeight: FontWeight.w800),
+                            style: const TextStyle(fontWeight: FontWeight.w800),
                           ),
                         ),
                       ),
@@ -2263,8 +2425,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     final formKey = GlobalKey<FormState>();
     _HousingStatus status = house.status;
     bool saving = false;
-    final linkedTenants =
-        _tenants.where((t) => t.houseId == house.id).toList(growable: false);
+    final linkedTenants = _tenants
+        .where((t) => t.houseId == house.id)
+        .toList(growable: false);
     bool syncTenantRent = linkedTenants.isNotEmpty;
 
     await showModalBottomSheet<void>(
@@ -2336,13 +2499,16 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
 
                   if (!mounted) return;
                   setState(() {
-                    _houses =
-                        _houses.map((h) => h.id == house.id ? updated : h).toList();
+                    _houses = _houses
+                        .map((h) => h.id == house.id ? updated : h)
+                        .toList();
                     if (syncTenantRent) {
                       _tenants = _tenants
-                          .map((t) => t.houseId == house.id
-                              ? t.copyWith(monthlyRent: price)
-                              : t)
+                          .map(
+                            (t) => t.houseId == house.id
+                                ? t.copyWith(monthlyRent: price)
+                                : t,
+                          )
                           .toList();
                     }
                   });
@@ -2360,17 +2526,15 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       'latitude': coordinates.latitude,
                       'longitude': coordinates.longitude,
                     };
-                    await _supabase.from(_housesTable).update(payload).eq(
-                          'id',
-                          house.id,
-                        );
+                    await _supabase
+                        .from(_housesTable)
+                        .update(payload)
+                        .eq('id', house.id);
                     if (syncTenantRent) {
                       await _supabase
                           .from(_tenantsTable)
-                          .update({'monthly_rent': price}).eq(
-                            'house_id',
-                            house.id,
-                          );
+                          .update({'monthly_rent': price})
+                          .eq('house_id', house.id);
                     }
                   }
 
@@ -2430,8 +2594,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                             ),
                           ),
                           IconButton(
-                            onPressed:
-                                saving ? null : () => Navigator.pop(ctx),
+                            onPressed: saving ? null : () => Navigator.pop(ctx),
                             icon: Icon(Icons.close, color: sub),
                           ),
                         ],
@@ -2457,8 +2620,8 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                               subColor: sub,
                               divider: divider,
                               keyboardType: TextInputType.number,
-                              validator: (v) => (v == null ||
-                                      int.tryParse(v.trim()) == null)
+                              validator: (v) =>
+                                  (v == null || int.tryParse(v.trim()) == null)
                                   ? 'Prix requis'
                                   : null,
                             ),
@@ -2472,8 +2635,8 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                               subColor: sub,
                               divider: divider,
                               keyboardType: TextInputType.number,
-                              validator: (v) => (v == null ||
-                                      int.tryParse(v.trim()) == null)
+                              validator: (v) =>
+                                  (v == null || int.tryParse(v.trim()) == null)
                                   ? 'Pieces requises'
                                   : null,
                             ),
@@ -2487,8 +2650,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                           labelText: 'Statut',
                           labelStyle: TextStyle(color: sub),
                           filled: true,
-                          fillColor:
-                              isDark ? Colors.white10 : const Color(0xFFF3F4F6),
+                          fillColor: isDark
+                              ? Colors.white10
+                              : const Color(0xFFF3F4F6),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
                             borderSide: BorderSide(color: divider),
@@ -2499,7 +2663,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                           ),
                         ),
                         dropdownColor: bg,
-                        style: TextStyle(color: text, fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                          color: text,
+                          fontWeight: FontWeight.w700,
+                        ),
                         items: _HousingStatus.values
                             .map(
                               (s) => DropdownMenuItem<_HousingStatus>(
@@ -2651,8 +2818,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
   }
 
   Future<void> _deleteHouse(_HouseListing house) async {
-    final linkedTenants =
-        _tenants.where((t) => t.houseId == house.id).toList(growable: false);
+    final linkedTenants = _tenants
+        .where((t) => t.houseId == house.id)
+        .toList(growable: false);
     if (linkedTenants.isNotEmpty) {
       _showInfo(
         "Impossible de supprimer: ${linkedTenants.length} locataire(s) lie(s). Terminez d'abord le contrat.",
@@ -2660,15 +2828,18 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
       return;
     }
 
-    final confirm = await showDialog<bool>(
+    final confirm =
+        await showDialog<bool>(
           context: context,
           builder: (ctx) {
             final isDark = Theme.of(ctx).brightness == Brightness.dark;
             final bg = isDark ? const Color(0xFF111B21) : Colors.white;
-            final text =
-                isDark ? const Color(0xFFE9EDF0) : const Color(0xFF111827);
-            final sub =
-                isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
+            final text = isDark
+                ? const Color(0xFFE9EDF0)
+                : const Color(0xFF111827);
+            final sub = isDark
+                ? const Color(0xFFAAB2B8)
+                : const Color(0xFF6B7280);
             return AlertDialog(
               backgroundColor: bg,
               title: Text(
@@ -2742,9 +2913,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
 
   Future<void> _openAddTenantSheet() async {
     if (_availableOwnerHouses.isEmpty) {
-      _showInfo(
-        'Ajoutez une maison disponible avant de lier un locataire.',
-      );
+      _showInfo('Ajoutez une maison disponible avant de lier un locataire.');
       return;
     }
 
@@ -2775,6 +2944,15 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                 if (saving) return;
                 if (!(formKey.currentState?.validate() ?? false)) return;
                 final useRemote = _canSyncImmoRemote;
+                final remoteOwnerId = useRemote
+                    ? await _ensureRemoteImmoOwnerId()
+                    : '';
+                if (useRemote && remoteOwnerId.isEmpty) {
+                  _showInfo(
+                    'Connexion Supabase requise pour ajouter un locataire.',
+                  );
+                  return;
+                }
                 if (rentPaid && _normalizeMonthKey(paidMonthKey) == null) {
                   _showInfo('Choisissez le mois du loyer paye.');
                   return;
@@ -2793,14 +2971,21 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                 try {
                   final name = nameCtrl.text.trim();
                   final phone = phoneCtrl.text.trim();
+                  final ownerId = useRemote
+                      ? remoteOwnerId
+                      : (house.ownerId.trim().isNotEmpty
+                            ? house.ownerId.trim()
+                            : _currentImmoOwnerId);
                   final payload = <String, dynamic>{
                     'name': name,
                     'phone': phone,
                     'house_id': selectedHouseId,
                     'monthly_rent': house.price,
                     'rent_paid': rentPaid,
-                    _tenantPaidMonthColumn:
-                        rentPaid ? _normalizeMonthKey(paidMonthKey) : null,
+                    'owner_id': ownerId,
+                    _tenantPaidMonthColumn: rentPaid
+                        ? _normalizeMonthKey(paidMonthKey)
+                        : null,
                   };
                   _TenantRecord createdTenant;
                   if (useRemote) {
@@ -2813,8 +2998,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                           .single();
                     } catch (e) {
                       if (!_isMissingTenantPaidMonthColumnError(e)) rethrow;
-                      final payloadWithoutMonth = Map<String, dynamic>.from(payload)
-                        ..remove(_tenantPaidMonthColumn);
+                      final payloadWithoutMonth = Map<String, dynamic>.from(
+                        payload,
+                      )..remove(_tenantPaidMonthColumn);
                       inserted = await _supabase
                           .from(_tenantsTable)
                           .insert(payloadWithoutMonth)
@@ -2823,14 +3009,18 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                     }
                     await _supabase
                         .from(_housesTable)
-                        .update({'status': _statusToDb(_HousingStatus.occupied)})
+                        .update({
+                          'status': _statusToDb(_HousingStatus.occupied),
+                        })
                         .eq('id', selectedHouseId);
-                    createdTenant = _tenantFromRow(
-                      Map<String, dynamic>.from(inserted as Map),
-                    ).copyWith(
-                      paidMonthKey:
-                          rentPaid ? _normalizeMonthKey(paidMonthKey) : null,
-                    );
+                    createdTenant =
+                        _tenantFromRow(
+                          Map<String, dynamic>.from(inserted as Map),
+                        ).copyWith(
+                          paidMonthKey: rentPaid
+                              ? _normalizeMonthKey(paidMonthKey)
+                              : null,
+                        );
                   } else {
                     createdTenant = _buildLocalTenant(
                       name: name,
@@ -2838,8 +3028,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       houseId: selectedHouseId,
                       monthlyRent: house.price,
                       rentPaid: rentPaid,
-                      paidMonthKey:
-                          rentPaid ? _normalizeMonthKey(paidMonthKey) : null,
+                      ownerId: ownerId,
+                      paidMonthKey: rentPaid
+                          ? _normalizeMonthKey(paidMonthKey)
+                          : null,
                     );
                   }
 
@@ -2847,9 +3039,11 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                   setState(() {
                     _tenants = <_TenantRecord>[..._tenants, createdTenant];
                     _houses = _houses
-                        .map((h) => h.id == selectedHouseId
-                            ? h.copyWith(status: _HousingStatus.occupied)
-                            : h)
+                        .map(
+                          (h) => h.id == selectedHouseId
+                              ? h.copyWith(status: _HousingStatus.occupied)
+                              : h,
+                        )
                         .toList();
                   });
                   Navigator.pop(ctx);
@@ -2867,16 +3061,22 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       houseId: selectedHouseId,
                       monthlyRent: house.price,
                       rentPaid: rentPaid,
-                      paidMonthKey:
-                          rentPaid ? _normalizeMonthKey(paidMonthKey) : null,
+                      ownerId: house.ownerId.trim().isNotEmpty
+                          ? house.ownerId.trim()
+                          : _currentImmoOwnerId,
+                      paidMonthKey: rentPaid
+                          ? _normalizeMonthKey(paidMonthKey)
+                          : null,
                     );
                     if (!mounted) return;
                     setState(() {
                       _tenants = <_TenantRecord>[..._tenants, localTenant];
                       _houses = _houses
-                          .map((h) => h.id == selectedHouseId
-                              ? h.copyWith(status: _HousingStatus.occupied)
-                              : h)
+                          .map(
+                            (h) => h.id == selectedHouseId
+                                ? h.copyWith(status: _HousingStatus.occupied)
+                                : h,
+                          )
                           .toList();
                     });
                     Navigator.pop(ctx);
@@ -2934,8 +3134,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                         textColor: text,
                         subColor: sub,
                         divider: divider,
-                        validator: (v) =>
-                            (v == null || v.trim().isEmpty) ? 'Nom requis' : null,
+                        validator: (v) => (v == null || v.trim().isEmpty)
+                            ? 'Nom requis'
+                            : null,
                       ),
                       const SizedBox(height: 10),
                       _Field(
@@ -2956,8 +3157,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                           labelText: 'Maison louee',
                           labelStyle: TextStyle(color: sub),
                           filled: true,
-                          fillColor:
-                              isDark ? Colors.white10 : const Color(0xFFF3F4F6),
+                          fillColor: isDark
+                              ? Colors.white10
+                              : const Color(0xFFF3F4F6),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
                             borderSide: BorderSide(color: divider),
@@ -2968,7 +3170,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                           ),
                         ),
                         dropdownColor: bg,
-                        style: TextStyle(color: text, fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                          color: text,
+                          fontWeight: FontWeight.w700,
+                        ),
                         items: _availableOwnerHouses
                             .map(
                               (h) => DropdownMenuItem<String>(
@@ -2989,15 +3194,22 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                         contentPadding: EdgeInsets.zero,
                         title: Text(
                           'Loyer deja paye',
-                          style: TextStyle(color: text, fontWeight: FontWeight.w800),
+                          style: TextStyle(
+                            color: text,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
                         subtitle: Text(
                           rentPaid ? 'Paye' : 'En retard',
-                          style: TextStyle(color: sub, fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                            color: sub,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                         onChanged: (v) => setModal(() {
                           rentPaid = v;
-                          if (rentPaid && _normalizeMonthKey(paidMonthKey) == null) {
+                          if (rentPaid &&
+                              _normalizeMonthKey(paidMonthKey) == null) {
                             paidMonthKey = _monthKeyFromDate(DateTime.now());
                           }
                         }),
@@ -3010,8 +3222,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                             labelText: 'Mois du loyer paye',
                             labelStyle: TextStyle(color: sub),
                             filled: true,
-                            fillColor:
-                                isDark ? Colors.white10 : const Color(0xFFF3F4F6),
+                            fillColor: isDark
+                                ? Colors.white10
+                                : const Color(0xFFF3F4F6),
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(14),
                               borderSide: BorderSide(color: divider),
@@ -3078,7 +3291,8 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     final idx = _tenants.indexWhere((t) => t.id == tenantId);
     if (idx < 0) return;
     final before = _tenants[idx];
-    final monthKey = _normalizeMonthKey(_rentDashboardMonthKey) ??
+    final monthKey =
+        _normalizeMonthKey(_rentDashboardMonthKey) ??
         _monthKeyFromDate(DateTime.now());
     final wasPaidForMonth = _isTenantPaidForMonth(before, monthKey);
     final nextPaid = !wasPaidForMonth;
@@ -3175,8 +3389,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
       tenantId: tenant.id,
       monthKey: cleanMonth,
     );
-    final ref =
-        FirebaseFirestore.instance.collection(_rentPaymentsCollection).doc(docId);
+    final ref = FirebaseFirestore.instance
+        .collection(_rentPaymentsCollection)
+        .doc(docId);
 
     try {
       if (!paid) {
@@ -3233,13 +3448,18 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     final houseId = tenant.houseId.trim();
     final house = _houseById(houseId);
 
-    final confirm = await showDialog<bool>(
+    final confirm =
+        await showDialog<bool>(
           context: context,
           builder: (ctx) {
             final isDark = Theme.of(ctx).brightness == Brightness.dark;
             final bg = isDark ? const Color(0xFF111B21) : Colors.white;
-            final text = isDark ? const Color(0xFFE9EDF0) : const Color(0xFF111827);
-            final sub = isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
+            final text = isDark
+                ? const Color(0xFFE9EDF0)
+                : const Color(0xFF111827);
+            final sub = isDark
+                ? const Color(0xFFAAB2B8)
+                : const Color(0xFF6B7280);
             return AlertDialog(
               backgroundColor: bg,
               title: Text(
@@ -3392,7 +3612,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       alignment: Alignment.centerLeft,
                       child: Text(
                         'Relance rapide: appeler, SMS, ou marquer paye.',
-                        style: TextStyle(color: sub, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          color: sub,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                     const SizedBox(height: 10),
@@ -3503,13 +3726,12 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     return cleaned.isEmpty ? 'quittance.pdf' : cleaned;
   }
 
-  String _receiptNumber({
-    required String tenantId,
-    required String monthKey,
-  }) {
+  String _receiptNumber({required String tenantId, required String monthKey}) {
     final yyyymm = monthKey.replaceAll('-', '');
     final raw = tenantId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toUpperCase();
-    final suffix = raw.isEmpty ? 'LK' : raw.substring(0, _minInt(6, raw.length));
+    final suffix = raw.isEmpty
+        ? 'LK'
+        : raw.substring(0, _minInt(6, raw.length));
     return 'QTN-$yyyymm-$suffix';
   }
 
@@ -3600,7 +3822,8 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     addRow('Proprietaire', ownerName);
     if (ownerPhone.isNotEmpty) addRow('Telephone', ownerPhone);
     addRow('Locataire', tenant.name.trim().isEmpty ? '-' : tenant.name.trim());
-    if (tenant.phone.trim().isNotEmpty) addRow('Telephone locataire', tenant.phone.trim());
+    if (tenant.phone.trim().isNotEmpty)
+      addRow('Telephone locataire', tenant.phone.trim());
     addRow('Maison', houseTitle);
     if (houseQuartier.isNotEmpty) addRow('Quartier', houseQuartier);
     if (houseAddress.isNotEmpty) addRow('Adresse', houseAddress);
@@ -3614,14 +3837,15 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     );
     y = (result?.bounds.bottom ?? y) + 12;
 
-    final note = PdfTextElement(
-      text:
-          'Cette quittance confirme la reception du paiement du loyer pour la periode indiquee.',
-      font: tFont,
-    ).draw(
-      page: page,
-      bounds: Rect.fromLTWH(margin, y, size.width - margin * 2, 0),
-    );
+    final note =
+        PdfTextElement(
+          text:
+              'Cette quittance confirme la reception du paiement du loyer pour la periode indiquee.',
+          font: tFont,
+        ).draw(
+          page: page,
+          bounds: Rect.fromLTWH(margin, y, size.width - margin * 2, 0),
+        );
     y = (note?.bounds.bottom ?? y) + 18;
 
     g.drawString(
@@ -3681,15 +3905,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
         'quittance_${tenant.name}_${monthKey}_$receiptNo.pdf',
       );
       await Share.shareXFiles(
-        [
-          XFile.fromData(
-            bytes,
-            mimeType: 'application/pdf',
-            name: fileName,
-          ),
-        ],
+        [XFile.fromData(bytes, mimeType: 'application/pdf', name: fileName)],
         subject: 'Quittance de loyer',
-        text: 'Quittance $receiptNo • ${tenant.name} • ${_monthLabel(monthKey)}',
+        text:
+            'Quittance $receiptNo • ${tenant.name} • ${_monthLabel(monthKey)}',
       );
     } catch (e) {
       _showInfo('Erreur generation quittance: $e');
@@ -3853,9 +4072,12 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     return bytes;
   }
 
-  Future<void> _generateAndShareMonthlyReport({required String monthKey}) async {
+  Future<void> _generateAndShareMonthlyReport({
+    required String monthKey,
+  }) async {
     if (_generatingReport) return;
-    final cleanMonth = _normalizeMonthKey(monthKey) ?? _monthKeyFromDate(DateTime.now());
+    final cleanMonth =
+        _normalizeMonthKey(monthKey) ?? _monthKeyFromDate(DateTime.now());
 
     if (!mounted) return;
     setState(() => _generatingReport = true);
@@ -3889,14 +4111,17 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
         }
       }
 
-      final expectedRent =
-          _tenants.fold<int>(0, (sum, t) => sum + t.monthlyRent);
+      final expectedRent = _tenants.fold<int>(
+        0,
+        (sum, t) => sum + t.monthlyRent,
+      );
       final collectedRent = paidAmountsByTenantId.values.fold<int>(
         0,
         (sum, v) => sum + v,
       );
-      final remainingRent =
-          expectedRent > collectedRent ? (expectedRent - collectedRent) : 0;
+      final remainingRent = expectedRent > collectedRent
+          ? (expectedRent - collectedRent)
+          : 0;
       final coveragePct = expectedRent <= 0
           ? 0
           : ((collectedRent / expectedRent) * 100).round();
@@ -3913,13 +4138,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
 
       final fileName = _safePdfName('rapport_loyers_$cleanMonth.pdf');
       await Share.shareXFiles(
-        [
-          XFile.fromData(
-            bytes,
-            mimeType: 'application/pdf',
-            name: fileName,
-          ),
-        ],
+        [XFile.fromData(bytes, mimeType: 'application/pdf', name: fileName)],
         subject: 'Rapport loyers',
         text: 'Rapport • ${_monthLabel(cleanMonth)}',
       );
@@ -3936,8 +4155,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     required String monthKey,
   }) {
     String lastToken(String raw, {int count = 4}) {
-      final cleaned =
-          raw.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toUpperCase();
+      final cleaned = raw.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '').toUpperCase();
       if (cleaned.isEmpty) return '----';
       final take = _minInt(count, cleaned.length);
       return cleaned.substring(cleaned.length - take);
@@ -3976,7 +4194,11 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
 
     final months = _recentMonthKeys(count: 18);
     for (final m in months) {
-      final docId = _rentPaymentDocId(ownerId: me.uid, tenantId: tenant.id, monthKey: m);
+      final docId = _rentPaymentDocId(
+        ownerId: me.uid,
+        tenantId: tenant.id,
+        monthKey: m,
+      );
       try {
         final doc = await FirebaseFirestore.instance
             .collection(_rentPaymentsCollection)
@@ -4017,9 +4239,13 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
         ? house!.ownerName.trim()
         : 'Proprietaire';
     final ownerPhone = (house?.ownerPhone ?? '').trim();
-    final tenantName = tenant.name.trim().isEmpty ? 'Locataire' : tenant.name.trim();
+    final tenantName = tenant.name.trim().isEmpty
+        ? 'Locataire'
+        : tenant.name.trim();
     final tenantPhone = tenant.phone.trim();
-    final houseTitle = (house?.title ?? '').trim().isNotEmpty ? house!.title.trim() : 'Maison';
+    final houseTitle = (house?.title ?? '').trim().isNotEmpty
+        ? house!.title.trim()
+        : 'Maison';
     final houseQuartier = (house?.quartier ?? '').trim();
     final houseLocation = (house?.location ?? '').trim();
 
@@ -4041,8 +4267,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
       'FN:${_vcardEscape('$ownerName - $houseTitle')}',
       'ORG:${_vcardEscape('Lualaba Konnect')}',
       'TITLE:${_vcardEscape('Paiement de loyer')}',
-      if (ownerPhone.isNotEmpty) 'TEL;TYPE=CELL,VOICE:${_vcardEscape(ownerPhone)}',
-      if (tenantPhone.isNotEmpty) 'TEL;TYPE=HOME,VOICE:${_vcardEscape(tenantPhone)}',
+      if (ownerPhone.isNotEmpty)
+        'TEL;TYPE=CELL,VOICE:${_vcardEscape(ownerPhone)}',
+      if (tenantPhone.isNotEmpty)
+        'TEL;TYPE=HOME,VOICE:${_vcardEscape(tenantPhone)}',
       'NOTE:${_vcardEscape(noteLines.join('\n'))}',
       'UID:${_vcardEscape(reference)}',
       'END:VCARD',
@@ -4089,8 +4317,11 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     final sub = isDark ? const Color(0xFFAAB2B8) : const Color(0xFF6B7280);
     final divider = isDark ? Colors.white12 : Colors.black12;
 
-    final reference =
-        _paymentReference(tenant: tenant, house: house, monthKey: monthKey);
+    final reference = _paymentReference(
+      tenant: tenant,
+      house: house,
+      monthKey: monthKey,
+    );
     final lastPaymentFuture = _fetchLastRentPaymentInfo(tenant);
 
     showModalBottomSheet<void>(
@@ -4140,146 +4371,159 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                Center(
-                  child: Container(
-                    width: 46,
-                    height: 4,
-                    margin: const EdgeInsets.only(top: 6, bottom: 10),
-                    decoration: BoxDecoration(
-                      color: isDark ? Colors.white24 : Colors.black12,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                  ),
-                ),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'QR paiement',
-                        style: TextStyle(
-                          color: text,
-                          fontWeight: FontWeight.w900,
-                          fontSize: 16.5,
+                    Center(
+                      child: Container(
+                        width: 46,
+                        height: 4,
+                        margin: const EdgeInsets.only(top: 6, bottom: 10),
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.white24 : Colors.black12,
+                          borderRadius: BorderRadius.circular(99),
                         ),
                       ),
                     ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      icon: Icon(Icons.close, color: sub),
-                    ),
-                  ],
-                ),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '${tenant.name} • ${_monthLabel(monthKey)} • ${_priceLabel(tenant.monthlyRent)}',
-                    style: TextStyle(color: sub, fontWeight: FontWeight.w700),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Container(
-                    color: isDark ? Colors.white10 : const Color(0xFFF3F4F6),
-                    padding: const EdgeInsets.all(12),
-                    child: QrImageView(
-                      data: vcard,
-                      size: 240,
-                      padding: EdgeInsets.zero,
-                      backgroundColor: Colors.white,
-                      errorCorrectionLevel: QrErrorCorrectLevel.M,
-                      errorStateBuilder: (_, __) => SizedBox(
-                        width: 240,
-                        height: 240,
-                        child: Center(
+                    Row(
+                      children: [
+                        Expanded(
                           child: Text(
-                            'QR indisponible',
+                            'QR paiement',
                             style: TextStyle(
-                              color: sub,
-                              fontWeight: FontWeight.w700,
+                              color: text,
+                              fontWeight: FontWeight.w900,
+                              fontSize: 16.5,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          icon: Icon(Icons.close, color: sub),
+                        ),
+                      ],
+                    ),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '${tenant.name} • ${_monthLabel(monthKey)} • ${_priceLabel(tenant.monthlyRent)}',
+                        style: TextStyle(
+                          color: sub,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        color: isDark
+                            ? Colors.white10
+                            : const Color(0xFFF3F4F6),
+                        padding: const EdgeInsets.all(12),
+                        child: QrImageView(
+                          data: vcard,
+                          size: 240,
+                          padding: EdgeInsets.zero,
+                          backgroundColor: Colors.white,
+                          errorCorrectionLevel: QrErrorCorrectLevel.M,
+                          errorStateBuilder: (_, __) => SizedBox(
+                            width: 240,
+                            height: 240,
+                            child: Center(
+                              child: Text(
+                                'QR indisponible',
+                                style: TextStyle(
+                                  color: sub,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: isDark ? Colors.white10 : const Color(0xFFF3F4F6),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: divider),
-                  ),
-                  child: SelectableText(
-                    displayText,
-                    style: TextStyle(color: text, fontWeight: FontWeight.w700, fontSize: 12),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: () async {
-                          await Clipboard.setData(ClipboardData(text: reference));
-                          if (!mounted) return;
-                          _showInfo('Reference de paiement copiee.');
-                        },
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: text,
-                          side: BorderSide(color: divider),
-                          backgroundColor: bg,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        icon: const Icon(Icons.copy_rounded, size: 18),
-                        label: const Text(
-                          'Copier ref',
-                          style: TextStyle(fontWeight: FontWeight.w800),
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.white10
+                            : const Color(0xFFF3F4F6),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: divider),
+                      ),
+                      child: SelectableText(
+                        displayText,
+                        style: TextStyle(
+                          color: text,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
                         ),
                       ),
                     ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: tenant.phone.trim().isEmpty
-                            ? null
-                            : () {
-                                Navigator.pop(ctx);
-                                final message =
-                                    'Paiement loyer ${_monthLabel(monthKey)} • ${_priceLabel(tenant.monthlyRent)}\nRef: $reference';
-                                _launchOrSnack(
-                                  Uri(
-                                    scheme: 'sms',
-                                    path: tenant.phone,
-                                    queryParameters: <String, String>{
-                                      'body': message,
-                                    },
-                                  ),
-                                );
-                              },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _ctaBlue,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              await Clipboard.setData(
+                                ClipboardData(text: reference),
+                              );
+                              if (!mounted) return;
+                              _showInfo('Reference de paiement copiee.');
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: text,
+                              side: BorderSide(color: divider),
+                              backgroundColor: bg,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            icon: const Icon(Icons.copy_rounded, size: 18),
+                            label: const Text(
+                              'Copier ref',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
                           ),
                         ),
-                        icon: const Icon(Icons.sms_outlined, size: 18),
-                        label: const Text(
-                          'Envoyer',
-                          style: TextStyle(fontWeight: FontWeight.w800),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: tenant.phone.trim().isEmpty
+                                ? null
+                                : () {
+                                    Navigator.pop(ctx);
+                                    final message =
+                                        'Paiement loyer ${_monthLabel(monthKey)} • ${_priceLabel(tenant.monthlyRent)}\nRef: $reference';
+                                    _launchOrSnack(
+                                      Uri(
+                                        scheme: 'sms',
+                                        path: tenant.phone,
+                                        queryParameters: <String, String>{
+                                          'body': message,
+                                        },
+                                      ),
+                                    );
+                                  },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: _ctaBlue,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            icon: const Icon(Icons.sms_outlined, size: 18),
+                            label: const Text(
+                              'Envoyer',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                          ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
-                ),
                   ],
                 ),
               );
@@ -4339,10 +4583,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     final showTabs = tabs.length > 1;
     final initialIndex = showTabs
         ? (widget.initialTabIndex < 0
-            ? 0
-            : (widget.initialTabIndex >= tabs.length
-                ? tabs.length - 1
-                : widget.initialTabIndex))
+              ? 0
+              : (widget.initialTabIndex >= tabs.length
+                    ? tabs.length - 1
+                    : widget.initialTabIndex))
         : 0;
 
     return DefaultTabController(
@@ -4420,7 +4664,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       child: TabBar(
                         labelColor: Colors.white,
                         unselectedLabelColor: sub,
-                        labelStyle: const TextStyle(fontWeight: FontWeight.w800),
+                        labelStyle: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                        ),
                         indicator: BoxDecoration(
                           color: _accent,
                           borderRadius: BorderRadius.circular(12),
@@ -4552,7 +4798,12 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
               width: 170,
               value: _selectedPrice,
               label: 'Prix',
-              options: const ['Tous', '<= 250 USD', '251 - 500 USD', '> 500 USD'],
+              options: const [
+                'Tous',
+                '<= 250 USD',
+                '251 - 500 USD',
+                '> 500 USD',
+              ],
               onChanged: (v) => setState(() => _selectedPrice = v),
             ),
             _FilterSelect(
@@ -4635,7 +4886,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     required Color divider,
   }) {
     final ownerHouses = _ownerHouses;
-    final monthKey = _normalizeMonthKey(_rentDashboardMonthKey) ??
+    final commissionerListings = _commissionerHouses;
+    final monthKey =
+        _normalizeMonthKey(_rentDashboardMonthKey) ??
         _monthKeyFromDate(DateTime.now());
 
     bool paidForMonth(_TenantRecord t) => _isTenantPaidForMonth(t, monthKey);
@@ -4644,30 +4897,32 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     final collectedRent = _tenants
         .where(paidForMonth)
         .fold<int>(0, (sum, t) => sum + t.monthlyRent);
-    final remainingRent =
-        expectedRent > collectedRent ? (expectedRent - collectedRent) : 0;
-    final coveragePct =
-        expectedRent <= 0 ? 0 : ((collectedRent / expectedRent) * 100).round();
+    final remainingRent = expectedRent > collectedRent
+        ? (expectedRent - collectedRent)
+        : 0;
+    final coveragePct = expectedRent <= 0
+        ? 0
+        : ((collectedRent / expectedRent) * 100).round();
 
     final arrearsTenants = _tenants.where((t) => !paidForMonth(t)).toList()
       ..sort((a, b) => a.name.compareTo(b.name));
 
     final q = _rentSearchQuery.trim().toLowerCase();
-    final filteredTenants = _tenants.where((t) {
-      final isPaid = paidForMonth(t);
-      if (_rentFilter == 'paid' && !isPaid) return false;
-      if (_rentFilter == 'unpaid' && isPaid) return false;
-      if (q.isEmpty) return true;
-      final houseTitle = (_houseById(t.houseId)?.title ?? '').trim();
-      final hay = '${t.name} ${t.phone} $houseTitle'.toLowerCase();
-      return hay.contains(q);
-    }).toList()
-      ..sort((a, b) {
-        final ap = paidForMonth(a);
-        final bp = paidForMonth(b);
-        if (ap != bp) return ap ? 1 : -1; // impayes d'abord
-        return a.name.compareTo(b.name);
-      });
+    final filteredTenants =
+        _tenants.where((t) {
+          final isPaid = paidForMonth(t);
+          if (_rentFilter == 'paid' && !isPaid) return false;
+          if (_rentFilter == 'unpaid' && isPaid) return false;
+          if (q.isEmpty) return true;
+          final houseTitle = (_houseById(t.houseId)?.title ?? '').trim();
+          final hay = '${t.name} ${t.phone} $houseTitle'.toLowerCase();
+          return hay.contains(q);
+        }).toList()..sort((a, b) {
+          final ap = paidForMonth(a);
+          final bp = paidForMonth(b);
+          if (ap != bp) return ap ? 1 : -1; // impayes d'abord
+          return a.name.compareTo(b.name);
+        });
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 120),
@@ -4749,10 +5004,11 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
             final now = DateTime.now();
             final currentMonthKey = _monthKeyFromDate(now);
             final isLate = now.day > _rentDueDay;
-            final currentArrears = _tenants
-                .where((t) => !_isTenantPaidForMonth(t, currentMonthKey))
-                .toList()
-              ..sort((a, b) => a.name.compareTo(b.name));
+            final currentArrears =
+                _tenants
+                    .where((t) => !_isTenantPaidForMonth(t, currentMonthKey))
+                    .toList()
+                  ..sort((a, b) => a.name.compareTo(b.name));
 
             return Container(
               padding: const EdgeInsets.all(14),
@@ -4849,8 +5105,12 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
         ),
         const SizedBox(height: 16),
         Text(
-          'Maisons disponibles',
-          style: TextStyle(color: text, fontWeight: FontWeight.w900, fontSize: 15),
+          'Mes maisons disponibles',
+          style: TextStyle(
+            color: text,
+            fontWeight: FontWeight.w900,
+            fontSize: 15,
+          ),
         ),
         const SizedBox(height: 8),
         if (ownerHouses.isEmpty)
@@ -4883,7 +5143,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                     color: house.status.color(isDark).withOpacity(0.12),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(Icons.home_work_outlined, color: house.status.color(isDark)),
+                  child: Icon(
+                    Icons.home_work_outlined,
+                    color: house.status.color(isDark),
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -4892,19 +5155,27 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                     children: [
                       Text(
                         house.title,
-                        style: TextStyle(color: text, fontWeight: FontWeight.w900),
+                        style: TextStyle(
+                          color: text,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         '${house.quartier} • ${_priceLabel(house.price)}',
-                        style: TextStyle(color: sub, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          color: sub,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ),
                 ),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: house.status.color(isDark).withOpacity(0.16),
                     borderRadius: BorderRadius.circular(99),
@@ -4926,12 +5197,39 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                 IconButton(
                   tooltip: 'Supprimer',
                   onPressed: () => _deleteHouse(house),
-                  icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                  icon: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: Colors.redAccent,
+                  ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 8),
+        ],
+        if (commissionerListings.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Text(
+            'Annonces commissionnaires',
+            style: TextStyle(
+              color: text,
+              fontWeight: FontWeight.w900,
+              fontSize: 15,
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final house in commissionerListings) ...[
+            _buildHouseCard(
+              house: house,
+              isDark: isDark,
+              card: card,
+              text: text,
+              sub: sub,
+              divider: divider,
+              showTenantActions: true,
+            ),
+            const SizedBox(height: 12),
+          ],
         ],
         const SizedBox(height: 14),
         Row(
@@ -4948,8 +5246,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
             ),
             OutlinedButton.icon(
               onPressed: () async {
-                final selected =
-                    await _pickRentMonth(initialMonthKey: monthKey);
+                final selected = await _pickRentMonth(
+                  initialMonthKey: monthKey,
+                );
                 if (selected == null) return;
                 final normalized = _normalizeMonthKey(selected);
                 if (normalized == null) return;
@@ -5120,8 +5419,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
             builder: (context) {
               final paid = paidForMonth(tenant);
               final lastPaid = _normalizeMonthKey(tenant.paidMonthKey);
-              final lastPaidLabel =
-                  lastPaid == null ? '-' : _monthLabel(lastPaid);
+              final lastPaidLabel = lastPaid == null
+                  ? '-'
+                  : _monthLabel(lastPaid);
               final houseRef = _houseById(tenant.houseId);
 
               return Container(
@@ -5241,7 +5541,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       const SizedBox(height: 2),
                       Text(
                         'Dernier paiement: $lastPaidLabel',
-                        style: TextStyle(color: sub, fontWeight: FontWeight.w700),
+                        style: TextStyle(
+                          color: sub,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ],
                     const SizedBox(height: 8),
@@ -5370,7 +5673,8 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
           }
 
           final sums = <String, int>{for (final m in months) m: 0};
-          for (final d in (snap.data?.docs ?? const <QueryDocumentSnapshot>[])) {
+          for (final d
+              in (snap.data?.docs ?? const <QueryDocumentSnapshot>[])) {
             final data = d.data() as Map<String, dynamic>? ?? const {};
             final m = (data['monthKey'] ?? '').toString();
             if (!sums.containsKey(m)) continue;
@@ -5378,7 +5682,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
           }
 
           final values = months.map((m) => sums[m] ?? 0).toList();
-          final maxV = values.isEmpty ? 0 : values.reduce((a, b) => a > b ? a : b);
+          final maxV = values.isEmpty
+              ? 0
+              : values.reduce((a, b) => a > b ? a : b);
           final total = values.fold<int>(0, (s, v) => s + v);
 
           return Column(
@@ -5524,14 +5830,20 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
             ),
           ),
         for (final house in items) ...[
-          _buildHouseCard(
-            house: house,
-            isDark: isDark,
-            card: card,
-            text: text,
-            sub: sub,
-            divider: divider,
-            showTenantActions: false,
+          Builder(
+            builder: (context) {
+              final canManage = _isHouseOwnedByCurrentAccount(house);
+              return _buildHouseCard(
+                house: house,
+                isDark: isDark,
+                card: card,
+                text: text,
+                sub: sub,
+                divider: divider,
+                showTenantActions: !canManage,
+                canManage: canManage,
+              );
+            },
           ),
           const SizedBox(height: 12),
         ],
@@ -5547,6 +5859,7 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
     required Color sub,
     required Color divider,
     required bool showTenantActions,
+    bool canManage = false,
   }) {
     final cover = house.photos.isNotEmpty ? house.photos.first : '';
     final statusColor = house.status.color(isDark);
@@ -5573,14 +5886,17 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
           Stack(
             children: [
               ClipRRect(
-                borderRadius:
-                    const BorderRadius.vertical(top: Radius.circular(16)),
+                borderRadius: const BorderRadius.vertical(
+                  top: Radius.circular(16),
+                ),
                 child: SizedBox(
                   height: 170,
                   width: double.infinity,
                   child: cover.isEmpty
                       ? Container(
-                          color: isDark ? Colors.white10 : const Color(0xFFF3F4F6),
+                          color: isDark
+                              ? Colors.white10
+                              : const Color(0xFFF3F4F6),
                           alignment: Alignment.center,
                           child: Icon(
                             Icons.home_work_outlined,
@@ -5612,7 +5928,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                 top: 10,
                 left: 10,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
                   decoration: BoxDecoration(
                     color: statusColor.withOpacity(0.16),
                     borderRadius: BorderRadius.circular(99),
@@ -5633,8 +5952,10 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                   right: 10,
                   top: 10,
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 9,
+                      vertical: 5,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.black.withOpacity(0.52),
                       borderRadius: BorderRadius.circular(99),
@@ -5711,11 +6032,16 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                           mapPreviewUrl,
                           fit: BoxFit.cover,
                           errorBuilder: (_, __, ___) => Container(
-                            color: isDark ? Colors.white10 : const Color(0xFFF3F4F6),
+                            color: isDark
+                                ? Colors.white10
+                                : const Color(0xFFF3F4F6),
                             alignment: Alignment.center,
                             child: Text(
                               'Carte indisponible',
-                              style: TextStyle(color: sub, fontWeight: FontWeight.w700),
+                              style: TextStyle(
+                                color: sub,
+                                fontWeight: FontWeight.w700,
+                              ),
                             ),
                           ),
                         ),
@@ -5750,7 +6076,9 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       color: const Color(0xFF2ECC71),
                       onTap: () => house.ownerPhone.trim().isEmpty
                           ? _showInfo('Aucun numero disponible.')
-                          : _launchOrSnack(Uri.parse('tel:${house.ownerPhone}')),
+                          : _launchOrSnack(
+                              Uri.parse('tel:${house.ownerPhone}'),
+                            ),
                     ),
                     _ActionChipButton(
                       icon: Icons.sms_outlined,
@@ -5758,16 +6086,18 @@ class _RealEstateManagementPageState extends State<RealEstateManagementPage> {
                       color: const Color(0xFF5C6BC0),
                       onTap: () => house.ownerPhone.trim().isEmpty
                           ? _showInfo('Aucun numero disponible.')
-                          : _launchOrSnack(Uri.parse('sms:${house.ownerPhone}')),
+                          : _launchOrSnack(
+                              Uri.parse('sms:${house.ownerPhone}'),
+                            ),
                     ),
-                    if (!showTenantActions)
+                    if (canManage)
                       _ActionChipButton(
                         icon: Icons.edit_outlined,
                         label: 'Modifier',
                         color: _ctaBlue,
                         onTap: () => _openEditHouseSheet(house),
                       ),
-                    if (!showTenantActions)
+                    if (canManage)
                       _ActionChipButton(
                         icon: Icons.delete_outline_rounded,
                         label: 'Supprimer',
@@ -6163,6 +6493,7 @@ class _HouseListing {
     required this.ownerName,
     required this.ownerPhone,
     required this.fromCommissioner,
+    this.ownerId = '',
     this.latitude,
     this.longitude,
   });
@@ -6179,6 +6510,7 @@ class _HouseListing {
   final String ownerName;
   final String ownerPhone;
   final bool fromCommissioner;
+  final String ownerId;
   final double? latitude;
   final double? longitude;
 
@@ -6197,6 +6529,7 @@ class _HouseListing {
     String? ownerName,
     String? ownerPhone,
     bool? fromCommissioner,
+    String? ownerId,
     double? latitude,
     double? longitude,
   }) {
@@ -6213,6 +6546,7 @@ class _HouseListing {
       ownerName: ownerName ?? this.ownerName,
       ownerPhone: ownerPhone ?? this.ownerPhone,
       fromCommissioner: fromCommissioner ?? this.fromCommissioner,
+      ownerId: ownerId ?? this.ownerId,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
     );
@@ -6229,6 +6563,7 @@ class _TenantRecord {
     required this.houseId,
     required this.monthlyRent,
     required this.rentPaid,
+    this.ownerId = '',
     this.paidMonthKey,
   });
 
@@ -6238,6 +6573,7 @@ class _TenantRecord {
   final String houseId;
   final int monthlyRent;
   final bool rentPaid;
+  final String ownerId;
   final String? paidMonthKey;
 
   _TenantRecord copyWith({
@@ -6247,6 +6583,7 @@ class _TenantRecord {
     String? houseId,
     int? monthlyRent,
     bool? rentPaid,
+    String? ownerId,
     Object? paidMonthKey = _unset,
   }) {
     return _TenantRecord(
@@ -6256,6 +6593,7 @@ class _TenantRecord {
       houseId: houseId ?? this.houseId,
       monthlyRent: monthlyRent ?? this.monthlyRent,
       rentPaid: rentPaid ?? this.rentPaid,
+      ownerId: ownerId ?? this.ownerId,
       paidMonthKey: identical(paidMonthKey, _unset)
           ? this.paidMonthKey
           : paidMonthKey as String?,
