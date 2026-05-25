@@ -449,15 +449,17 @@ class _MyCarRentalsPageState extends State<MyCarRentalsPage> {
       body: StreamBuilder<QuerySnapshot>(
         stream: stream,
         builder: (context, snap) {
-          if (snap.hasError)
+          if (snap.hasError) {
             return Center(
               child: Text(
                 'Erreur: ${snap.error}',
                 style: TextStyle(color: sub),
               ),
             );
-          if (!snap.hasData)
+          }
+          if (!snap.hasData) {
             return const Center(child: CircularProgressIndicator());
+          }
 
           final docs =
               (snap.data?.docs ?? const <QueryDocumentSnapshot>[]).toList()

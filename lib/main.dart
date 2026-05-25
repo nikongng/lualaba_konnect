@@ -19,7 +19,6 @@ import 'features/auth/presentation/pages/AuthMainPage.dart';
 import 'features/dashboard/presentation/pages/dashboard_page.dart';
 import 'core/theme_controller.dart';
 import 'core/call_invite_listener.dart';
-import 'core/full_screen_intent_service.dart';
 import 'core/notification_service.dart';
 import 'core/sos_alert_listener.dart';
 import 'core/sos_launch_service.dart';
@@ -278,12 +277,17 @@ void main() async {
                       event.notification.title ??
                       'Alerte SOS')
                   .toString();
-          AppNavigator.pushWhenReady(
-            MaterialPageRoute(
-              builder: (_) =>
-                  ChatDetailPage(chatId: chatId, chatName: chatName),
-            ),
-          );
+          () async {
+            await SosAlertListener.acknowledgeAlert(
+              alertId: (data['alertId'] ?? '').toString(),
+            );
+            AppNavigator.pushWhenReady(
+              MaterialPageRoute(
+                builder: (_) =>
+                    ChatDetailPage(chatId: chatId, chatName: chatName),
+              ),
+            );
+          }();
         }
       });
     } catch (e) {
@@ -302,7 +306,6 @@ void main() async {
       CallInviteListener.start(user.uid);
       SosAlertListener.start(user.uid);
       SosLaunchService.processPendingLaunch();
-      FullScreenIntentService.promptIfNeeded();
     } else {
       _oneSignalBoundUid = null;
       CallInviteListener.stop();

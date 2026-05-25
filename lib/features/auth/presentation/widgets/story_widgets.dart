@@ -289,6 +289,7 @@ class _StoryBarState extends State<StoryBar> {
               'userId': e.key,
               'userName': first['userName'] ?? 'Utilisateur',
               'imageUrl': first['imageUrl'],
+              'isAutomated': first['isAutomated'] == true || first['source'] == 'content_agent',
               'stories': e.value,
             };
           }).toList();
@@ -299,6 +300,7 @@ class _StoryBarState extends State<StoryBar> {
               final uid = entry['userId'] as String? ?? '';
               // toujours montrer la story du viewer en premier
               if (uid == widget.currentUserId) return true;
+              if (entry['isAutomated'] == true) return true;
               return _peerIds.contains(uid);
             }).toList();
 
@@ -318,6 +320,7 @@ class _StoryBarState extends State<StoryBar> {
                   'userId': uid,
                   'userName': c['userName'] ?? 'Utilisateur',
                   'imageUrl': c['imageUrl'],
+                  'isAutomated': c['isAutomated'] == true || c['source'] == 'content_agent',
                   'stories': <DocumentSnapshot>[],
                 });
               }
@@ -365,7 +368,8 @@ class _StoryBarState extends State<StoryBar> {
               // discrepancy where web shows stories immediately but mobile hides them
               // until the async permission check completes.
               if (visible == null) {
-                if (!(userId == widget.currentUserId || _peerIds.contains(userId))) return const SizedBox.shrink();
+                final isAutomated = entry['isAutomated'] == true;
+                if (!(userId == widget.currentUserId || _peerIds.contains(userId) || isAutomated)) return const SizedBox.shrink();
               } else if (visible != true) return const SizedBox.shrink();
               return _buildFriendStoryCircle(
                 context,

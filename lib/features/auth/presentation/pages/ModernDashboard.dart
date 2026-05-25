@@ -30,6 +30,7 @@ import '../widgets/header_widget.dart';
 import '../widgets/masta_card.dart';
 import '../widgets/copper_card.dart';
 import '../../../../core/config.dart';
+import '../../../../core/full_screen_intent_service.dart';
 import '../../../../core/notification_service.dart';
 import '../../../../core/theme_controller.dart';
 
@@ -219,6 +220,9 @@ class _ModernDashboardState extends State<ModernDashboard> {
     _loadNotificationPref();
     _loadDataLanUsage();
     _loadAdminClaim();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FullScreenIntentService.promptIfNeeded();
+    });
   }
 
   void _onThemeChanged() {

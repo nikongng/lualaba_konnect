@@ -520,8 +520,9 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                                       validator: (v) {
                                         final x = (v ?? '').trim();
                                         if (x.isEmpty) return 'Email requis';
-                                        if (!x.contains('@'))
+                                        if (!x.contains('@')) {
                                           return 'Email invalide';
+                                        }
                                         return null;
                                       },
                                     ),
@@ -842,8 +843,9 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                                                             await _openAddCatalogItemDialog(
                                                               existing: item,
                                                             );
-                                                        if (updated == null)
+                                                        if (updated == null) {
                                                           return;
+                                                        }
                                                         setModal(
                                                           () =>
                                                               catalogDrafts[index] =
@@ -1156,8 +1158,9 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
                           height: 48,
                           child: ElevatedButton.icon(
                             onPressed: () {
-                              if (!(formKey.currentState?.validate() ?? false))
+                              if (!(formKey.currentState?.validate() ?? false)) {
                                 return;
+                              }
                               if (imageBytes == null && imageUrl.isEmpty) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
@@ -1649,8 +1652,9 @@ class _FoodServicesPageState extends State<FoodServicesPage> {
   String _typeLabel(String t) {
     final x = t.trim().toLowerCase();
     if (x == 'restaurants' || x == 'restaurant') return 'RESTAURANT';
-    if (x == 'fast_food' || x == 'fastfood' || x == 'fast-food')
+    if (x == 'fast_food' || x == 'fastfood' || x == 'fast-food') {
       return 'FAST-FOOD';
+    }
     if (x == 'delivery' || x == 'livraison') return 'LIVRAISON';
     return x.isEmpty ? '' : x.toUpperCase();
   }

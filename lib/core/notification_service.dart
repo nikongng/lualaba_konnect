@@ -20,7 +20,8 @@ Future<void> notificationTapBackground(NotificationResponse response) async {
 }
 
 class NotificationService {
-  static final FlutterLocalNotificationsPlugin _fln = FlutterLocalNotificationsPlugin();
+  static final FlutterLocalNotificationsPlugin _fln =
+      FlutterLocalNotificationsPlugin();
   static bool _initialized = false;
   static bool _localInitialized = false;
   static bool _tzInitialized = false;
@@ -35,7 +36,8 @@ class NotificationService {
     return hash & 0x7fffffff;
   }
 
-  static int notificationIdForChat(String chatId) => _stableHash32('chat:$chatId');
+  static int notificationIdForChat(String chatId) =>
+      _stableHash32('chat:$chatId');
   static int stableIdForKey(String key) => _stableHash32(key);
 
   // --- CONFIGURATION DU CANAL (ID UNIQUE) ---
@@ -57,10 +59,13 @@ class NotificationService {
 
     // Create officially the channel on Android (required for background display + custom sound).
     await _fln
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.createNotificationChannel(channel);
 
-    const AndroidInitializationSettings androidInit = AndroidInitializationSettings('@mipmap/launcher_icon');
+    const AndroidInitializationSettings androidInit =
+        AndroidInitializationSettings('@mipmap/launcher_icon');
     final DarwinInitializationSettings iosInit = DarwinInitializationSettings();
 
     final InitializationSettings initSettings = InitializationSettings(
@@ -104,7 +109,10 @@ class NotificationService {
     await initLocalOnly();
 
     // 3b. OneSignal initialization (optional)
-    const String oneSignalAppId = String.fromEnvironment('ONESIGNAL_APP_ID', defaultValue: 'ac19fdcc-16e7-4775-8806-8cde03d1fadb');
+    const String oneSignalAppId = String.fromEnvironment(
+      'ONESIGNAL_APP_ID',
+      defaultValue: 'ac19fdcc-16e7-4775-8806-8cde03d1fadb',
+    );
     if (!kIsWeb && oneSignalAppId.isNotEmpty) {
       try {
         // Use dynamic invocation to support different versions of the plugin
@@ -137,14 +145,19 @@ class NotificationService {
             final cols = ['classic_users', 'pro_users', 'enterprise_users'];
             for (final col in cols) {
               try {
-                final ref = FirebaseFirestore.instance.collection(col).doc(user.uid);
+                final ref = FirebaseFirestore.instance
+                    .collection(col)
+                    .doc(user.uid);
                 final doc = await ref.get();
                 if (doc.exists) {
-                  await ref.collection('notification_players').doc(playerId).set({
-                    'playerId': playerId,
-                    'platform': _platformName(),
-                    'lastSeen': FieldValue.serverTimestamp(),
-                  }, SetOptions(merge: true));
+                  await ref
+                      .collection('notification_players')
+                      .doc(playerId)
+                      .set({
+                        'playerId': playerId,
+                        'platform': _platformName(),
+                        'lastSeen': FieldValue.serverTimestamp(),
+                      }, SetOptions(merge: true));
                   break;
                 }
               } catch (_) {}
@@ -163,27 +176,67 @@ class NotificationService {
       // Helper to process incoming notification object
       Future<void> handleIncoming(dynamic n) async {
         try {
-          final String title = (n?.title ?? n?.heading ?? n?.notification?.title ?? '')?.toString() ?? 'Lualaba Konnect';
-          final String body = (n?.body ?? n?.content ?? n?.notification?.body ?? '')?.toString() ?? '';
-          dynamic data = n?.additionalData ?? n?.data ?? n?.notification?.additionalData ?? {};
+          final String title =
+              (n?.title ?? n?.heading ?? n?.notification?.title ?? '')
+                  ?.toString() ??
+              'Lualaba Konnect';
+          final String body =
+              (n?.body ?? n?.content ?? n?.notification?.body ?? '')
+                  ?.toString() ??
+              '';
+          dynamic data =
+              n?.additionalData ??
+              n?.data ??
+              n?.notification?.additionalData ??
+              {};
           data ??= {};
 
           // Build a payload string type if present
           String? type;
-          try { type = (data['type'] ?? data['notificationType'])?.toString(); } catch (_) { type = null; }
+          try {
+            type = (data['type'] ?? data['notificationType'])?.toString();
+          } catch (_) {
+            type = null;
+          }
+          if (type == 'sos_alert') {
+            return;
+          }
 
           int? localId;
           try {
-            final chatId = (data['chatId'] ?? data['chat_id'] ?? data['conversationId'] ?? data['conversation_id'])?.toString();
-            if (chatId != null && chatId.isNotEmpty) localId = notificationIdForChat(chatId);
+            final chatId =
+                (data['chatId'] ??
+                        data['chat_id'] ??
+                        data['conversationId'] ??
+                        data['conversation_id'])
+                    ?.toString();
+            if (chatId != null && chatId.isNotEmpty)
+              localId = notificationIdForChat(chatId);
           } catch (_) {}
 
-          final String? chatId = (data['chatId'] ?? data['chat_id'] ?? data['conversationId'] ?? data['conversation_id'])?.toString();
-          final String? payload = chatId != null && chatId.isNotEmpty ? 'chat:$chatId' : type;
+          final String? chatId =
+              (data['chatId'] ??
+                      data['chat_id'] ??
+                      data['conversationId'] ??
+                      data['conversation_id'])
+                  ?.toString();
+          final String? payload = chatId != null && chatId.isNotEmpty
+              ? 'chat:$chatId'
+              : type;
           // show local banner and play short pop sound
-          showNotification(title, body, payload: payload, id: localId, chatId: chatId);
+          showNotification(
+            title,
+            body,
+            payload: payload,
+            id: localId,
+            chatId: chatId,
+          );
           try {
-            FlutterRingtonePlayer().play(fromAsset: 'assets/sounds/pop.mp3', looping: false, volume: 1.0);
+            FlutterRingtonePlayer().play(
+              fromAsset: 'assets/sounds/pop.mp3',
+              looping: false,
+              volume: 1.0,
+            );
           } catch (_) {}
         } catch (e) {
           debugPrint('handleIncoming error: $e');
@@ -195,7 +248,9 @@ class NotificationService {
         if (os.setNotificationWillShowInForegroundHandler != null) {
           os.setNotificationWillShowInForegroundHandler((event) async {
             await handleIncoming(event?.notification ?? event);
-            try { event.complete(event.notification); } catch (_) {}
+            try {
+              event.complete(event.notification);
+            } catch (_) {}
           });
         }
       } catch (_) {}
@@ -216,7 +271,6 @@ class NotificationService {
           });
         }
       } catch (_) {}
-
     } catch (e) {
       debugPrint('OneSignal handler registration failed: $e');
     }
@@ -251,17 +305,18 @@ class NotificationService {
         ),
       );
     }
-    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      channel.id,
-      channel.name,
-      channelDescription: channel.description,
-      importance: Importance.max,
-      priority: Priority.high,
-      playSound: true,
-      sound: const RawResourceAndroidNotificationSound('lualaba_pop'),
-      icon: '@mipmap/launcher_icon',
-      actions: actions.isNotEmpty ? actions : null,
-    );
+    final AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+          channel.id,
+          channel.name,
+          channelDescription: channel.description,
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: true,
+          sound: const RawResourceAndroidNotificationSound('lualaba_pop'),
+          icon: '@mipmap/launcher_icon',
+          actions: actions.isNotEmpty ? actions : null,
+        );
 
     final NotificationDetails platform = NotificationDetails(
       android: androidDetails,
@@ -280,7 +335,9 @@ class NotificationService {
     );
   }
 
-  static Future<void> handleNotificationResponse(NotificationResponse response) async {
+  static Future<void> handleNotificationResponse(
+    NotificationResponse response,
+  ) async {
     final actionId = response.actionId ?? '';
     final payload = response.payload ?? '';
     if (actionId == 'reply') {
@@ -303,7 +360,9 @@ class NotificationService {
 
   static Future<void> _ensureFirebaseInitialized() async {
     if (Firebase.apps.isNotEmpty) return;
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
   }
 
   static Future<void> _sendQuickReply(String chatId, String text) async {
@@ -311,7 +370,9 @@ class NotificationService {
       await _ensureFirebaseInitialized();
       final user = FirebaseAuth.instance.currentUser;
       if (user == null) return;
-      final chatRef = FirebaseFirestore.instance.collection('chats').doc(chatId);
+      final chatRef = FirebaseFirestore.instance
+          .collection('chats')
+          .doc(chatId);
       final chatSnap = await chatRef.get();
       if (!chatSnap.exists) return;
       final chatData = chatSnap.data() ?? const <String, dynamic>{};
@@ -352,8 +413,10 @@ class NotificationService {
       return AndroidScheduleMode.exactAllowWhileIdle;
     }
 
-    final androidPlugin =
-        _fln.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    final androidPlugin = _fln
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     if (androidPlugin == null) {
       return AndroidScheduleMode.exactAllowWhileIdle;
     }
@@ -383,16 +446,17 @@ class NotificationService {
     final tz.TZDateTime tzTime = tz.TZDateTime.from(scheduledAt, tz.local);
     if (tzTime.isBefore(tz.TZDateTime.now(tz.local))) return;
 
-    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      channel.id,
-      channel.name,
-      channelDescription: channel.description,
-      importance: Importance.max,
-      priority: Priority.high,
-      playSound: true,
-      sound: const RawResourceAndroidNotificationSound('lualaba_pop'),
-      icon: '@mipmap/launcher_icon',
-    );
+    final AndroidNotificationDetails androidDetails =
+        AndroidNotificationDetails(
+          channel.id,
+          channel.name,
+          channelDescription: channel.description,
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: true,
+          sound: const RawResourceAndroidNotificationSound('lualaba_pop'),
+          icon: '@mipmap/launcher_icon',
+        );
 
     final NotificationDetails platform = NotificationDetails(
       android: androidDetails,
@@ -408,15 +472,19 @@ class NotificationService {
         tzTime,
         platform,
         androidScheduleMode: scheduleMode,
-        uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
         payload: payload,
       );
     } on PlatformException catch (e) {
-      final details = '${e.code} ${e.message ?? ''} ${e.details ?? ''}'.toLowerCase();
+      final details = '${e.code} ${e.message ?? ''} ${e.details ?? ''}'
+          .toLowerCase();
       if (defaultTargetPlatform == TargetPlatform.android &&
           details.contains('exact') &&
           details.contains('alarm')) {
-        debugPrint('Exact alarm not permitted, retrying with inexact scheduling.');
+        debugPrint(
+          'Exact alarm not permitted, retrying with inexact scheduling.',
+        );
         await _fln.zonedSchedule(
           id,
           title,
@@ -424,7 +492,8 @@ class NotificationService {
           tzTime,
           platform,
           androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-          uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+          uiLocalNotificationDateInterpretation:
+              UILocalNotificationDateInterpretation.absoluteTime,
           payload: payload,
         );
         return;
@@ -440,7 +509,10 @@ class NotificationService {
     } catch (_) {}
   }
 
-  static Future<void> clearNotificationsForChat(String chatId, {bool clearPush = false}) async {
+  static Future<void> clearNotificationsForChat(
+    String chatId, {
+    bool clearPush = false,
+  }) async {
     try {
       await initLocalOnly();
       await _fln.cancel(notificationIdForChat(chatId));
@@ -477,7 +549,9 @@ class NotificationService {
       try {
         await os.disablePush(!enabled);
         if (!enabled) {
-          try { await _fln.cancelAll(); } catch (_) {}
+          try {
+            await _fln.cancelAll();
+          } catch (_) {}
         }
         return;
       } catch (_) {}
@@ -485,7 +559,9 @@ class NotificationService {
       try {
         await os.setSubscription(enabled);
         if (!enabled) {
-          try { await _fln.cancelAll(); } catch (_) {}
+          try {
+            await _fln.cancelAll();
+          } catch (_) {}
         }
         return;
       } catch (_) {}
@@ -538,4 +614,3 @@ class NotificationService {
     }
   }
 }
-

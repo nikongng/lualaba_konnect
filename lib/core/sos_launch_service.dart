@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lualaba_konnect/core/app_navigator.dart';
+import 'package:lualaba_konnect/core/sos_alert_listener.dart';
 import 'package:lualaba_konnect/features/chat/presentation/pages/chat_detail_page.dart';
 
 class SosLaunchService {
@@ -44,10 +45,14 @@ class SosLaunchService {
     final chatName = (launch['chatName'] ?? launch['fromName'] ?? 'Alerte SOS')
         .toString()
         .trim();
+    final alertId = (launch['alertId'] ?? '').toString().trim();
 
     _pendingLaunch = null;
     _navigating = true;
     try {
+      await SosAlertListener.acknowledgeAlert(
+        alertId: alertId.isEmpty ? null : alertId,
+      );
       await AppNavigator.pushWhenReady(
         MaterialPageRoute(
           builder: (_) => ChatDetailPage(

@@ -9,6 +9,7 @@ class FullScreenIntentService {
   );
 
   static bool _promptShownThisSession = false;
+  static bool _promptInProgress = false;
 
   static Future<bool> canUseFullScreenIntent() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return true;
@@ -37,42 +38,53 @@ class FullScreenIntentService {
   static Future<void> promptIfNeeded() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
     if (_promptShownThisSession) return;
+    if (_promptInProgress) return;
     final allowed = await canUseFullScreenIntent();
     if (allowed) return;
 
-    _promptShownThisSession = true;
-    await AppNavigator.runWhenReady(() async {
-      final context = appNavigatorKey.currentContext;
-      if (context == null) return;
+    _promptInProgress = true;
+    try {
+      await AppNavigator.runWhenReady(() async {
+        await Future.delayed(const Duration(milliseconds: 700));
+        final context = appNavigatorKey.currentContext;
+        if (context == null) return;
+        if (!context.mounted) return;
 
-      final openSettingsNow = await showDialog<bool>(
-        context: context,
-        barrierDismissible: true,
-        builder: (dialogContext) {
-          return AlertDialog(
-            title: const Text('Activer les alertes SOS plein ecran'),
-            content: const Text(
-              'Sur Android 14 et plus, autorise les notifications plein ecran '
-              'pour que les SOS puissent sonner et reveiller l ecran meme si '
-              'le telephone est verrouille.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: const Text('Plus tard'),
+        final openSettingsNow = await showDialog<bool>(
+          context: context,
+          useRootNavigator: true,
+          barrierDismissible: true,
+          builder: (dialogContext) {
+            return AlertDialog(
+              title: const Text('Activer les alertes SOS plein ecran'),
+              content: const Text(
+                'Sur Android 14 et plus, autorise les notifications plein ecran '
+                'pour que les SOS puissent sonner et reveiller l ecran meme si '
+                'le telephone est verrouille.',
               ),
-              FilledButton(
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                child: const Text('Ouvrir les reglages'),
-              ),
-            ],
-          );
-        },
-      );
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Plus tard'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: const Text('Ouvrir les reglages'),
+                ),
+              ],
+            );
+          },
+        );
 
-      if (openSettingsNow == true) {
-        await openSettings();
-      }
-    });
+        if (openSettingsNow == true) {
+          _promptShownThisSession = true;
+          await openSettings();
+        } else if (openSettingsNow == false) {
+          _promptShownThisSession = true;
+        }
+      });
+    } finally {
+      _promptInProgress = false;
+    }
   }
 }

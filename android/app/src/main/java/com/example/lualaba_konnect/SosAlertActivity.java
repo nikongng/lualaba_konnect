@@ -83,6 +83,7 @@ public class SosAlertActivity extends Activity {
 
         openButton.setOnClickListener(v -> {
             cancelPostedNotification(androidNotificationId);
+            stopFeedback();
             requestDismissKeyguardIfPossible();
             Intent launchIntent = SosLaunchStore.createMainLaunchIntent(
                     SosAlertActivity.this,

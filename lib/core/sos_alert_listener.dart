@@ -46,6 +46,31 @@ class SosAlertListener {
     _sub = null;
   }
 
+  static Future<void> acknowledgeAlert({
+    String? alertId,
+    bool deletePending = true,
+  }) async {
+    final normalizedAlertId = alertId?.trim();
+    if (normalizedAlertId != null && normalizedAlertId.isNotEmpty) {
+      _mutedAlertIds.add(normalizedAlertId);
+      if (deletePending) {
+        await _deletePendingAlert(normalizedAlertId);
+      }
+    } else if (_activeAlertId != null) {
+      _mutedAlertIds.add(_activeAlertId!);
+      if (deletePending) {
+        await _deletePendingAlert(_activeAlertId!);
+      }
+    }
+
+    _stopFeedback();
+
+    if (!_showingAlert) return;
+    final navigator = appNavigatorKey.currentState;
+    if (navigator == null || !navigator.canPop()) return;
+    navigator.pop('external_open');
+  }
+
   static Future<void> _handleIncoming(
     DocumentSnapshot<Map<String, dynamic>> doc,
   ) async {
@@ -102,6 +127,10 @@ class SosAlertListener {
     _showingAlert = false;
     _activeAlertId = null;
 
+    if (result == 'external_open') {
+      return;
+    }
+
     if (result == 'later') {
       _mutedAlertIds.add(alertId);
       await _showNextPendingIfAny();
@@ -111,6 +140,7 @@ class SosAlertListener {
     if (result == 'open') {
       _mutedAlertIds.add(alertId);
       await _deletePendingAlert(alertId);
+      _stopFeedback();
       await AppNavigator.pushWhenReady(
         MaterialPageRoute(
           builder: (_) => ChatDetailPage(
