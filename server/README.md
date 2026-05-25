@@ -22,7 +22,10 @@ Variables utiles :
 - `CONTENT_AGENT_INTERVAL_MINUTES=60` : frequence de verification du scheduler.
 - `CONTENT_AGENT_CREATE_STORY=1` : publie aussi une story texte de 24h (`0` pour desactiver).
 - `CONTENT_AGENT_AUTHOR_ID`, `CONTENT_AGENT_AUTHOR_NAME`, `CONTENT_AGENT_AUTHOR_AVATAR` : personnalisation du compte.
+- `CONTENT_AGENT_PUBLIC_BASE_URL=https://lualaba-konnect.onrender.com` : URL publique du serveur, utilisee pour servir le logo comme avatar de l'agent.
+- `CONTENT_AGENT_AVATAR_PATH=/content-agent/avatar.png` : chemin public du logo expose par le serveur.
 - `CONTENT_AGENT_MEDIA_JSON` : liste JSON de medias a associer aux publications automatiques, ex. `[{"type":"image","url":"https://..."}]`.
+- `CONTENT_AGENT_REQUIRE_MEDIA=1` : garantit qu'une publication automatique a au moins une image/video (`0` pour autoriser les posts texte seuls).
 - `CONTENT_AGENT_FACEBOOK_ENABLED=1`, `FACEBOOK_PAGE_ID`, `FACEBOOK_PAGE_ACCESS_TOKEN` : active l'import officiel via Meta Graph API.
 - `FACEBOOK_GRAPH_VERSION=v21.0` et `CONTENT_AGENT_FACEBOOK_LIMIT=8` : version Graph API et nombre de posts Facebook inspectes.
 - `CONTENT_AGENT_MESSAGE_BATCH_SIZE=3` : nombre d'utilisateurs contactes par vague.
@@ -32,7 +35,7 @@ Variables utiles :
 
 Sur Render/Heroku, `CONTENT_AGENT_ENABLED=1` suffit pour lancer le scheduler. Sur Vercel/serverless, utilisez plutot un cron externe qui appelle `/content-agent/run`, car les timers ne restent pas actifs entre deux requetes.
 
-Ordre de publication automatique : contenu manuel envoye a `/content-agent/run`, puis import Facebook si configure, puis generation Gemini si `GEMINI_API_KEY` est present. Les textes locaux ne servent que de secours si Gemini/Facebook ne donnent rien. Pour les messages sans `text`, l'agent essaye aussi Gemini avant les templates.
+Ordre de publication automatique : contenu manuel envoye a `/content-agent/run`, puis import Facebook si configure, puis generation Gemini si `GEMINI_API_KEY` est present. Les textes locaux ne servent que de secours si Gemini/Facebook ne donnent rien. Les posts automatiques sont publies en mode `media_card` avec une image/video par defaut si aucun media n'est fourni. Le profil de l'agent utilise par defaut le logo de l'app via `/content-agent/avatar.png`. Pour les messages sans `text`, l'agent essaye aussi Gemini avant les templates.
 
 Publier un post manuel avec image :
 ```bash

@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const admin = require('firebase-admin');
 const fetch = require('node-fetch');
+const path = require('path');
 
 // 1. Initialisation Firebase Admin
 if (!process.env.SERVICE_ACCOUNT_JSON) {
@@ -36,13 +37,21 @@ const CONTENT_AGENT_ENABLED = process.env.CONTENT_AGENT_ENABLED === '1';
 const CONTENT_AGENT_SECRET = process.env.CONTENT_AGENT_SECRET || '';
 const CONTENT_AGENT_AUTHOR_ID = process.env.CONTENT_AGENT_AUTHOR_ID || 'konnect-agent';
 const CONTENT_AGENT_AUTHOR_NAME = process.env.CONTENT_AGENT_AUTHOR_NAME || 'Agent Konnect';
-const CONTENT_AGENT_AUTHOR_AVATAR = process.env.CONTENT_AGENT_AUTHOR_AVATAR || '';
+const CONTENT_AGENT_PUBLIC_BASE_URL = _cleanString(
+    process.env.CONTENT_AGENT_PUBLIC_BASE_URL ||
+    process.env.PUBLIC_BASE_URL ||
+    process.env.RENDER_EXTERNAL_URL ||
+    'https://lualaba-konnect.onrender.com',
+).replace(/\/+$/, '');
+const CONTENT_AGENT_AVATAR_PATH = process.env.CONTENT_AGENT_AVATAR_PATH || '/content-agent/avatar.png';
+const CONTENT_AGENT_AUTHOR_AVATAR = process.env.CONTENT_AGENT_AUTHOR_AVATAR || _absolutePublicUrl(CONTENT_AGENT_AVATAR_PATH);
 const CONTENT_AGENT_GEMINI_ENABLED = process.env.CONTENT_AGENT_GEMINI_ENABLED !== '0';
 const CONTENT_AGENT_GEMINI_MODEL = process.env.CONTENT_AGENT_GEMINI_MODEL || 'gemini-2.5-flash';
 const CONTENT_AGENT_INTERVAL_MINUTES = Math.max(15, parseInt(process.env.CONTENT_AGENT_INTERVAL_MINUTES || '60', 10) || 60);
 const CONTENT_AGENT_MIN_HOURS = Math.max(1, parseInt(process.env.CONTENT_AGENT_MIN_HOURS || '4', 10) || 4);
 const CONTENT_AGENT_CREATE_STORY = process.env.CONTENT_AGENT_CREATE_STORY !== '0';
 const CONTENT_AGENT_MEDIA_JSON = process.env.CONTENT_AGENT_MEDIA_JSON || '';
+const CONTENT_AGENT_REQUIRE_MEDIA = process.env.CONTENT_AGENT_REQUIRE_MEDIA !== '0';
 const CONTENT_AGENT_FACEBOOK_ENABLED = process.env.CONTENT_AGENT_FACEBOOK_ENABLED === '1';
 const FACEBOOK_GRAPH_VERSION = process.env.FACEBOOK_GRAPH_VERSION || 'v21.0';
 const FACEBOOK_PAGE_ID = process.env.FACEBOOK_PAGE_ID || '';
@@ -120,6 +129,29 @@ const CONTENT_AGENT_POSTS = [
     },
 ];
 
+const DEFAULT_CONTENT_AGENT_MEDIA_POOL = [
+    {
+        type: 'image',
+        url: 'https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=80',
+    },
+    {
+        type: 'image',
+        url: 'https://images.unsplash.com/photo-1522202176988-66273c2fd55f?auto=format&fit=crop&w=1200&q=80',
+    },
+    {
+        type: 'image',
+        url: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?auto=format&fit=crop&w=1200&q=80',
+    },
+    {
+        type: 'image',
+        url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/f/f0/NatCopper.jpg/800px-NatCopper.jpg',
+    },
+    {
+        type: 'image',
+        url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/62/Cobalt_ore_2.jpg/800px-Cobalt_ore_2.jpg',
+    },
+];
+
 function _parseJsonArray(raw, fallback = []) {
     if (!raw || typeof raw !== 'string') return fallback;
     try {
@@ -131,7 +163,10 @@ function _parseJsonArray(raw, fallback = []) {
     }
 }
 
-const CONTENT_AGENT_MEDIA_POOL = _parseJsonArray(CONTENT_AGENT_MEDIA_JSON);
+const CUSTOM_CONTENT_AGENT_MEDIA_POOL = _parseJsonArray(CONTENT_AGENT_MEDIA_JSON);
+const CONTENT_AGENT_MEDIA_POOL = CUSTOM_CONTENT_AGENT_MEDIA_POOL.length
+    ? CUSTOM_CONTENT_AGENT_MEDIA_POOL
+    : DEFAULT_CONTENT_AGENT_MEDIA_POOL;
 const DEFAULT_CONTENT_AGENT_MESSAGE_TEMPLATES = [
     'Bonjour, je suis Agent Konnect. Je passe juste te souhaiter la bienvenue et t aider a decouvrir Lualaba Konnect.',
     'Salut. Si tu veux, publie une petite info locale aujourd hui: route, service, bon plan ou opportunite.',
@@ -172,6 +207,15 @@ async function buildAutonomousAgentMessage(options = {}) {
 
 function _cleanString(value) {
     return value == null ? '' : String(value).trim();
+}
+
+function _absolutePublicUrl(value) {
+    const raw = _cleanString(value);
+    if (!raw) return '';
+    if (/^https?:\/\//i.test(raw)) return raw;
+    if (!CONTENT_AGENT_PUBLIC_BASE_URL) return raw;
+    const pathPart = raw.startsWith('/') ? raw : `/${raw}`;
+    return `${CONTENT_AGENT_PUBLIC_BASE_URL}${pathPart}`;
 }
 
 function _normalizeMediaEntry(raw) {
@@ -224,6 +268,13 @@ function _poolMediaForCursor(cursor) {
     if (!CONTENT_AGENT_MEDIA_POOL.length) return [];
     const item = CONTENT_AGENT_MEDIA_POOL[Math.abs(Number(cursor) || 0) % CONTENT_AGENT_MEDIA_POOL.length];
     return _normalizeMediaList(item);
+}
+
+function _ensurePostMedia(media, cursor) {
+    const normalized = _normalizeMediaList(media);
+    if (!CONTENT_AGENT_REQUIRE_MEDIA) return normalized;
+    const hasVisual = normalized.some((m) => m.type === 'image' || m.type === 'video');
+    return hasVisual ? normalized : _poolMediaForCursor(cursor);
 }
 
 function _buildManualContent(body) {
@@ -397,7 +448,8 @@ async function generateGeminiPostContent() {
         'Evite de repeter ces publications recentes:',
         recentText,
         'Retourne uniquement un JSON valide avec cette forme:',
-        '{"category":"Communaut\u00e9","text":"texte du post","story":"version tres courte pour story"}',
+        '{"category":"Communaut\u00e9","headline":"titre court","text":"texte du post","story":"version tres courte pour story"}',
+        'Le headline doit etre court et non sensationnaliste.',
         'Le champ text doit faire moins de 420 caracteres. Le champ story doit faire moins de 120 caracteres.',
     ].join('\n');
 
@@ -412,6 +464,7 @@ async function generateGeminiPostContent() {
     const story = _cleanString(generated.story) || text.slice(0, 120);
     return {
         category,
+        headline: _cleanString(generated.headline).slice(0, 90),
         text: text.slice(0, 700),
         story: story.slice(0, 180),
         media: _poolMediaForCursor(Date.now()),
@@ -564,13 +617,15 @@ async function publishContentAgent({ force = false, reason = 'manual', contentOv
             }
         }
 
-        const postMedia = _splitPostMedia(content.media);
+        const postMedia = _splitPostMedia(_ensurePostMedia(content.media, now + cursor));
         const postRef = db.collection('posts').doc();
         const postPayload = {
             authorId: CONTENT_AGENT_AUTHOR_ID,
             authorName: CONTENT_AGENT_AUTHOR_NAME,
             authorAvatar: CONTENT_AGENT_AUTHOR_AVATAR,
             text: _cleanString(content.text),
+            headline: _cleanString(content.headline),
+            layout: postMedia.media.length > 0 ? 'media_card' : 'text_card',
             images: postMedia.images,
             videos: postMedia.videos,
             media: postMedia.media,
@@ -1118,6 +1173,11 @@ app.get('/metals-lme', async (req, res) => {
 });
 
 // --- ROUTE : AGENT DE CONTENU AUTONOME ---
+app.get('/content-agent/avatar.png', (_req, res) => {
+    res.set('Cache-Control', 'public, max-age=86400');
+    return res.sendFile(path.join(__dirname, 'public', 'agent-logo.png'));
+});
+
 app.all('/content-agent/run', async (req, res) => {
     const auth = authorizeContentAgentRequest(req);
     if (!auth.ok) return res.status(auth.status).json({ ok: false, error: auth.error });
@@ -1147,6 +1207,7 @@ app.get('/content-agent/status', async (req, res) => {
             ok: true,
             enabled: CONTENT_AGENT_ENABLED,
             authorId: CONTENT_AGENT_AUTHOR_ID,
+            authorAvatar: CONTENT_AGENT_AUTHOR_AVATAR,
             intervalMinutes: CONTENT_AGENT_INTERVAL_MINUTES,
             minHours: CONTENT_AGENT_MIN_HOURS,
             createStory: CONTENT_AGENT_CREATE_STORY,
@@ -1155,6 +1216,8 @@ app.get('/content-agent/status', async (req, res) => {
             geminiEnabled: CONTENT_AGENT_GEMINI_ENABLED,
             geminiConfigured: Boolean(GEMINI_API_KEY),
             geminiModel: CONTENT_AGENT_GEMINI_MODEL,
+            requireMedia: CONTENT_AGENT_REQUIRE_MEDIA,
+            customMediaPoolCount: CUSTOM_CONTENT_AGENT_MEDIA_POOL.length,
             mediaPoolCount: CONTENT_AGENT_MEDIA_POOL.length,
             messageBatchSize: CONTENT_AGENT_MESSAGE_BATCH_SIZE,
             messageIntervalSeconds: CONTENT_AGENT_MESSAGE_INTERVAL_SECONDS,
